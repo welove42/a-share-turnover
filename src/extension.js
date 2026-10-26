@@ -1,0 +1,228 @@
+'use strict';
+
+const vscode = require('vscode');
+const { MarketProvider } = require('./provider');
+const { POLL_MS, session, isSnapshot } = require('./market');
+const { view } = require('./view');
+const { WatchlistController } = require('./watchlist');
+const { NewsController } = require('./news');
+const { ChartController } = require('./charts');
+
+class TurnoverController {
+  constructor(context, provider, now = () => new Date()) {
+    this.context = context;
+    this.now = now;
+    this.disposed = false;
+    this.lastAttempt = -Infinity;
+    this.lastPhase = '';
+    this.lastDate = '';
+    this.inflight = null;
+    this.rendered = null;
+    this.visible = false;
+    this.state = { paused: Boolean(context.globalState.get('paused', false)), cached: false, error: '', busy: false };
+    const cached = context.globalState.get('snapshot');
+    this.snapshot = isSnapshot(cached) ? cached : null;
+    this.state.cached = Boolean(this.snapshot);
+    this.output = vscode.window.createOutputChannel('A股成交额');
+    this.item = vscode.window.createStatusBarItem('aShareTurnover', vscode.StatusBarAlignment.Right, 100);
+    this.item.name = '沪深 A 股成交额';
+    this.item.command = 'aShareTurnover.showMenu';
+    this.provider = provider || new MarketProvider({ log: message => this.log(message), now });
+    this.config = this.readConfig();
+    this.requestController = null;
+    this.listeners = [vscode.workspace.onDidChangeConfiguration(event => {
+      if (!event.affectsConfiguration('aShareTurnover')) return;
+      const wasEnabled = this.config.enabled;
+      this.config = this.readConfig();
+      if (!this.config.enabled) this.requestController?.abort();
+      this.render();
+      if (!wasEnabled && this.config.enabled && !this.state.paused) {
+        // A quick disable/enable may still have an aborted request settling.
+        // Wait for it, then start a fresh request even outside trading hours.
+        void (this.inflight || Promise.resolve()).then(() => {
+          if (!this.disposed && this.config.enabled && !this.state.paused) return this.refresh();
+        });
+      }
+    })];
+  }
+
+  readConfig() {
+    const config = vscode.workspace.getConfiguration('aShareTurnover');
+    return {
+      enabled: config.get('enabled', true),
+      comparisonMode: config.get('comparisonMode', 'sameTime'),
+      showDifferenceAmount: config.get('showDifferenceAmount', true),
+      colorMode: config.get('colorMode', 'neutral'),
+      additionalClosedDates: config.get('additionalClosedDates', [])
+    };
+  }
+
+  log(message) { if (!this.disposed) this.output.appendLine(`[${this.now().toISOString()}] ${message}`); }
+
+  start() {
+    const clock = session(this.now(), this.config.additionalClosedDates);
+    this.lastPhase = clock.phase;
+    this.lastDate = clock.date;
+    this.render();
+    // This timer checks the local clock only. Network requests remain 10s apart.
+    this.timer = setInterval(() => void this.tick(), 1000);
+    if (this.config.enabled && !this.state.paused) void this.refresh();
+  }
+
+  tick() {
+    if (this.disposed) return;
+    const clock = session(this.now(), this.config.additionalClosedDates);
+    const phaseChanged = clock.phase !== this.lastPhase;
+    const dateChanged = clock.date !== this.lastDate;
+    const wasTrading = this.lastPhase === 'trading';
+    this.lastPhase = clock.phase;
+    this.lastDate = clock.date;
+    // Re-render locally so data staleness is visible even during a failed request.
+    this.render();
+    if (!this.config.enabled || this.state.paused || this.inflight) return;
+    const elapsed = this.now().getTime() - this.lastAttempt;
+    if ((clock.polling && elapsed >= POLL_MS) || (phaseChanged && wasTrading)
+      || (dateChanged && this.lastAttempt !== -Infinity)) return this.refresh();
+  }
+
+  refresh(manual = false) {
+    if (this.disposed || !this.config.enabled) return Promise.resolve();
+    if (this.inflight) return this.inflight;
+    this.lastAttempt = this.now().getTime();
+    this.requestController = new AbortController();
+    this.state.busy = true;
+    this.render();
+    this.inflight = this.fetchAndRender(this.requestController.signal, manual).finally(() => {
+      this.inflight = null;
+      this.requestController = null;
+      this.state.busy = false;
+      if (!this.disposed) this.render();
+    });
+    return this.inflight;
+  }
+
+  async fetchAndRender(signal, manual) {
+    try {
+      const snapshot = await this.provider.load(signal, manual);
+      if (this.disposed || signal.aborted) return;
+      if (!isSnapshot(snapshot)) throw new Error('行情快照校验失败');
+      const clock = session(this.now(), this.config.additionalClosedDates);
+      if (snapshot.date > clock.date) throw new Error('行情日期晚于北京时间，请核对系统时间');
+      this.snapshot = snapshot;
+      this.state.error = '';
+      this.state.cached = false;
+      await this.context.globalState.update('snapshot', snapshot).catch(error => this.log(`缓存保存失败：${error.message}`));
+    } catch (error) {
+      if (this.disposed || signal.aborted) return;
+      this.state.error = error.message || '网络连接失败';
+      this.log(this.state.error);
+    }
+  }
+
+  render() {
+    if (this.disposed) return;
+    if (!this.config.enabled) {
+      if (this.visible) { this.item.hide(); this.visible = false; }
+      return;
+    }
+    const now = this.now();
+    const result = view(this.snapshot, this.state, this.config, session(now, this.config.additionalClosedDates), now);
+    const markdown = result.markdown.replace(/[<>]/g, '');
+    const previous = this.rendered;
+    // Avoid invalidating the status bar/hover during unchanged clock checks.
+    if (!previous || result.text !== previous.text) this.item.text = result.text;
+    if (!previous || markdown !== previous.markdown) {
+      // All tooltip text is generated locally; disable executable links and HTML.
+      const tooltip = new vscode.MarkdownString(markdown);
+      tooltip.isTrusted = false;
+      tooltip.supportHtml = false;
+      this.item.tooltip = tooltip;
+    }
+    if (!previous || result.color !== previous.color) {
+      this.item.color = result.color ? new vscode.ThemeColor(result.color) : undefined;
+    }
+    if (!previous || result.accessibility !== previous.accessibility) {
+      this.item.accessibilityInformation = { label: result.accessibility };
+    }
+    this.rendered = { ...result, markdown };
+    if (!this.visible) { this.item.show(); this.visible = true; }
+  }
+
+  async togglePause() {
+    this.state.paused = !this.state.paused;
+    if (this.state.paused) this.requestController?.abort();
+    await this.context.globalState.update('paused', this.state.paused);
+    this.render();
+    if (!this.state.paused) {
+      if (this.inflight) await this.inflight;
+      return this.refresh();
+    }
+  }
+
+  async switchComparison() {
+    const selected = await vscode.window.showQuickPick([
+      { label: '昨日同刻', description: '相同分钟的累计成交额（默认）', mode: 'sameTime' },
+      { label: '昨日全天', description: '当前累计额对比上个交易日全天', mode: 'previousDay' }
+    ], { title: '选择缩量 / 放量的比较口径', placeHolder: '昨日均指上一交易日' });
+    if (selected) await vscode.workspace.getConfiguration('aShareTurnover')
+      .update('comparisonMode', selected.mode, vscode.ConfigurationTarget.Global);
+  }
+
+  async showMenu() {
+    const selected = await vscode.window.showQuickPick([
+      { label: '$(refresh) 立即刷新', command: 'aShareTurnover.refresh' },
+      { label: '$(arrow-swap) 切换比较口径', command: 'aShareTurnover.switchComparison' },
+      { label: this.state.paused ? '$(play) 恢复自动刷新' : '$(debug-pause) 暂停自动刷新', command: 'aShareTurnover.togglePause' },
+      { label: '$(settings-gear) 插件设置', command: 'settings' },
+      { label: '$(output) 查看请求日志', command: 'aShareTurnover.showLog' }
+    ], { title: '沪深 A 股成交额', placeHolder: this.item.accessibilityInformation?.label });
+    if (!selected) return;
+    if (selected.command === 'settings') return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:local-market-tools.a-share-turnover');
+    return vscode.commands.executeCommand(selected.command);
+  }
+
+  dispose() {
+    this.disposed = true;
+    clearInterval(this.timer);
+    this.requestController?.abort();
+    for (const listener of this.listeners) listener.dispose();
+    this.item.dispose();
+    this.output.dispose();
+  }
+}
+
+function activate(context) {
+  const controller = new TurnoverController(context);
+  const stocks = new WatchlistController(context, { log: message => controller.log(message) });
+  const news = new NewsController(context, { log: message => controller.log(message) });
+  const charts = new ChartController(context, { selected: () => stocks.config.selected, name: symbol => stocks.quotes.get(symbol)?.name });
+  context.subscriptions.push(controller,
+    vscode.commands.registerCommand('aShareTurnover.refresh', () => controller.refresh(true)),
+    vscode.commands.registerCommand('aShareTurnover.showMenu', () => controller.showMenu()),
+    vscode.commands.registerCommand('aShareTurnover.togglePause', () => controller.togglePause()),
+    vscode.commands.registerCommand('aShareTurnover.switchComparison', () => controller.switchComparison()),
+    vscode.commands.registerCommand('aShareTurnover.showLog', () => controller.output.show()),
+    stocks, news, charts,
+    vscode.commands.registerCommand('aShareTurnover.stocks.openChart', (element, mode) => charts.open(element, mode)),
+    vscode.commands.registerCommand('aShareTurnover.stocks.openInBrowser', element => charts.openExternal(element)),
+    vscode.commands.registerCommand('aShareTurnover.stocks.add', input => stocks.add(input)),
+    vscode.commands.registerCommand('aShareTurnover.stocks.remove', element => stocks.remove(element)),
+    vscode.commands.registerCommand('aShareTurnover.stocks.refresh', () => stocks.refresh()),
+    vscode.commands.registerCommand('aShareTurnover.stocks.selectStatus', element => stocks.selectStatus(element)),
+    vscode.commands.registerCommand('aShareTurnover.stocks.sort', () => stocks.sort()),
+    vscode.commands.registerCommand('aShareTurnover.stocks.togglePause', () => stocks.togglePause()),
+    vscode.commands.registerCommand('aShareTurnover.news.refresh', () => news.refresh()),
+    vscode.commands.registerCommand('aShareTurnover.news.show', () => news.show()),
+    vscode.commands.registerCommand('aShareTurnover.news.open', item => news.open(item)),
+    vscode.commands.registerCommand('aShareTurnover.news.source', () => news.source()),
+    vscode.commands.registerCommand('aShareTurnover.news.setToken', () => news.setToken()),
+    vscode.commands.registerCommand('aShareTurnover.news.togglePause', () => news.togglePause())
+  );
+  controller.start(); stocks.start(); news.start();
+  return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
+    getStockQuote: symbol => { const q = stocks.quotes.get(symbol); return q ? { ...q } : undefined; },
+    getNewsCount: () => news.items.length, getChartState: symbol => charts.getState(symbol),
+    getLatestNews: () => news.items[0] ? { ...news.items[0] } : undefined };
+}
+
+module.exports = { activate, TurnoverController };

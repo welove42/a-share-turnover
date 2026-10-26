@@ -1,0 +1,358 @@
+{
+  "name": "a-share-turnover",
+  "displayName": "A股行情 · 自选股、图表与财经新闻",
+  "description": "沪深成交额同刻对比、中文名或代码搜索自选股、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
+  "version": "1.2.0",
+  "publisher": "welove42",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "A股",
+    "自选股",
+    "上证指数",
+    "成交额",
+    "财经新闻",
+    "股票",
+    "ETF"
+  ],
+  "main": "./src/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "smoke": "node scripts/smoke.js",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.2.0.vsix",
+    "smoke:stocks": "node scripts/smoke-stocks.js",
+    "smoke:news": "node scripts/smoke-news.js",
+    "smoke:charts": "node scripts/smoke-charts.js"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "aShareTurnover.refresh",
+        "title": "A股成交额：立即刷新"
+      },
+      {
+        "command": "aShareTurnover.showMenu",
+        "title": "A股成交额：打开菜单"
+      },
+      {
+        "command": "aShareTurnover.togglePause",
+        "title": "A股成交额：暂停 / 恢复自动刷新"
+      },
+      {
+        "command": "aShareTurnover.switchComparison",
+        "title": "A股成交额：切换比较口径"
+      },
+      {
+        "command": "aShareTurnover.showLog",
+        "title": "A股成交额：查看日志"
+      },
+      {
+        "command": "aShareTurnover.stocks.add",
+        "title": "A股自选股：搜索名称或代码并添加",
+        "icon": "$(add)"
+      },
+      {
+        "command": "aShareTurnover.stocks.remove",
+        "title": "A股自选股：删除自选股",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "aShareTurnover.stocks.refresh",
+        "title": "A股自选股：立即刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aShareTurnover.stocks.selectStatus",
+        "title": "A股自选股：选择底部显示的指数或个股",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "aShareTurnover.stocks.sort",
+        "title": "A股自选股：切换排序",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "aShareTurnover.stocks.togglePause",
+        "title": "A股自选股：暂停 / 恢复自动刷新",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "aShareTurnover.news.refresh",
+        "title": "A股财经新闻：立即刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aShareTurnover.news.show",
+        "title": "A股财经新闻：打开资讯面板",
+        "icon": "$(megaphone)"
+      },
+      {
+        "command": "aShareTurnover.news.open",
+        "title": "A股财经新闻：阅读全文",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "aShareTurnover.news.source",
+        "title": "A股财经新闻：选择来源",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "aShareTurnover.news.setToken",
+        "title": "A股财经新闻：设置选股宝 Token",
+        "icon": "$(key)"
+      },
+      {
+        "command": "aShareTurnover.news.togglePause",
+        "title": "A股财经新闻：暂停 / 恢复自动刷新",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "aShareTurnover.stocks.openChart",
+        "title": "A股自选股：查看详细行情图表",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "aShareTurnover.stocks.openInBrowser",
+        "title": "A股自选股：在浏览器打开东方财富",
+        "icon": "$(link-external)"
+      }
+    ],
+    "configuration": {
+      "title": "A股成交额",
+      "properties": {
+        "aShareTurnover.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "在底部状态栏显示沪深 A 股成交额。"
+        },
+        "aShareTurnover.comparisonMode": {
+          "type": "string",
+          "enum": [
+            "sameTime",
+            "previousDay"
+          ],
+          "default": "sameTime",
+          "scope": "application",
+          "enumDescriptions": [
+            "与上一交易日相同分钟的累计成交额比较。",
+            "与上一交易日全天成交额比较，明确标注较昨全天。"
+          ],
+          "description": "状态栏的缩量 / 放量比较口径。"
+        },
+        "aShareTurnover.showDifferenceAmount": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "在状态栏百分比后同时显示增加 / 减少的成交额。"
+        },
+        "aShareTurnover.colorMode": {
+          "type": "string",
+          "enum": [
+            "neutral",
+            "redUpGreenDown"
+          ],
+          "default": "neutral",
+          "scope": "application",
+          "enumDescriptions": [
+            "使用默认状态栏颜色。",
+            "放量红色，缩量绿色。"
+          ],
+          "description": "缩放量文字颜色。"
+        },
+        "aShareTurnover.additionalClosedDates": {
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "items": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "description": "额外休市日期（YYYY-MM-DD），用于补充未来年份或临时休市。内置 2026 年交易所节假日。周末始终休市，不跟随调休补班。"
+        },
+        "aShareTurnover.stocks.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "显示自选股侧栏及底部指数/个股行情，与原成交额状态栏独立。"
+        },
+        "aShareTurnover.stocks.symbols": {
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "自选代码，最多100个。点击添加可按中文名、拼音或编号搜索；设置中保存完整代码，如 sh600519、sz000001、bj920002。"
+        },
+        "aShareTurnover.stocks.statusBarSymbol": {
+          "type": "string",
+          "default": "sh000001",
+          "scope": "application",
+          "description": "底部显示的代码，默认上证指数；其他代码须已加入自选。点击底部行情可切换，删除已选个股后自动回到上证指数。"
+        },
+        "aShareTurnover.stocks.sortBy": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "percentDesc",
+            "percentAsc"
+          ],
+          "default": "manual",
+          "scope": "application",
+          "enumDescriptions": [
+            "按添加顺序",
+            "涨幅从高到低",
+            "跌幅从大到小"
+          ],
+          "description": "自选股列表排序。"
+        },
+        "aShareTurnover.news.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "启用底部输出面板财经快讯及新闻状态栏入口。"
+        },
+        "aShareTurnover.news.source": {
+          "type": "string",
+          "enum": [
+            "eastmoney",
+            "xuangubao"
+          ],
+          "default": "eastmoney",
+          "scope": "application",
+          "enumDescriptions": [
+            "东方财富公开快讯，无需登录",
+            "选股宝（参考插件来源），需要设置登录Token"
+          ],
+          "description": "财经新闻来源；选股宝Token请使用命令设置，保存在SecretStorage。"
+        },
+        "aShareTurnover.news.refreshIntervalSeconds": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 300,
+          "scope": "application",
+          "description": "7×24快讯刷新间隔（秒），休市期间也刷新。支持暂停，默认不弹出桌面通知。"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aShareMarket",
+          "title": "STOCK",
+          "icon": "media/market.svg"
+        }
+      ]
+    },
+    "views": {
+      "aShareMarket": [
+        {
+          "id": "aShareTurnover.watchlist",
+          "name": "自选股",
+          "contextualTitle": "STOCK 自选股"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "aShareTurnover.watchlist",
+        "contents": "输入中文名、拼音或股票代码搜索添加自选股。\n[搜索并添加自选股](command:aShareTurnover.stocks.add)\n点击个股查看东方财富详细行情及分时 / 日K图。\n[财经新闻（底部输出面板）](command:aShareTurnover.news.show)\n底部默认显示上证指数，点击可切换。",
+        "when": "config.aShareTurnover.stocks.enabled"
+      },
+      {
+        "view": "aShareTurnover.watchlist",
+        "contents": "自选行情已禁用，请在用户设置中开启 aShareTurnover.stocks.enabled。",
+        "when": "!config.aShareTurnover.stocks.enabled"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "aShareTurnover.stocks.add",
+          "when": "view == aShareTurnover.watchlist",
+          "group": "navigation@0"
+        },
+        {
+          "command": "aShareTurnover.stocks.refresh",
+          "when": "view == aShareTurnover.watchlist",
+          "group": "navigation@1"
+        },
+        {
+          "command": "aShareTurnover.stocks.sort",
+          "when": "view == aShareTurnover.watchlist",
+          "group": "navigation@2"
+        },
+        {
+          "command": "aShareTurnover.stocks.togglePause",
+          "when": "view == aShareTurnover.watchlist",
+          "group": "navigation@3"
+        },
+        {
+          "command": "aShareTurnover.news.show",
+          "when": "view == aShareTurnover.watchlist",
+          "group": "news@0"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aShareTurnover.stocks.selectStatus",
+          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "group": "inline@1"
+        },
+        {
+          "command": "aShareTurnover.stocks.remove",
+          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "group": "inline@2"
+        },
+        {
+          "command": "aShareTurnover.stocks.openChart",
+          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "group": "chart@0"
+        },
+        {
+          "command": "aShareTurnover.stocks.openInBrowser",
+          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "group": "chart@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "aShareTurnover.news.open",
+          "when": "false"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/welove42/a-share-turnover.git"
+  },
+  "homepage": "https://github.com/welove42/a-share-turnover#readme",
+  "bugs": {
+    "url": "https://github.com/welove42/a-share-turnover/issues"
+  }
+}
