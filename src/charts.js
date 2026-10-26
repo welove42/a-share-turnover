@@ -39,7 +39,7 @@ class ChartController {
     const requestedMode = ['eastmoney', 'intraday', 'daily'].includes(mode) ? mode : undefined;
     const existing = this.panels.get(symbol);
     if (existing) { existing.panel.reveal(); if (requestedMode) this.send(existing, { type: 'select-mode', mode: requestedMode }); return; }
-    const panel = vscode.window.createWebviewPanel('aShareTurnover.stockChart', `${this.name(symbol) || symbol} · 行情`, vscode.ViewColumn.Active,
+    const panel = vscode.window.createWebviewPanel('welove42.aShareTurnover.stockChart', `${this.name(symbol) || symbol} · 行情`, vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')] });
     const state = { symbol, panel, mode: 'eastmoney', token: randomBytes(24).toString('hex'), generation: 0, lastAttempt: -Infinity, abort: null, inflight: null, data: null };
     this.panels.set(symbol, state);

@@ -17,9 +17,9 @@ class WatchlistController {
     const stored = context.globalState.get('stockQuotes', []);
     if (Array.isArray(stored)) for (const q of stored) if (isQuote(q)) this.quotes.set(q.symbol, q);
     this.emitter = new vscode.EventEmitter(); this.onDidChangeTreeData = this.emitter.event;
-    this.tree = vscode.window.createTreeView('aShareTurnover.watchlist', { treeDataProvider: this, showCollapseAll: true });
+    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.watchlist', { treeDataProvider: this, showCollapseAll: true });
     this.status = vscode.window.createStatusBarItem('aShareTurnover.selectedStock', vscode.StatusBarAlignment.Right, 99);
-    this.status.name = '上证指数 / 自选股'; this.status.command = 'aShareTurnover.stocks.selectStatus';
+    this.status.name = '上证指数 / 自选股'; this.status.command = 'welove42.aShareTurnover.stocks.selectStatus';
     this.statusVisible = false; this.statusRendered = {};
     this.config = this.readConfig();
     this.phaseKey = '';
@@ -86,7 +86,7 @@ class WatchlistController {
     const label = q ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]` : `—   —   [${element.symbol}]`;
     const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
     item.id = `stock:${element.symbol}`; item.contextValue = 'aShareStock';
-    item.command = { command: 'aShareTurnover.stocks.openChart', title: '查看详细行情图表', arguments: [element.symbol] };
+    item.command = { command: 'welove42.aShareTurnover.stocks.openChart', title: '查看详细行情图表', arguments: [element.symbol] };
     item.description = this.errors.has(element.symbol) ? '获取失败' : stale ? q && q.date !== this.clock().date ? q.date.slice(5) : '缓存' : '';
     item.iconPath = this.errors.has(element.symbol) ? new vscode.ThemeIcon('warning')
       : new vscode.ThemeIcon(q?.percent > 0 ? 'chevron-up' : q?.percent < 0 ? 'chevron-down' : 'dash',
@@ -192,11 +192,14 @@ class WatchlistController {
     let timer, abort, generation = 0, closed = false, accepting = false;
     const update = async value => {
       const current = ++generation;
-      abort?.abort(); clearTimeout(timer); picker.busy = false; picker.items = [];
+      abort?.abort(); clearTimeout(timer); picker.busy = false; picker.items = []; picker.activeItems = [];
       if (!value.trim()) return;
       let direct;
       try { direct = normalizeSymbols(value); } catch { /* A name or partial code needs lookup. */ }
-      if (direct?.length) picker.items = [{ label: direct.length === 1 ? `添加 ${direct[0]}` : `批量添加 ${direct.length} 个代码`, description: direct.join(', '), symbols: direct, alwaysShow: true }];
+      if (direct?.length) {
+        picker.items = [{ label: direct.length === 1 ? `添加 ${direct[0]}` : `批量添加 ${direct.length} 个代码`, description: direct.join(', '), symbols: direct, alwaysShow: true }];
+        picker.activeItems = [picker.items[0]];
+      }
       timer = setTimeout(async () => {
         if (closed || this.disposed) return;
         const request = abort = new AbortController(); picker.busy = true;
@@ -206,6 +209,7 @@ class WatchlistController {
           if (closed || this.disposed || request.signal.aborted || current !== generation) return;
           const entries = result.map(item => ({ label: item.name, description: item.symbol, detail: `${item.pinyin}${this.config.symbols.includes(item.symbol) ? ' · 已在自选' : ''}`, symbols: [item.symbol], alwaysShow: true }));
           picker.items = entries.length ? entries : direct?.length ? picker.items : [{ label: '未找到匹配股票，请换一个名称或完整代码', empty: true, alwaysShow: true }];
+          picker.activeItems = picker.items[0]?.symbols ? [picker.items[0]] : [];
         } catch (e) {
           if (!closed && !request.signal.aborted && current === generation && !direct?.length) picker.items = [{ label: '搜索失败，重新输入可重试；也可直接输入完整代码', detail: e.message, empty: true, alwaysShow: true }];
         } finally { if (!closed && current === generation) picker.busy = false; }
@@ -213,7 +217,7 @@ class WatchlistController {
     };
     return new Promise(resolve => {
       const listeners = [picker.onDidChangeValue(value => void update(value)), picker.onDidAccept(async () => {
-        const item = picker.selectedItems[0]; if (!item?.symbols || accepting) return;
+        const item = picker.selectedItems[0] || picker.activeItems?.[0]; if (!item?.symbols || accepting) return;
         accepting = true;
         try { await this.add(item.symbols); picker.hide(); } catch (e) { accepting = false; void vscode.window.showErrorMessage(e.message); }
       }), picker.onDidHide(() => {

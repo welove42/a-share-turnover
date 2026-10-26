@@ -1,6 +1,8 @@
 # A股行情：成交额、自选股与财经新闻
 
-1.2.0 支持中文名 / 拼音 / 代码搜索自选股、点击查看东方财富详细行情、插件内分时与日K图，以及底部输出控制台财经快讯。保留成交额同刻比较、底部指数切换和交易期间10秒行情刷新。
+1.2.1 支持中文名 / 拼音 / 代码搜索自选股、点击查看东方财富详细行情、插件内分时与日K图，以及底部输出控制台财经快讯。保留成交额同刻比较、底部指数切换和交易期间10秒行情刷新。
+
+1.2.1 将命令、视图和活动栏 ID 改为发布者独有的命名空间，修复旧版与新版同时安装时“添加”仍调用旧代码输入框的问题。新版入口标题为 **搜索并添加自选股**。如果仍看到“添加自选股（可批量输入）”，请在扩展管理中禁用 / 卸载 `local-market-tools.a-share-turnover` 并重新加载窗口。
 
 发布标识：`welove42.a-share-turnover`。此前本地测试包使用 `local-market-tools.a-share-turnover`，安装本版后请禁用或卸载旧标识，避免重复显示；`aShareTurnover.*` 用户设置可继续使用。
 
@@ -103,13 +105,13 @@
 
 1. 打开 VS Code 的扩展面板（`Ctrl+Shift+X`）。
 2. 点击右上角 `…` → **从 VSIX 安装… / Install from VSIX…**。
-3. 选择 `a-share-turnover-1.2.0.vsix`，安装后按提示重新加载窗口。已安装旧版时直接覆盖升级。
+3. 选择 `a-share-turnover-1.2.1.vsix`，安装后按提示重新加载窗口。已安装旧版时直接覆盖升级。
 4. 底部右侧出现「沪深A」。首次启动会获取行情；休市时也可手动刷新。
 
 也可以在终端执行：
 
 ```powershell
-code --install-extension "完整路径\a-share-turnover-1.2.0.vsix"
+code --install-extension "完整路径\a-share-turnover-1.2.1.vsix"
 ```
 
 要求：桌面版 VS Code **1.85 或以上**，可访问腾讯行情域名 `web.ifzq.gtimg.cn`、`qt.gtimg.cn`、`smartbox.gtimg.cn` 及所选新闻来源；内嵌网页需要访问 `quote.eastmoney.com` 及网站自身依赖域名。运行时没有第三方 npm 依赖。不支持 vscode.dev 的纯浏览器扩展宿主。通过 `extensionKind: ui` 在本机运行，Remote / WSL 的请求也从本机发出。

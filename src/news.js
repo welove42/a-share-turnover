@@ -21,7 +21,7 @@ class NewsController {
     const saved = context.globalState.get('newsCache');
     if (saved?.source === this.config.source && Array.isArray(saved.items)) this.items = saved.items.filter(isArticle).slice(0, 200);
     this.status = vscode.window.createStatusBarItem('aShareTurnover.news', vscode.StatusBarAlignment.Right, 98);
-    this.status.name = '财经快讯'; this.status.command = 'aShareTurnover.news.show'; this.statusRendered = {}; this.statusVisible = false;
+    this.status.name = '财经快讯'; this.status.command = 'welove42.aShareTurnover.news.show'; this.statusRendered = {}; this.statusVisible = false;
     this.output = vscode.window.createOutputChannel('财经新闻7×24资讯');
     this.documentProvider = vscode.workspace.registerTextDocumentContentProvider('a-share-news', {
       provideTextDocumentContent: uri => this.documents.get(uri.path) || '该快讯已过期，请刷新列表后重新打开。'

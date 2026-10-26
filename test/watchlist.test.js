@@ -31,7 +31,7 @@ test('自选行使用稳定对象、名称现价涨跌幅及红绿图标',async(
   try{await h.c.refresh();const group=h.c.getChildren()[0],rows=h.c.getChildren(group);
     assert.equal(h.c.getChildren(group)[0],rows[0]);assert.equal(h.c.getParent(rows[0]),group);
     const item=h.c.getTreeItem(rows[0]);assert.match(item.label,/\+0.89%.*11.30.*测试股/);assert.equal(item.iconPath.color.id,'charts.red');
-    assert.deepEqual(item.command,{command:'aShareTurnover.stocks.openChart',title:'查看详细行情图表',arguments:['sh600519']});
+    assert.deepEqual(item.command,{command:'welove42.aShareTurnover.stocks.openChart',title:'查看详细行情图表',arguments:['sh600519']});
     h.c.quotes.set('sz000001',quote('sz000001','下跌股','10.00','-2.00'));
     assert.equal(h.c.getTreeItem(rows[1]).iconPath.color.id,'charts.green');
   }finally{h.c.dispose();}
@@ -63,7 +63,7 @@ test('中文名搜索列出候选并添加；新输入取消旧搜索，迟到�
     await new Promise(r=>setTimeout(r,330));
     requests[1].resolve([{symbol:'sh600519',name:'贵州茅台',pinyin:'gzmt'}]);await new Promise(r=>setImmediate(r));
     requests[0].resolve([{symbol:'sz000001',name:'平安银行',pinyin:'payh'}]);await new Promise(r=>setImmediate(r));
-    assert.equal(picker.items[0].label,'贵州茅台');picker.selectedItems=[picker.items[0]];picker.accept();await done;
+    assert.equal(picker.items[0].label,'贵州茅台');assert.equal(picker.activeItems[0],picker.items[0]);picker.accept();await done;
     assert.deepEqual(h.c.config.symbols,['sh600519']);assert.equal(picker.disposed,true);
   }finally{h.c.dispose();}
 });

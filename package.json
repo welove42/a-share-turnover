@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、图表与财经新闻",
   "description": "沪深成交额同刻对比、中文名或代码搜索自选股、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "welove42",
   "license": "MIT",
   "engines": {
@@ -36,7 +36,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.2.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.2.1.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js"
@@ -44,92 +44,92 @@
   "contributes": {
     "commands": [
       {
-        "command": "aShareTurnover.refresh",
+        "command": "welove42.aShareTurnover.refresh",
         "title": "A股成交额：立即刷新"
       },
       {
-        "command": "aShareTurnover.showMenu",
+        "command": "welove42.aShareTurnover.showMenu",
         "title": "A股成交额：打开菜单"
       },
       {
-        "command": "aShareTurnover.togglePause",
+        "command": "welove42.aShareTurnover.togglePause",
         "title": "A股成交额：暂停 / 恢复自动刷新"
       },
       {
-        "command": "aShareTurnover.switchComparison",
+        "command": "welove42.aShareTurnover.switchComparison",
         "title": "A股成交额：切换比较口径"
       },
       {
-        "command": "aShareTurnover.showLog",
+        "command": "welove42.aShareTurnover.showLog",
         "title": "A股成交额：查看日志"
       },
       {
-        "command": "aShareTurnover.stocks.add",
+        "command": "welove42.aShareTurnover.stocks.add",
         "title": "A股自选股：搜索名称或代码并添加",
         "icon": "$(add)"
       },
       {
-        "command": "aShareTurnover.stocks.remove",
+        "command": "welove42.aShareTurnover.stocks.remove",
         "title": "A股自选股：删除自选股",
         "icon": "$(trash)"
       },
       {
-        "command": "aShareTurnover.stocks.refresh",
+        "command": "welove42.aShareTurnover.stocks.refresh",
         "title": "A股自选股：立即刷新",
         "icon": "$(refresh)"
       },
       {
-        "command": "aShareTurnover.stocks.selectStatus",
+        "command": "welove42.aShareTurnover.stocks.selectStatus",
         "title": "A股自选股：选择底部显示的指数或个股",
         "icon": "$(pin)"
       },
       {
-        "command": "aShareTurnover.stocks.sort",
+        "command": "welove42.aShareTurnover.stocks.sort",
         "title": "A股自选股：切换排序",
         "icon": "$(sort-precedence)"
       },
       {
-        "command": "aShareTurnover.stocks.togglePause",
+        "command": "welove42.aShareTurnover.stocks.togglePause",
         "title": "A股自选股：暂停 / 恢复自动刷新",
         "icon": "$(debug-pause)"
       },
       {
-        "command": "aShareTurnover.news.refresh",
+        "command": "welove42.aShareTurnover.news.refresh",
         "title": "A股财经新闻：立即刷新",
         "icon": "$(refresh)"
       },
       {
-        "command": "aShareTurnover.news.show",
+        "command": "welove42.aShareTurnover.news.show",
         "title": "A股财经新闻：打开资讯面板",
         "icon": "$(megaphone)"
       },
       {
-        "command": "aShareTurnover.news.open",
+        "command": "welove42.aShareTurnover.news.open",
         "title": "A股财经新闻：阅读全文",
         "icon": "$(open-preview)"
       },
       {
-        "command": "aShareTurnover.news.source",
+        "command": "welove42.aShareTurnover.news.source",
         "title": "A股财经新闻：选择来源",
         "icon": "$(list-selection)"
       },
       {
-        "command": "aShareTurnover.news.setToken",
+        "command": "welove42.aShareTurnover.news.setToken",
         "title": "A股财经新闻：设置选股宝 Token",
         "icon": "$(key)"
       },
       {
-        "command": "aShareTurnover.news.togglePause",
+        "command": "welove42.aShareTurnover.news.togglePause",
         "title": "A股财经新闻：暂停 / 恢复自动刷新",
         "icon": "$(debug-pause)"
       },
       {
-        "command": "aShareTurnover.stocks.openChart",
+        "command": "welove42.aShareTurnover.stocks.openChart",
         "title": "A股自选股：查看详细行情图表",
         "icon": "$(graph-line)"
       },
       {
-        "command": "aShareTurnover.stocks.openInBrowser",
+        "command": "welove42.aShareTurnover.stocks.openInBrowser",
         "title": "A股自选股：在浏览器打开东方财富",
         "icon": "$(link-external)"
       }
@@ -259,29 +259,29 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "aShareMarket",
-          "title": "STOCK",
+          "id": "welove42Market",
+          "title": "STOCK · A股行情",
           "icon": "media/market.svg"
         }
       ]
     },
     "views": {
-      "aShareMarket": [
+      "welove42Market": [
         {
-          "id": "aShareTurnover.watchlist",
-          "name": "自选股",
+          "id": "welove42.aShareTurnover.watchlist",
+          "name": "自选股（名称 / 代码）",
           "contextualTitle": "STOCK 自选股"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "aShareTurnover.watchlist",
-        "contents": "输入中文名、拼音或股票代码搜索添加自选股。\n[搜索并添加自选股](command:aShareTurnover.stocks.add)\n点击个股查看东方财富详细行情及分时 / 日K图。\n[财经新闻（底部输出面板）](command:aShareTurnover.news.show)\n底部默认显示上证指数，点击可切换。",
+        "view": "welove42.aShareTurnover.watchlist",
+        "contents": "输入中文名、拼音或股票代码搜索添加自选股。\n[搜索并添加自选股](command:welove42.aShareTurnover.stocks.add)\n点击个股查看东方财富详细行情及分时 / 日K图。\n[财经新闻（底部输出面板）](command:welove42.aShareTurnover.news.show)\n底部默认显示上证指数，点击可切换。",
         "when": "config.aShareTurnover.stocks.enabled"
       },
       {
-        "view": "aShareTurnover.watchlist",
+        "view": "welove42.aShareTurnover.watchlist",
         "contents": "自选行情已禁用，请在用户设置中开启 aShareTurnover.stocks.enabled。",
         "when": "!config.aShareTurnover.stocks.enabled"
       }
@@ -289,56 +289,56 @@
     "menus": {
       "view/title": [
         {
-          "command": "aShareTurnover.stocks.add",
-          "when": "view == aShareTurnover.watchlist",
+          "command": "welove42.aShareTurnover.stocks.add",
+          "when": "view == welove42.aShareTurnover.watchlist",
           "group": "navigation@0"
         },
         {
-          "command": "aShareTurnover.stocks.refresh",
-          "when": "view == aShareTurnover.watchlist",
+          "command": "welove42.aShareTurnover.stocks.refresh",
+          "when": "view == welove42.aShareTurnover.watchlist",
           "group": "navigation@1"
         },
         {
-          "command": "aShareTurnover.stocks.sort",
-          "when": "view == aShareTurnover.watchlist",
+          "command": "welove42.aShareTurnover.stocks.sort",
+          "when": "view == welove42.aShareTurnover.watchlist",
           "group": "navigation@2"
         },
         {
-          "command": "aShareTurnover.stocks.togglePause",
-          "when": "view == aShareTurnover.watchlist",
+          "command": "welove42.aShareTurnover.stocks.togglePause",
+          "when": "view == welove42.aShareTurnover.watchlist",
           "group": "navigation@3"
         },
         {
-          "command": "aShareTurnover.news.show",
-          "when": "view == aShareTurnover.watchlist",
+          "command": "welove42.aShareTurnover.news.show",
+          "when": "view == welove42.aShareTurnover.watchlist",
           "group": "news@0"
         }
       ],
       "view/item/context": [
         {
-          "command": "aShareTurnover.stocks.selectStatus",
-          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "command": "welove42.aShareTurnover.stocks.selectStatus",
+          "when": "view == welove42.aShareTurnover.watchlist && viewItem == aShareStock",
           "group": "inline@1"
         },
         {
-          "command": "aShareTurnover.stocks.remove",
-          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "command": "welove42.aShareTurnover.stocks.remove",
+          "when": "view == welove42.aShareTurnover.watchlist && viewItem == aShareStock",
           "group": "inline@2"
         },
         {
-          "command": "aShareTurnover.stocks.openChart",
-          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "command": "welove42.aShareTurnover.stocks.openChart",
+          "when": "view == welove42.aShareTurnover.watchlist && viewItem == aShareStock",
           "group": "chart@0"
         },
         {
-          "command": "aShareTurnover.stocks.openInBrowser",
-          "when": "view == aShareTurnover.watchlist && viewItem == aShareStock",
+          "command": "welove42.aShareTurnover.stocks.openInBrowser",
+          "when": "view == welove42.aShareTurnover.watchlist && viewItem == aShareStock",
           "group": "chart@1"
         }
       ],
       "commandPalette": [
         {
-          "command": "aShareTurnover.news.open",
+          "command": "welove42.aShareTurnover.news.open",
           "when": "false"
         }
       ]
