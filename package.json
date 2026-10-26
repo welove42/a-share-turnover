@@ -2,8 +2,9 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、图表与财经新闻",
   "description": "沪深成交额同刻对比、中文名或代码搜索自选股、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "publisher": "welove42",
+  "icon": "media/icon.png",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -36,7 +37,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.2.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.2.2.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js"

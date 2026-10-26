@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>A股行情</title>
+  <desc>深蓝色圆角底板上，三根红绿 K 线由左下向右上排列。</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#203650"/>
+      <stop offset="1" stop-color="#0b1525"/>
+    </linearGradient>
+    <linearGradient id="rise" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#ff8291"/>
+      <stop offset="1" stop-color="#fa526e"/>
+    </linearGradient>
+    <linearGradient id="fall" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#5ce9c0"/>
+      <stop offset="1" stop-color="#27bc99"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="52" fill="url(#background)"/>
+  <rect x="5" y="5" width="246" height="246" rx="51" fill="none" stroke="#d9e9ff" stroke-opacity=".12" stroke-width="2"/>
+  <path d="M36 76h184M36 128h184M36 180h184" fill="none" stroke="#b5d4fa" stroke-opacity=".08" stroke-width="2"/>
+  <path d="M64 124v82" stroke="#39cdaa" stroke-width="8" stroke-linecap="round"/>
+  <rect x="46" y="138" width="36" height="50" rx="7" fill="url(#fall)"/>
+  <path d="M128 78v94" stroke="#ff6b80" stroke-width="8" stroke-linecap="round"/>
+  <rect x="110" y="92" width="36" height="62" rx="7" fill="url(#rise)"/>
+  <path d="M192 42v86" stroke="#ff6b80" stroke-width="8" stroke-linecap="round"/>
+  <rect x="174" y="58" width="36" height="50" rx="7" fill="url(#rise)"/>
+</svg>
