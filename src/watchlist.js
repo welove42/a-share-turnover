@@ -166,7 +166,8 @@ class WatchlistController {
     return this.inflight;
   }
   async add(input) {
-    if (input === undefined) return this.searchAndAdd();
+    // View-title actions can pass the focused tree item instead of stock input.
+    if (typeof input !== 'string' && !Array.isArray(input)) return this.searchAndAdd();
     let symbols;
     try {
       try { symbols = normalizeSymbols([...this.config.symbols, ...normalizeSymbols(input)]); }

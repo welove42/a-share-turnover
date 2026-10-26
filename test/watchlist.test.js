@@ -77,6 +77,30 @@ test('搜索不可用时完整代码仍可直接添加；取消窗口不添加�
     const second=h.c.add();picker=h.pickers[1];picker.change('平安');picker.hide();await second;assert.deepEqual(h.c.config.symbols,['sh600519']);
   }finally{h.c.dispose();}
 });
+test('选中个股后点击标题栏加号会打开搜索，确认名称候选后才添加',async()=>{
+  const h=setup({'aShareTurnover.stocks.symbols':['sh600105']});h.c.paused=true;
+  h.c.search={search:async()=>[{symbol:'sh600519',name:'贵州茅台',pinyin:'gzmt'}]};
+  try{
+    const done=h.c.add(h.c.element('sh600105'));
+    const picker=h.pickers[0];assert.ok(picker,'标题栏传入选中的股票对象时仍应打开搜索框');
+    assert.equal(picker.title,'搜索并添加自选股');assert.deepEqual(h.c.config.symbols,['sh600105']);
+    picker.change('贵州茅台');await new Promise(r=>setTimeout(r,330));
+    assert.equal(picker.items[0].label,'贵州茅台');picker.accept();await done;
+    assert.deepEqual(h.c.config.symbols,['sh600105','sh600519']);
+  }finally{h.c.dispose();}
+});
+for(const [label,input] of [
+  ['分组行',{kind:'group'}],
+  ['视图上下文',{$treeViewId:'welove42.aShareTurnover.watchlist',$focusedTreeItem:true,$selectedTreeItems:true}],
+  ['空上下文',null]
+])test(`加号收到${label}时打开搜索，取消不改变自选`,async()=>{
+  const h=setup({'aShareTurnover.stocks.symbols':['sh600105']});h.c.paused=true;
+  try{
+    const done=h.c.add(input);const picker=h.pickers[0];assert.ok(picker);
+    picker.hide();await done;assert.deepEqual(h.c.config.symbols,['sh600105']);
+    assert.equal(h.store.has('stockSettingsFallback'),false);
+  }finally{h.c.dispose();}
+});
 test('每10秒请求一次，闲置检查不更新底部悬浮或重复触发行刷新',async()=>{
   const h=setup({'aShareTurnover.stocks.symbols':['600519']});
   try{await h.c.refresh();h.c.phaseKey='2026-10-26trading';const writes={...h.c.status.writes},events=h.c.emitter.fired.length;
