@@ -1,8 +1,8 @@
 {
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、全球指数与财经新闻",
-  "description": "沪深成交额同刻对比、中文名或代码搜索自选股、全球指数分区查询、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.4.0",
+  "description": "沪深成交额同刻对比、中文名或代码搜索自选股、自定义全球指数列表、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
+  "version": "1.4.1",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -40,7 +40,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.4.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.4.1.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -158,7 +158,7 @@
       },
       {
         "command": "welove42.aShareTurnover.globalIndices.search",
-        "title": "全球指数：查询名称、代码或地区",
+        "title": "全球指数：搜索并添加指数",
         "icon": "$(search)"
       },
       {
@@ -175,6 +175,16 @@
         "command": "welove42.aShareTurnover.globalIndices.open",
         "title": "全球指数：在浏览器查看指数详情",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "welove42.aShareTurnover.globalIndices.add",
+        "title": "全球指数：添加指数（名称 / 代码）",
+        "icon": "$(add)"
+      },
+      {
+        "command": "welove42.aShareTurnover.globalIndices.remove",
+        "title": "全球指数：删除指数",
+        "icon": "$(trash)"
       }
     ],
     "configuration": {
@@ -301,7 +311,23 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "显示自选股下方的全球指数栏目，支持按地区或名称/代码查询。栏目可见时每10秒刷新，不受A股交易时段限制。"
+          "description": "显示自选股下方的全球指数栏目。默认仅纳斯达克综合、日经225和韩国KOSPI，其他指数通过＋添加；栏目可见时每10秒刷新，不受A股交易时段限制。"
+        },
+        "aShareTurnover.globalIndices.symbols": {
+          "type": "array",
+          "default": [
+            "100.NDX",
+            "100.N225",
+            "100.KS11"
+          ],
+          "scope": "application",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:100\\.)?[A-Za-z][A-Za-z0-9]{0,19}$"
+          },
+          "description": "全球指数显示列表，按添加顺序排列。点击栏目＋搜索名称或代码添加，行末垃圾桶删除；也可填代码如 NDX、N225、KS11、100.SPX。空数组表示不显示任何指数。"
         }
       }
     },
@@ -369,7 +395,7 @@
           "group": "news@0"
         },
         {
-          "command": "welove42.aShareTurnover.globalIndices.search",
+          "command": "welove42.aShareTurnover.globalIndices.add",
           "when": "view == welove42.aShareTurnover.globalIndices",
           "group": "navigation@0"
         },
@@ -409,6 +435,16 @@
           "command": "welove42.aShareTurnover.globalIndices.open",
           "when": "view == welove42.aShareTurnover.globalIndices && viewItem == aShareGlobalIndex",
           "group": "navigation@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.remove",
+          "when": "view == welove42.aShareTurnover.globalIndices && viewItem == aShareGlobalIndex",
+          "group": "inline@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.remove",
+          "when": "view == welove42.aShareTurnover.globalIndices && viewItem == aShareGlobalIndex",
+          "group": "manage@1"
         }
       ],
       "commandPalette": [
@@ -430,6 +466,10 @@
         },
         {
           "command": "welove42.aShareTurnover.globalIndices.open",
+          "when": "false"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.search",
           "when": "false"
         }
       ],

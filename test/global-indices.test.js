@@ -1,10 +1,10 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
 const { harness } = require('./vscode-mock');
-const { DEFAULT_INDICES } = require('../src/global-index-data');
+const { BUILTIN_INDICES, DEFAULT_INDEX_IDS } = require('../src/global-index-data');
 function response(date = '2026-10-26T23:00:00+08:00', price = 12345.67) {
-  return { entries: new Map(DEFAULT_INDICES.map(entry => [entry.id, entry])), errors: new Map(),
-    quotes: new Map(DEFAULT_INDICES.map(entry => [entry.id, { ...entry, price, percent: 1.25, delta: 123, open: 12000, previousClose: 12222.67, high: 12500, low: 11900, timestamp: Date.parse(date) / 1000 }])) };
+  return { entries: new Map(BUILTIN_INDICES.map(entry => [entry.id, entry])), errors: new Map(),
+    quotes: new Map(BUILTIN_INDICES.map(entry => [entry.id, { ...entry, price, percent: 1.25, delta: 123, open: 12000, previousClose: 12222.67, high: 12500, low: 11900, timestamp: Date.parse(date) / 1000 }])) };
 }
 function setup(load, config = {}) {
   const h = harness(config); let now = new Date('2026-10-26T23:00:10+08:00'), calls = 0;
@@ -12,11 +12,13 @@ function setup(load, config = {}) {
   const c = new GlobalIndicesController(h.context, { now: () => now, provider: { load: async signal => { calls++; return load ? load(signal) : response(); } } });
   return { ...h, c, calls: () => calls, setNow: value => { now = new Date(value); } };
 }
-test('地区分组稳定，自选栏目下方的指数行显示点位涨跌及北京时间，隔夜收盘不伪装成今天', async () => {
+test('默认平铺三个指数；完整行情目录不自动填满列表，隔夜报价保留真实时间', async () => {
   const h = setup(); try {
-    await h.c.refresh(); const asia = h.c.getChildren()[0], rows = h.c.getChildren(asia);
-    assert.equal(h.c.getChildren(asia)[0], rows[0]); assert.equal(h.c.getParent(rows[0]), asia);
-    assert.match(h.c.getTreeItem(rows[0]).label, /\+1.25%.*12345.67.*日经225/);
+    await h.c.refresh(); const rows = h.c.getChildren();
+    assert.deepEqual(rows.map(item => item.id), ['100.NDX', '100.N225', '100.KS11']);
+    assert.equal(h.c.getChildren()[0], rows[0]); assert.equal(h.c.getParent(rows[0]), undefined);
+    assert.deepEqual(h.c.getChildren(rows[0]), []);
+    assert.match(h.c.getTreeItem(rows[1]).label, /\+1.25%.*12345.67.*日经225/);
     assert.equal(h.c.getTreeItem(rows[0]).iconPath.color.id, 'charts.red');
     h.setNow('2026-10-27T09:00:00+08:00');
     const nasdaq = h.c.getTreeItem(h.c.element('100.NDX'));
@@ -56,15 +58,16 @@ test('并发刷新合并；隐藏时取消旧请求，暂停后不重启排队�
     assert.equal(h.calls(), 1); assert.equal(h.c.quotes.size, 0);
   } finally { h.c.dispose(); }
 });
-test('搜索包含日经、KOSPI、纳指别名，选择自动定位；详情打开只允许已知指数', async () => {
+test('添加可按名称代码别名检索；多选追加并去重，详情打开只允许已知指数', async () => {
   const h = setup(); try {
-    let items, reveal;
-    h.api.window.showQuickPick = async list => { items = list; return list.find(item => item.id === '100.NDX'); };
-    h.c.tree.reveal = async (...args) => { reveal = args; };
-    await h.c.search(); assert.match(items.find(item => item.id === '100.NDX').description, /美国.*纳指/);
+    let items, options;
+    h.api.window.showQuickPick = async (list, opts) => { items = list; options = opts; return [list.find(item => item.id === '100.NDX'), list.find(item => item.id === '100.SPX')]; };
+    await h.c.add(); assert.match(items.find(item => item.id === '100.NDX').description, /美国.*纳指.*已添加/);
     assert.ok(items.some(item => item.label === '日经225')); assert.ok(items.some(item => item.description.includes('KS11')));
-    assert.equal(reveal[0], h.c.element('100.NDX')); assert.equal(reveal[1].expand, true);
-    await h.c.open(reveal[0]); assert.equal(h.opened[0], 'https://quote.eastmoney.com/gb/zsNDX.html');
+    assert.equal(options.canPickMany, true);
+    assert.deepEqual(h.c.getChildren().map(item => item.id), [...DEFAULT_INDEX_IDS, '100.SPX']);
+    assert.deepEqual(h.values.get('aShareTurnover.globalIndices.symbols'), [...DEFAULT_INDEX_IDS, '100.SPX']);
+    await h.c.open(h.c.element('100.NDX')); assert.equal(h.opened[0], 'https://quote.eastmoney.com/gb/zsNDX.html');
     await h.c.open('https://evil.example'); assert.equal(h.opened.length, 1);
   } finally { h.c.dispose(); }
 });
@@ -75,7 +78,65 @@ test('重启读取全球指数缓存并标注，缺失指数保留旧数据而�
     const result = response(); result.entries.delete('100.N225'); result.quotes.delete('100.N225'); return result;
   } } });
   try {
+    assert.deepEqual(c.getChildren().map(item => item.id), DEFAULT_INDEX_IDS);
     assert.match(c.getTreeItem(c.element('100.N225')).description, /缓存/); await c.refresh();
     assert.equal(c.quotes.get('100.N225').price, 12345.67); assert.match(c.getTreeItem(c.element('100.N225')).description, /获取失败/);
   } finally { c.dispose(); }
+});
+
+test('手动增删顺序持久化，删除默认项与空列表重启后不会被目录重新填满', async () => {
+  const h = setup(); let restored;
+  try {
+    h.c.paused = true;
+    await h.c.add(['SPX', '100.NDX', '100.SPX']);
+    await h.c.remove('N225');
+    assert.deepEqual(h.c.selectedIds, ['100.NDX', '100.KS11', '100.SPX']);
+    const { GlobalIndicesController } = h.load('../src/global-indices');
+    restored = new GlobalIndicesController(h.context);
+    assert.deepEqual(restored.getChildren().map(item => item.id), ['100.NDX', '100.KS11', '100.SPX']);
+    restored.dispose(); restored = undefined;
+    for (const id of [...h.c.selectedIds]) await h.c.remove({ id });
+    await h.c.refresh(); assert.deepEqual(h.c.getChildren(), []);
+    restored = new GlobalIndicesController(h.context);
+    assert.deepEqual(restored.getChildren(), []);
+    h.c.tree.visible = true; h.c.paused = false; h.c.lastAttempt = -Infinity;
+    const calls = h.calls(); await h.c.tick(); assert.equal(h.calls(), calls);
+  } finally { restored?.dispose(); h.c.dispose(); }
+});
+test('选中行时点击＋仍打开添加菜单，取消不修改列表；未知代码不加入', async () => {
+  const h = setup(); try {
+    let opened = 0;
+    h.api.window.showQuickPick = async () => { opened++; return undefined; };
+    await h.c.add(h.c.element('100.NDX'));
+    assert.equal(opened, 1); assert.deepEqual(h.c.selectedIds, DEFAULT_INDEX_IDS);
+    await h.c.add('UNKNOWN'); assert.deepEqual(h.c.selectedIds, DEFAULT_INDEX_IDS);
+    assert.match(h.opened.at(-1).error, /未找到指数/);
+    assert.equal(h.values.has('aShareTurnover.globalIndices.symbols'), false);
+  } finally { h.c.dispose(); }
+});
+test('用户设置不可写时仍持久保存指数选择，重启不丢失，恢复可写后清理备用值', async () => {
+  const h = setup(); let restored;
+  try {
+    const original = h.api.workspace.getConfiguration;
+    h.api.workspace.getConfiguration = (...args) => ({ ...original(...args), update: async () => { throw new Error('设置只读'); } });
+    await h.c.add('SPX'); await h.c.remove('KS11');
+    const { GlobalIndicesController } = h.load('../src/global-indices');
+    restored = new GlobalIndicesController(h.context);
+    assert.deepEqual(restored.selectedIds, ['100.NDX', '100.N225', '100.SPX']);
+    h.api.workspace.getConfiguration = original;
+    await h.c.add('HSI');
+    assert.deepEqual(h.values.get('aShareTurnover.globalIndices.symbols'), ['100.NDX', '100.N225', '100.SPX', '100.HSI']);
+    assert.equal(Object.hasOwn(h.store.get('stockSettingsFallback'), 'globalIndices.symbols'), false);
+  } finally { restored?.dispose(); h.c.dispose(); }
+});
+test('完整目录内未选择指数的故障不影响列表提示，直接修改设置及时同步选择', async () => {
+  const h = setup(async () => { const result = response(); result.errors.set('100.SPX', '接口错误'); return result; });
+  try {
+    await h.c.refresh(); assert.equal(h.c.tree.message, undefined);
+    await h.api.workspace.getConfiguration('aShareTurnover').update('globalIndices.symbols', ['SPX', 'ndx']);
+    assert.deepEqual(h.c.getChildren().map(item => item.id), ['100.SPX', '100.NDX']);
+    assert.match(h.c.tree.message, /1 个指数未更新/);
+    await h.api.workspace.getConfiguration('aShareTurnover').update('globalIndices.symbols', []);
+    assert.deepEqual(h.c.getChildren(), []); assert.match(h.c.tree.message, /点击右上角＋/);
+  } finally { h.c.dispose(); }
 });

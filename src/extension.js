@@ -207,6 +207,8 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.showLog', () => controller.output.show()),
     stocks, news, charts, globals,
     vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.search', () => globals.search()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.add', input => globals.add(input)),
+    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.remove', element => globals.remove(element)),
     vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.refresh', () => globals.refresh()),
     vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.togglePause', () => globals.togglePause()),
     vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.open', element => globals.open(element)),
@@ -235,7 +237,7 @@ function activate(context) {
       candidates: stocks.activePicker.items.filter(item => item.symbols).map(item => ({ name: item.label, symbols: [...item.symbols] })) } : undefined,
     getStockQuote: symbol => { const q = stocks.quotes.get(symbol); return q ? { ...q } : undefined; },
     getNewsCount: () => news.items.length, getChartState: symbol => charts.getState(symbol),
-    getGlobalIndices: () => [...globals.catalog.values()].map(entry => ({ ...entry, quote: globals.quotes.get(entry.id), error: globals.errors.get(entry.id) })),
+    getGlobalIndices: () => globals.selectedIds.map(id => ({ ...globals.catalog.get(id), quote: globals.quotes.get(id), error: globals.errors.get(id) })),
     getGlobalIndicesStatus: () => ({ enabled: globals.enabled, visible: globals.tree.visible, paused: globals.paused, lastAttempt: globals.lastAttempt }),
     getLatestNews: () => news.items[0] ? { ...news.items[0] } : undefined };
 }

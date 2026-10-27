@@ -1,8 +1,14 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const { parsePage, GlobalIndexProvider, globalIndexUrl } = require('../src/global-index-data');
+const { parsePage, GlobalIndexProvider, globalIndexUrl, normalizeIndexIds } = require('../src/global-index-data');
 const row = (code, extra = {}) => ({ f12: code, f13: 100, f14: code, f2: 12345.67, f3: -1.25, f4: -150.3, f17: 12400, f18: 12495.97, f15: 12500, f16: 12000, f124: 1793068200, ...extra });
 const payload = (rows, total = rows.length) => ({ rc: 0, data: { total, diff: rows } });
+
+test('指数选择代码兼容大小写和完整ID，去重保序，保留显式空列表并拒绝非法输入', () => {
+  assert.deepEqual(normalizeIndexIds('ndx, 100.NDX, N225，KS11'), ['100.NDX', '100.N225', '100.KS11']);
+  assert.deepEqual(normalizeIndexIds([]), []);
+  for (const value of [null, {}, [100], ['https://evil.example'], ['100.NDX?x=1']]) assert.throws(() => normalizeIndexIds(value));
+});
 
 test('全球指数点位直接读取小数；区分纳斯达克综合、100及KOSPI200', () => {
   const data = parsePage(payload([row('NDX'), row('NDX100'), row('KS11'), row('KOSPI200'), row('N225')]));

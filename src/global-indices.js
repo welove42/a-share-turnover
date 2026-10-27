@@ -2,7 +2,8 @@
 const vscode = require('vscode');
 const { POLL_MS, shanghaiClock } = require('./market');
 const { signed, percentText } = require('./quotes');
-const { REGIONS, ALIASES, DEFAULT_INDICES, isGlobalQuote, GlobalIndexProvider, globalIndexUrl } = require('./global-index-data');
+const { REGIONS, ALIASES, DEFAULT_INDEX_IDS, BUILTIN_INDICES, normalizeIndexIds, indexEntry, isGlobalQuote, GlobalIndexProvider, globalIndexUrl } = require('./global-index-data');
+const { StockSettings } = require('./stock-settings');
 
 function quoteTime(q) {
   if (!q) return '尚未获取';
@@ -12,33 +13,42 @@ function quoteTime(q) {
 class GlobalIndicesController {
   constructor(context, { provider = new GlobalIndexProvider(), now = () => new Date(), log = () => {} } = {}) {
     this.context = context; this.provider = provider; this.now = now; this.log = log;
-    this.catalog = new Map(DEFAULT_INDICES.map(entry => [entry.id, entry]));
+    this.settings = new StockSettings(context, message => log(message.replace('自选股设置', '全球指数设置')));
+    this.catalog = new Map(BUILTIN_INDICES.map(entry => [entry.id, entry]));
     this.quotes = new Map(); this.errors = new Map(); this.elements = new Map(); this.signatures = new Map();
-    this.groups = new Map(REGIONS.map(region => [region.id, { kind: 'region', region: region.id }]));
     this.disposed = false; this.inflight = null; this.abort = null; this.generation = 0; this.lastAttempt = -Infinity; this.cached = true;
     this.paused = Boolean(context.globalState.get('globalIndicesPaused', false));
     const cache = context.globalState.get('globalIndexQuotes', []);
     if (Array.isArray(cache)) for (const q of cache) if (isGlobalQuote(q)) { this.quotes.set(q.id, q); this.catalog.set(q.id, { id: q.id, code: q.code, name: q.name, region: q.region }); }
     this.enabled = this.readEnabled();
+    this.readSelection();
     this.emitter = new vscode.EventEmitter(); this.onDidChangeTreeData = this.emitter.event;
-    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.globalIndices', { treeDataProvider: this, showCollapseAll: true });
+    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.globalIndices', { treeDataProvider: this });
     this.listeners = [this.tree.onDidChangeVisibility(event => {
       this.publish();
       if (!event.visible) this.abort?.abort();
       else if (this.enabled && !this.paused) void this.refresh(true);
     }), vscode.workspace.onDidChangeConfiguration(event => {
-      if (!event.affectsConfiguration('aShareTurnover.globalIndices')) return;
-      this.enabled = this.readEnabled(); this.generation++; this.abort?.abort(); this.publish(true);
+      if (this.writingSelection || !event.affectsConfiguration('aShareTurnover.globalIndices')) return;
+      const enabled = this.readEnabled();
+      if (enabled !== this.enabled) { this.generation++; this.abort?.abort(); }
+      this.enabled = enabled; this.readSelection(); this.publish(true);
       if (this.enabled && !this.paused && this.tree.visible) void this.refresh(true);
     })];
   }
   readEnabled() { return vscode.workspace.getConfiguration('aShareTurnover').get('globalIndices.enabled', true); }
+  readSelection() {
+    this.selectionError = '';
+    try { this.selectedIds = normalizeIndexIds(this.settings.get('globalIndices.symbols', DEFAULT_INDEX_IDS)); }
+    catch (error) { this.selectionError = error.message; this.selectedIds ||= [...DEFAULT_INDEX_IDS]; }
+    for (const id of this.selectedIds) if (!this.catalog.has(id)) this.catalog.set(id, indexEntry(id.slice(4), id.slice(4)));
+  }
   start() {
     this.publish(true); this.timer = setInterval(() => void this.tick(), 1000);
-    if (this.enabled && !this.paused) void this.refresh();
+    if (this.enabled && !this.paused && this.selectedIds.length) void this.refresh();
   }
   tick() {
-    if (!this.disposed && this.enabled && !this.paused && this.tree.visible && !this.inflight && this.now().getTime() - this.lastAttempt >= POLL_MS) return this.refresh(true);
+    if (!this.disposed && this.enabled && this.selectedIds.length && !this.paused && this.tree.visible && !this.inflight && this.now().getTime() - this.lastAttempt >= POLL_MS) return this.refresh(true);
   }
   entries(region) {
     return [...this.catalog.values()].filter(entry => !region || entry.region === region).sort((a, b) => {
@@ -49,21 +59,14 @@ class GlobalIndicesController {
     });
   }
   getChildren(element) {
-    if (!this.enabled) return [];
-    if (!element) return REGIONS.filter(region => this.entries(region.id).length).map(region => this.groups.get(region.id));
-    return element.kind === 'region' ? this.entries(element.region).map(entry => this.element(entry.id)) : [];
+    return this.enabled && !element ? this.selectedIds.map(id => this.element(id)) : [];
   }
   element(id) {
     if (!this.elements.has(id)) this.elements.set(id, { kind: 'globalIndex', id });
     return this.elements.get(id);
   }
-  getParent(element) { return element.kind === 'globalIndex' ? this.groups.get(this.catalog.get(element.id)?.region) : undefined; }
+  getParent() { return undefined; }
   getTreeItem(element) {
-    if (element.kind === 'region') {
-      const region = REGIONS.find(item => item.id === element.region);
-      const item = new vscode.TreeItem(`${region.name} (${this.entries(region.id).length})`, region.id === 'asia' ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
-      item.id = `global-region:${region.id}`; item.iconPath = new vscode.ThemeIcon('globe'); return item;
-    }
     const entry = this.catalog.get(element.id), q = this.quotes.get(element.id), error = this.errors.get(element.id);
     const item = new vscode.TreeItem(`${percentText(q?.percent ?? null).padStart(7)}   ${(q ? q.price.toFixed(2) : '—').padStart(9)}   [${entry.name}]`, vscode.TreeItemCollapsibleState.None);
     item.id = `global-index:${entry.id}`; item.contextValue = 'aShareGlobalIndex';
@@ -82,19 +85,21 @@ class GlobalIndicesController {
   }
   publish(structural = false) {
     if (this.disposed) return;
-    const description = !this.enabled ? '已禁用' : this.paused ? '已暂停' : this.tree.visible ? '10秒刷新 · 东方财富' : '展开后10秒刷新';
+    const description = !this.enabled ? '已禁用' : this.paused ? '已暂停' : !this.selectedIds.length ? '点击＋添加指数' : this.tree.visible ? '10秒刷新 · 东方财富' : '展开后10秒刷新';
     if (this.tree.description !== description) this.tree.description = description;
-    const message = this.errors.size ? `${this.errors.size} 个指数未更新，保留上次行情；悬停可查看数据时间和原因。` : undefined;
+    const failures = this.selectedIds.filter(id => this.errors.has(id)).length;
+    const message = this.selectionError || (!this.selectedIds.length ? '尚未添加指数，点击右上角＋搜索添加。' : failures ? `${failures} 个指数未更新，保留上次行情；悬停可查看数据时间和原因。` : undefined);
     if (this.tree.message !== message) this.tree.message = message;
     const changed = [];
-    for (const entry of this.catalog.values()) {
+    for (const id of this.selectedIds) {
+      const entry = this.catalog.get(id);
       const signature = JSON.stringify([entry, this.quotes.get(entry.id), this.errors.get(entry.id), this.cached, this.paused]);
       if (signature !== this.signatures.get(entry.id)) { changed.push(entry.id); this.signatures.set(entry.id, signature); }
     }
     if (structural) this.emitter.fire(undefined); else for (const id of changed) this.emitter.fire(this.element(id));
   }
   refresh(automatic = false) {
-    if (this.disposed || !this.enabled || (automatic && (this.paused || !this.tree.visible))) return Promise.resolve();
+    if (this.disposed || !this.enabled || (automatic && (this.paused || !this.tree.visible || !this.selectedIds.length))) return Promise.resolve();
     if (this.inflight && this.abort?.signal.aborted) return this.inflight.then(() => this.refresh(automatic));
     if (this.inflight) return this.inflight;
     const abort = this.abort = new AbortController(), generation = this.generation;
@@ -106,7 +111,7 @@ class GlobalIndicesController {
         if (this.disposed || abort.signal.aborted || generation !== this.generation) return;
         this.errors = new Map(result.errors);
         for (const [id, entry] of result.entries) {
-          if (JSON.stringify(this.catalog.get(id)) !== JSON.stringify(entry)) structural = true;
+          if (this.selectedIds.includes(id) && JSON.stringify(this.catalog.get(id)) !== JSON.stringify(entry)) structural = true;
           this.catalog.set(id, entry);
         }
         for (const id of this.catalog.keys()) if (!result.entries.has(id)) this.errors.set(id, '行情源本次未返回该指数，已保留上次行情');
@@ -114,7 +119,7 @@ class GlobalIndicesController {
           if (isGlobalQuote(q) && q.timestamp * 1000 <= this.now().getTime() + 300000 && q.timestamp >= (this.quotes.get(id)?.timestamp || 0)) this.quotes.set(id, q);
           else this.errors.set(id, '行情字段或时间异常，已保留上次行情');
         }
-        this.cached = false;
+        this.cached = false; this.catalogLoaded = true;
         await this.context.globalState.update('globalIndexQuotes', [...this.quotes.values()]).catch(() => {});
       } catch (error) {
         if (!this.disposed && !abort.signal.aborted) {
@@ -128,14 +133,53 @@ class GlobalIndicesController {
     })();
     return this.inflight;
   }
-  async search() {
+  async saveSelection(ids) {
+    if (this.disposed) return;
+    const selected = normalizeIndexIds(ids);
+    this.writingSelection = (this.writingSelection || 0) + 1;
+    try { await this.settings.set('globalIndices.symbols', selected); }
+    finally { this.writingSelection--; }
+    if (this.disposed) return;
+    this.readSelection(); this.publish(true);
+    if (!this.paused && this.tree.visible && this.selectedIds.some(id => !this.quotes.has(id))) void this.refresh(true);
+  }
+  search() { return this.add(); }
+  async add(input) {
+    if (this.disposed || !this.enabled) return;
+    if (typeof input === 'string' || Array.isArray(input)) {
+      let ids;
+      try { ids = normalizeIndexIds(input); }
+      catch (error) { return vscode.window.showErrorMessage(error.message); }
+      if (ids.some(id => !this.catalog.has(id))) await this.refresh();
+      if (this.disposed || !this.enabled) return;
+      const unknown = ids.filter(id => !this.catalog.has(id));
+      if (unknown.length) return vscode.window.showErrorMessage(`未找到指数 ${unknown.join('、')}，可使用＋按名称或代码搜索`);
+      return this.saveSelection([...this.selectedIds, ...ids]);
+    }
+    // Title actions pass a focused row/context object: always open the add picker.
+    if (!this.catalogLoaded) await this.refresh();
     if (this.disposed || !this.enabled) return;
     const items = this.entries().map(entry => {
       const q = this.quotes.get(entry.id), region = REGIONS.find(item => item.id === entry.region);
-      return { label: entry.name, description: `${entry.code} · ${region.name} · ${ALIASES[entry.code] || ''}`, detail: `${q ? q.price.toFixed(2) : '—'}　${percentText(q?.percent ?? null)}　行情 ${quoteTime(q)}（北京）`, id: entry.id };
+      return { label: entry.name, description: `${entry.code} · ${region.name} · ${ALIASES[entry.code] || ''}${this.selectedIds.includes(entry.id) ? ' · 已添加' : ''}`, detail: `${q ? q.price.toFixed(2) : '—'}　${percentText(q?.percent ?? null)}　行情 ${quoteTime(q)}（北京）`, id: entry.id };
     });
-    const selected = await vscode.window.showQuickPick(items, { title: '查询全球指数', placeHolder: '输入名称、代码或地区，例如 日经 / KOSPI / 纳指 / NDX / 美国', matchOnDescription: true });
-    if (selected && !this.disposed && this.enabled) await this.tree.reveal(this.element(selected.id), { select: true, focus: true, expand: true });
+    const selected = await vscode.window.showQuickPick(items, { title: '添加全球指数', placeHolder: '输入名称、代码或地区；可勾选多个指数后回车添加', matchOnDescription: true, canPickMany: true });
+    if (selected?.length && !this.disposed && this.enabled) {
+      try { await this.saveSelection([...this.selectedIds, ...selected.map(item => item.id)]); }
+      catch (error) { return vscode.window.showErrorMessage(error.message); }
+    }
+  }
+  async remove(element) {
+    if (this.disposed || !this.enabled) return;
+    let id = typeof element === 'string' ? element : element?.id;
+    if (!id) {
+      const chosen = await vscode.window.showQuickPick(this.selectedIds.map(id => ({ label: this.catalog.get(id).name, description: id, id })), { title: '删除全球指数' });
+      id = chosen?.id;
+    }
+    if (!id || this.disposed || !this.enabled) return;
+    try { id = normalizeIndexIds([id])[0]; }
+    catch (error) { return vscode.window.showErrorMessage(error.message); }
+    await this.saveSelection(this.selectedIds.filter(current => current !== id));
   }
   async open(element) {
     const id = typeof element === 'string' ? element : element?.id;

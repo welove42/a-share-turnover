@@ -22,12 +22,25 @@ function indexEntry(code, name) {
   const region = REGIONS.find(item => item.codes.includes(code))?.id || 'other';
   return { id, code, name: name.trim(), region };
 }
-const DEFAULT_INDICES = [
+const DEFAULT_INDEX_IDS = ['100.NDX', '100.N225', '100.KS11'];
+const BUILTIN_INDICES = [
   ['N225', '日经225'], ['KS11', '韩国KOSPI'], ['KOSPI200', '韩国KOSPI200'], ['HSI', '恒生指数'], ['TWII', '台湾加权'], ['STI', '富时新加坡海峡时报'], ['SENSEX', '印度孟买SENSEX'],
   ['NDX', '纳斯达克'], ['NDX100', '纳斯达克100'], ['DJIA', '道琼斯'], ['SPX', '标普500'], ['TSX', '加拿大S&P/TSX'],
   ['FTSE', '英国富时100'], ['GDAXI', '德国DAX'], ['FCHI', '法国CAC40'], ['SX5E', '欧洲斯托克50'],
   ['AS51', '澳大利亚标普200'], ['NZ50', '新西兰50'], ['UDI', '美元指数']
 ].map(([code, name]) => indexEntry(code, name));
+function normalizeIndexIds(value) {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[\s,，;；]+/).filter(Boolean) : null;
+  if (!values) throw new Error('全球指数列表必须是代码数组');
+  const ids = [...new Set(values.map(item => {
+    if (typeof item !== 'string') throw new Error('指数代码必须是字符串');
+    const code = item.trim().toUpperCase(), id = code.startsWith('100.') ? code : `100.${code}`;
+    if (!validId(id)) throw new Error(`无效的指数代码“${item}”，例如 NDX、N225、KS11 或 100.SPX`);
+    return id;
+  }))];
+  if (ids.length > 100) throw new Error('最多添加100个全球指数');
+  return ids;
+}
 function number(value) {
   if (typeof value !== 'number' && (typeof value !== 'string' || !/^[+-]?\d+(?:\.\d+)?$/.test(value))) return null;
   const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null;
@@ -75,4 +88,4 @@ function globalIndexUrl(id) {
   if (!validId(id)) throw new Error('无效的全球指数代码');
   return `https://quote.eastmoney.com/gb/zs${id.slice(4)}.html`;
 }
-module.exports = { REGIONS, ALIASES, DEFAULT_INDICES, validId, indexEntry, isGlobalQuote, parsePage, GlobalIndexProvider, globalIndexUrl };
+module.exports = { REGIONS, ALIASES, DEFAULT_INDEX_IDS, BUILTIN_INDICES, normalizeIndexIds, validId, indexEntry, isGlobalQuote, parsePage, GlobalIndexProvider, globalIndexUrl };
