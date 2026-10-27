@@ -13,7 +13,7 @@ test('首次读取不算未读；重复刷新不重复追加输出，新文章�
   let batch=[article(1)];const h=setup({},async()=>batch);
   try{await h.c.refresh();assert.equal(h.c.items.length,1);assert.equal(h.c.unread,0);assert.equal(h.c.output.lines.length,1);
     await h.c.refresh();assert.equal(h.c.output.lines.length,1);
-    batch=[article(2,NOW.getTime()+1000),article(1)];await h.c.refresh();assert.equal(h.c.unread,1);assert.match(h.c.status.text,/\(1\)/);assert.equal(h.c.output.lines.length,2);
+    batch=[article(2,NOW.getTime()+1000),article(1)];await h.c.refresh();assert.equal(h.c.unread,1);assert.equal(h.c.status.text,'$(megaphone) 新闻 (1)');assert.equal(h.c.output.lines.length,2);
     h.c.show();assert.equal(h.c.unread,0);
   }finally{h.c.dispose();}
 });

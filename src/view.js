@@ -20,7 +20,7 @@ function view(snapshot, state, config, clock, now = new Date()) {
   const phase = PHASE_LABELS[clock.phase];
   const mode = config.comparisonMode === 'previousDay' ? 'previousDay' : 'sameTime';
   const comparison = snapshot?.[mode];
-  const basis = mode === 'sameTime' ? `同刻${snapshot?.comparisonTime ? ' ' + snapshot.comparisonTime : ''}` : '较昨全天';
+  const basis = mode === 'previousDay' ? '较昨全天 ' : '';
   let lagging = false;
   if (snapshot && clock.phase === 'trading' && snapshot.date === clock.date) {
     lagging = snapshot.markets.some(market => tradingMinute(clock.minute)
@@ -30,11 +30,11 @@ function view(snapshot, state, config, clock, now = new Date()) {
   const staleDay = snapshot && snapshot.date !== clock.date;
   const problem = state.error || lagging || cached;
   const suffix = state.paused ? '已暂停' : problem ? '行情未更新' : phase;
-  const dateTag = staleDay ? `${snapshot.date.slice(5)} ` : '';
-  const prefix = state.busy && !snapshot ? '$(sync~spin)' : problem ? '$(warning)' : '$(pulse)';
+  const statusTag = state.paused || problem ? ` · ${suffix}` : '';
+  const prefix = state.busy && !snapshot ? '$(sync~spin) ' : problem || staleDay ? '$(warning) ' : '';
   const text = snapshot
-    ? `${prefix} 沪深A ${dateTag}${money(snapshot.amount)} | ${basis} ${describeChange(comparison, config.showDifferenceAmount)} · ${suffix}`
-    : `${prefix} 沪深A ${state.error ? '获取失败，点击重试' : state.paused ? '已暂停' : '等待行情'}`;
+    ? `${prefix}成交量 ${money(snapshot.amount)} | ${basis}${describeChange(comparison, config.showDifferenceAmount)}${statusTag}`
+    : `${prefix}成交量 ${state.error ? '获取失败，点击重试' : state.paused ? '已暂停' : '等待行情'}`;
   const lines = [
     '**沪深 A 股成交额**', '',
     '范围：上证 A 股（000002）＋深证 A 指（399107），不含北交所及 B 股。', '',
@@ -63,7 +63,8 @@ function view(snapshot, state, config, clock, now = new Date()) {
   const color = config.colorMode === 'redUpGreenDown' && comparison && !problem && !staleDay && !state.paused
     ? comparison.delta > 0 ? 'charts.red' : comparison.delta < 0 ? 'charts.green' : undefined
     : undefined;
-  return { text, markdown: lines.join('\n'), color, accessibility: text.replace(/\$\([^)]+\)\s*/g, '') };
+  const accessibility = `${text.replace(/\$\([^)]+\)\s*/g, '')}。统计沪深A股成交额；比较口径：${mode === 'sameTime' ? '昨日同刻' : '昨日全天'}；状态：${suffix}${snapshot ? `；行情日期：${snapshot.date}` : ''}。`;
+  return { text, markdown: lines.join('\n'), color, accessibility };
 }
 
 module.exports = { money, signedMoney, describeChange, quoteClock, view };

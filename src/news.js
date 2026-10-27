@@ -55,7 +55,7 @@ class NewsController {
     if (this.error && this.error !== this.lastError) this.output.appendLine(`⚠ ${this.error}${this.items.length ? '。保留上次成功快讯。' : ''}`);
     this.lastError = this.error;
     if (!this.config.enabled) { if (this.statusVisible) { this.status.hide(); this.statusVisible = false; } return; }
-    const text = `$(megaphone) 财经新闻${this.unread ? ` (${this.unread})` : ''}${this.paused ? ' · 暂停' : this.error ? ' $(warning)' : ''}`;
+    const text = `$(megaphone) 新闻${this.unread ? ` (${this.unread})` : ''}${this.paused ? ' · 暂停' : this.error ? ' $(warning)' : ''}`;
     const tooltip = `${SOURCES[this.config.source]}财经快讯，${this.config.interval / 1000} 秒刷新\n点击打开资讯输出面板${this.error ? '\n' + this.error : ''}`;
     if (this.statusRendered.text !== text) this.status.text = text;
     if (this.statusRendered.tooltip !== tooltip) this.status.tooltip = tooltip;
