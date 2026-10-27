@@ -1,8 +1,8 @@
 {
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
-  "description": "沪深成交额同刻对比、自选股和全球指数、基金净值与本机持仓收益、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.5.1",
+  "description": "沪深成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
+  "version": "1.6.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -24,7 +24,11 @@
     "日经",
     "纳斯达克",
     "基金",
-    "基金收益"
+    "基金收益",
+    "黄金",
+    "原油",
+    "伦敦铜",
+    "白银"
   ],
   "main": "./src/extension.js",
   "extensionKind": [
@@ -42,12 +46,13 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.5.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.6.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
     "smoke:global": "node scripts/smoke-global.js",
-    "smoke:funds": "node scripts/smoke-funds.js"
+    "smoke:funds": "node scripts/smoke-funds.js",
+    "smoke:commodities": "node scripts/smoke-commodities.js"
   },
   "contributes": {
     "commands": [
@@ -223,6 +228,31 @@
         "command": "welove42.aShareTurnover.funds.open",
         "title": "基金：在浏览器查看基金详情",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "welove42.aShareTurnover.commodities.add",
+        "title": "全球商品：按名称或代码添加商品",
+        "icon": "$(add)"
+      },
+      {
+        "command": "welove42.aShareTurnover.commodities.remove",
+        "title": "全球商品：移除商品",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "welove42.aShareTurnover.commodities.refresh",
+        "title": "全球商品：立即刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "welove42.aShareTurnover.commodities.togglePause",
+        "title": "全球商品：暂停 / 恢复自动刷新",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "welove42.aShareTurnover.commodities.open",
+        "title": "全球商品：在浏览器查看商品详情",
+        "icon": "$(link-external)"
       }
     ],
     "configuration": {
@@ -384,6 +414,28 @@
             "pattern": "^\\d{6}$"
           },
           "description": "关注的六位基金代码，默认不预置基金；可通过＋按名称或代码搜索添加。持仓份额与成本保存在本机扩展存储，不写入此设置。"
+        },
+        "aShareTurnover.commodities.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "显示全球商品折叠栏目，展开时每10秒获取新浪财经CFD参考行情，不受A股开盘时间限制。"
+        },
+        "aShareTurnover.commodities.symbols": {
+          "type": "array",
+          "default": [
+            "XAU",
+            "OIL",
+            "CAD",
+            "XAG"
+          ],
+          "scope": "application",
+          "uniqueItems": true,
+          "maxItems": 14,
+          "items": {
+            "type": "string"
+          },
+          "description": "默认仅伦敦金、布伦特原油、伦敦铜、伦敦银，顺序按此列表保存。点击＋可按名称、拼音简称或代码从支持的商品目录添加其他品种；代码支持XAU或hf_XAU格式。空数组保持空列表。"
         }
       }
     },
@@ -414,6 +466,12 @@
           "name": "基金",
           "contextualTitle": "STOCK 基金",
           "when": "config.aShareTurnover.funds.enabled"
+        },
+        {
+          "id": "welove42.aShareTurnover.commodities",
+          "name": "全球商品",
+          "contextualTitle": "STOCK 全球商品",
+          "when": "config.aShareTurnover.commodities.enabled"
         }
       ]
     },
@@ -490,6 +548,21 @@
           "command": "welove42.aShareTurnover.funds.togglePause",
           "when": "view == welove42.aShareTurnover.funds",
           "group": "navigation@2"
+        },
+        {
+          "command": "welove42.aShareTurnover.commodities.add",
+          "when": "view == welove42.aShareTurnover.commodities",
+          "group": "navigation@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.commodities.refresh",
+          "when": "view == welove42.aShareTurnover.commodities",
+          "group": "navigation@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.commodities.togglePause",
+          "when": "view == welove42.aShareTurnover.commodities",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -556,6 +629,21 @@
         {
           "command": "welove42.aShareTurnover.funds.open",
           "when": "view == welove42.aShareTurnover.funds && viewItem == aShareFund",
+          "group": "navigation@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.commodities.remove",
+          "when": "view == welove42.aShareTurnover.commodities && viewItem == aShareCommodity",
+          "group": "inline@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.commodities.remove",
+          "when": "view == welove42.aShareTurnover.commodities && viewItem == aShareCommodity",
+          "group": "manage@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.commodities.open",
+          "when": "view == welove42.aShareTurnover.commodities && viewItem == aShareCommodity",
           "group": "navigation@0"
         }
       ],

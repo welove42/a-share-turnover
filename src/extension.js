@@ -9,6 +9,7 @@ const { NewsController } = require('./news');
 const { ChartController } = require('./charts');
 const { GlobalIndicesController } = require('./global-indices');
 const { FundsController } = require('./funds');
+const { CommoditiesController } = require('./commodities');
 const { warnLegacy } = require('./legacy');
 
 class TurnoverController {
@@ -201,13 +202,19 @@ function activate(context) {
   const charts = new ChartController(context, { selected: () => stocks.config.selected, name: symbol => stocks.quotes.get(symbol)?.name });
   const globals = new GlobalIndicesController(context, { log: message => controller.log(message) });
   const funds = new FundsController(context, { log: message => controller.log(message) });
+  const commodities = new CommoditiesController(context, { log: message => controller.log(message) });
   context.subscriptions.push(controller,
     vscode.commands.registerCommand('welove42.aShareTurnover.refresh', () => controller.refresh(true)),
     vscode.commands.registerCommand('welove42.aShareTurnover.showMenu', () => controller.showMenu()),
     vscode.commands.registerCommand('welove42.aShareTurnover.togglePause', () => controller.togglePause()),
     vscode.commands.registerCommand('welove42.aShareTurnover.switchComparison', () => controller.switchComparison()),
     vscode.commands.registerCommand('welove42.aShareTurnover.showLog', () => controller.output.show()),
-    stocks, news, charts, globals, funds,
+    stocks, news, charts, globals, funds, commodities,
+    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
+    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),
+    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.refresh', () => commodities.refresh()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.togglePause', () => commodities.togglePause()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.open', element => commodities.open(element)),
     vscode.commands.registerCommand('welove42.aShareTurnover.funds.add', input => funds.add(input)),
     vscode.commands.registerCommand('welove42.aShareTurnover.funds.remove', element => funds.remove(element)),
     vscode.commands.registerCommand('welove42.aShareTurnover.funds.refresh', () => funds.refresh()),
@@ -239,7 +246,7 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.news.setToken', () => news.setToken()),
     vscode.commands.registerCommand('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
   );
-  controller.start(); stocks.start(); news.start(); globals.start(); funds.start();
+  controller.start(); stocks.start(); news.start(); globals.start(); funds.start(); commodities.start();
   void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
   return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
     getStockSearchState: () => stocks.activePicker ? { title: stocks.activePicker.title, query: stocks.activePicker.value, busy: stocks.activePicker.busy,
@@ -250,6 +257,8 @@ function activate(context) {
     getGlobalIndicesStatus: () => ({ enabled: globals.enabled, visible: globals.tree.visible, paused: globals.paused, lastAttempt: globals.lastAttempt }),
     getFunds: () => funds.symbols.map(code => ({ code, quote: funds.quotes.get(code), error: funds.errors.get(code), hasHolding: Boolean(funds.holdings[code]) })),
     getFundsStatus: () => ({ enabled: funds.enabled, visible: funds.tree.visible, paused: funds.paused, lastAttempt: funds.lastAttempt }),
+    getCommodities: () => commodities.codes.map(code => ({ code, quote: commodities.quotes.get(code), error: commodities.errors.get(code) })),
+    getCommoditiesStatus: () => ({ enabled: commodities.enabled, visible: commodities.tree.visible, paused: commodities.paused, lastAttempt: commodities.lastAttempt }),
     getLatestNews: () => news.items[0] ? { ...news.items[0] } : undefined };
 }
 
