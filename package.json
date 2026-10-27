@@ -1,8 +1,8 @@
 {
   "name": "a-share-turnover",
-  "displayName": "A股行情 · 自选股、图表与财经新闻",
-  "description": "沪深成交额同刻对比、中文名或代码搜索自选股、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.3.3",
+  "displayName": "A股行情 · 自选股、全球指数与财经新闻",
+  "description": "沪深成交额同刻对比、中文名或代码搜索自选股、全球指数分区查询、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
+  "version": "1.4.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -19,7 +19,10 @@
     "成交额",
     "财经新闻",
     "股票",
-    "ETF"
+    "ETF",
+    "全球指数",
+    "日经",
+    "纳斯达克"
   ],
   "main": "./src/extension.js",
   "extensionKind": [
@@ -37,10 +40,11 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.3.3.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.4.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
-    "smoke:charts": "node scripts/smoke-charts.js"
+    "smoke:charts": "node scripts/smoke-charts.js",
+    "smoke:global": "node scripts/smoke-global.js"
   },
   "contributes": {
     "commands": [
@@ -150,6 +154,26 @@
         "command": "welove42.aShareTurnover.chart.openInBrowser",
         "title": "A股图表：在浏览器打开当前图表",
         "shortTitle": "在浏览器打开当前图表",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "welove42.aShareTurnover.globalIndices.search",
+        "title": "全球指数：查询名称、代码或地区",
+        "icon": "$(search)"
+      },
+      {
+        "command": "welove42.aShareTurnover.globalIndices.refresh",
+        "title": "全球指数：立即刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "welove42.aShareTurnover.globalIndices.togglePause",
+        "title": "全球指数：暂停 / 恢复自动刷新",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "welove42.aShareTurnover.globalIndices.open",
+        "title": "全球指数：在浏览器查看指数详情",
         "icon": "$(link-external)"
       }
     ],
@@ -272,6 +296,12 @@
           "maximum": 300,
           "scope": "application",
           "description": "7×24快讯刷新间隔（秒），休市期间也刷新。支持暂停，默认不弹出桌面通知。"
+        },
+        "aShareTurnover.globalIndices.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "显示自选股下方的全球指数栏目，支持按地区或名称/代码查询。栏目可见时每10秒刷新，不受A股交易时段限制。"
         }
       }
     },
@@ -290,6 +320,12 @@
           "id": "welove42.aShareTurnover.watchlist",
           "name": "自选股（名称 / 代码）",
           "contextualTitle": "STOCK 自选股"
+        },
+        {
+          "id": "welove42.aShareTurnover.globalIndices",
+          "name": "全球指数",
+          "contextualTitle": "STOCK 全球指数",
+          "when": "config.aShareTurnover.globalIndices.enabled"
         }
       ]
     },
@@ -331,6 +367,21 @@
           "command": "welove42.aShareTurnover.news.show",
           "when": "view == welove42.aShareTurnover.watchlist",
           "group": "news@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.search",
+          "when": "view == welove42.aShareTurnover.globalIndices",
+          "group": "navigation@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.refresh",
+          "when": "view == welove42.aShareTurnover.globalIndices",
+          "group": "navigation@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.togglePause",
+          "when": "view == welove42.aShareTurnover.globalIndices",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -353,6 +404,11 @@
           "command": "welove42.aShareTurnover.stocks.openInBrowser",
           "when": "view == welove42.aShareTurnover.watchlist && viewItem == aShareStock",
           "group": "chart@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.open",
+          "when": "view == welove42.aShareTurnover.globalIndices && viewItem == aShareGlobalIndex",
+          "group": "navigation@0"
         }
       ],
       "commandPalette": [
@@ -371,6 +427,10 @@
         {
           "command": "welove42.aShareTurnover.chart.openInBrowser",
           "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart"
+        },
+        {
+          "command": "welove42.aShareTurnover.globalIndices.open",
+          "when": "false"
         }
       ],
       "editor/title": [

@@ -7,6 +7,7 @@ const { view } = require('./view');
 const { WatchlistController } = require('./watchlist');
 const { NewsController } = require('./news');
 const { ChartController } = require('./charts');
+const { GlobalIndicesController } = require('./global-indices');
 const { warnLegacy } = require('./legacy');
 
 class TurnoverController {
@@ -197,13 +198,18 @@ function activate(context) {
   const stocks = new WatchlistController(context, { log: message => controller.log(message) });
   const news = new NewsController(context, { log: message => controller.log(message) });
   const charts = new ChartController(context, { selected: () => stocks.config.selected, name: symbol => stocks.quotes.get(symbol)?.name });
+  const globals = new GlobalIndicesController(context, { log: message => controller.log(message) });
   context.subscriptions.push(controller,
     vscode.commands.registerCommand('welove42.aShareTurnover.refresh', () => controller.refresh(true)),
     vscode.commands.registerCommand('welove42.aShareTurnover.showMenu', () => controller.showMenu()),
     vscode.commands.registerCommand('welove42.aShareTurnover.togglePause', () => controller.togglePause()),
     vscode.commands.registerCommand('welove42.aShareTurnover.switchComparison', () => controller.switchComparison()),
     vscode.commands.registerCommand('welove42.aShareTurnover.showLog', () => controller.output.show()),
-    stocks, news, charts,
+    stocks, news, charts, globals,
+    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.search', () => globals.search()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.refresh', () => globals.refresh()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.togglePause', () => globals.togglePause()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.open', element => globals.open(element)),
     vscode.commands.registerCommand('welove42.aShareTurnover.stocks.openChart', (element, mode) => charts.open(element, mode)),
     vscode.commands.registerCommand('welove42.aShareTurnover.stocks.openInBrowser', element => charts.openExternal(element)),
     vscode.commands.registerCommand('welove42.aShareTurnover.chart.selectMode', () => charts.chooseMode()),
@@ -222,13 +228,15 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.news.setToken', () => news.setToken()),
     vscode.commands.registerCommand('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
   );
-  controller.start(); stocks.start(); news.start();
+  controller.start(); stocks.start(); news.start(); globals.start();
   void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
   return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
     getStockSearchState: () => stocks.activePicker ? { title: stocks.activePicker.title, query: stocks.activePicker.value, busy: stocks.activePicker.busy,
       candidates: stocks.activePicker.items.filter(item => item.symbols).map(item => ({ name: item.label, symbols: [...item.symbols] })) } : undefined,
     getStockQuote: symbol => { const q = stocks.quotes.get(symbol); return q ? { ...q } : undefined; },
     getNewsCount: () => news.items.length, getChartState: symbol => charts.getState(symbol),
+    getGlobalIndices: () => [...globals.catalog.values()].map(entry => ({ ...entry, quote: globals.quotes.get(entry.id), error: globals.errors.get(entry.id) })),
+    getGlobalIndicesStatus: () => ({ enabled: globals.enabled, visible: globals.tree.visible, paused: globals.paused, lastAttempt: globals.lastAttempt }),
     getLatestNews: () => news.items[0] ? { ...news.items[0] } : undefined };
 }
 
