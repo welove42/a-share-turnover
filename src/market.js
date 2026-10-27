@@ -208,6 +208,6 @@ function isSnapshot(value) {
 }
 
 module.exports = {
-  POLL_MS, PHASE_LABELS, shanghaiClock, session, numeric, normalizeDate, timeToMinute,
+  POLL_MS, PHASE_LABELS, shanghaiClock, session, numeric, validDate, normalizeDate, timeToMinute,
   tradingMinute, stockSession, stockTradingMinute, parsePoints, parseMinute, parseHistory, change, minuteLabel, buildSnapshot, isSnapshot
 };

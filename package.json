@@ -1,8 +1,8 @@
 {
   "name": "a-share-turnover",
-  "displayName": "A股行情 · 自选股、全球指数与财经新闻",
-  "description": "沪深成交额同刻对比、中文名或代码搜索自选股、自定义全球指数列表、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.4.1",
+  "displayName": "A股行情 · 自选股、基金与全球指数",
+  "description": "沪深成交额同刻对比、自选股和全球指数、基金净值与本机持仓收益、东方财富行情图表，以及输出面板财经快讯。",
+  "version": "1.5.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -22,7 +22,9 @@
     "ETF",
     "全球指数",
     "日经",
-    "纳斯达克"
+    "纳斯达克",
+    "基金",
+    "基金收益"
   ],
   "main": "./src/extension.js",
   "extensionKind": [
@@ -40,11 +42,12 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.4.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.5.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
-    "smoke:global": "node scripts/smoke-global.js"
+    "smoke:global": "node scripts/smoke-global.js",
+    "smoke:funds": "node scripts/smoke-funds.js"
   },
   "contributes": {
     "commands": [
@@ -185,6 +188,41 @@
         "command": "welove42.aShareTurnover.globalIndices.remove",
         "title": "全球指数：删除指数",
         "icon": "$(trash)"
+      },
+      {
+        "command": "welove42.aShareTurnover.funds.add",
+        "title": "基金：按名称或代码添加基金",
+        "icon": "$(add)"
+      },
+      {
+        "command": "welove42.aShareTurnover.funds.refresh",
+        "title": "基金：立即检查净值",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "welove42.aShareTurnover.funds.togglePause",
+        "title": "基金：暂停 / 恢复自动检查",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "welove42.aShareTurnover.funds.remove",
+        "title": "基金：移出列表（保留持仓记录）",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "welove42.aShareTurnover.funds.editHolding",
+        "title": "基金：设置持仓份额和总成本",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "welove42.aShareTurnover.funds.clearHolding",
+        "title": "基金：清除本机持仓（保留关注）",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "welove42.aShareTurnover.funds.open",
+        "title": "基金：在浏览器查看基金详情",
+        "icon": "$(link-external)"
       }
     ],
     "configuration": {
@@ -328,6 +366,24 @@
             "pattern": "^(?:100\\.)?[A-Za-z][A-Za-z0-9]{0,19}$"
           },
           "description": "全球指数显示列表，按添加顺序排列。点击栏目＋搜索名称或代码添加，行末垃圾桶删除；也可填代码如 NDX、N225、KS11、100.SPX。空数组表示不显示任何指数。"
+        },
+        "aShareTurnover.funds.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "显示基金折叠栏目。展示已公布净值与涨跌，支持本机持仓收益；可见时每60秒检查净值。"
+        },
+        "aShareTurnover.funds.symbols": {
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^\\d{6}$"
+          },
+          "description": "关注的六位基金代码，默认不预置基金；可通过＋按名称或代码搜索添加。持仓份额与成本保存在本机扩展存储，不写入此设置。"
         }
       }
     },
@@ -352,6 +408,12 @@
           "name": "全球指数",
           "contextualTitle": "STOCK 全球指数",
           "when": "config.aShareTurnover.globalIndices.enabled"
+        },
+        {
+          "id": "welove42.aShareTurnover.funds",
+          "name": "基金",
+          "contextualTitle": "STOCK 基金",
+          "when": "config.aShareTurnover.funds.enabled"
         }
       ]
     },
@@ -365,6 +427,11 @@
         "view": "welove42.aShareTurnover.watchlist",
         "contents": "自选行情已禁用，请在用户设置中开启 aShareTurnover.stocks.enabled。",
         "when": "!config.aShareTurnover.stocks.enabled"
+      },
+      {
+        "view": "welove42.aShareTurnover.funds",
+        "contents": "添加基金查看已公布净值和涨跌幅。\n[按名称或代码添加基金](command:welove42.aShareTurnover.funds.add)\n行末铅笔可设置份额和成本，计算个人持仓收益。\n基金净值通常按日公布，持仓数据只保存在本机。",
+        "when": "config.aShareTurnover.funds.enabled"
       }
     ],
     "menus": {
@@ -408,6 +475,21 @@
           "command": "welove42.aShareTurnover.globalIndices.togglePause",
           "when": "view == welove42.aShareTurnover.globalIndices",
           "group": "navigation@2"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.add",
+          "when": "view == welove42.aShareTurnover.funds",
+          "group": "navigation@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.refresh",
+          "when": "view == welove42.aShareTurnover.funds",
+          "group": "navigation@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.togglePause",
+          "when": "view == welove42.aShareTurnover.funds",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -445,6 +527,36 @@
           "command": "welove42.aShareTurnover.globalIndices.remove",
           "when": "view == welove42.aShareTurnover.globalIndices && viewItem == aShareGlobalIndex",
           "group": "manage@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.editHolding",
+          "when": "view == welove42.aShareTurnover.funds && viewItem == aShareFund",
+          "group": "inline@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.remove",
+          "when": "view == welove42.aShareTurnover.funds && viewItem == aShareFund",
+          "group": "inline@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.editHolding",
+          "when": "view == welove42.aShareTurnover.funds && viewItem == aShareFund",
+          "group": "holdings@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.clearHolding",
+          "when": "view == welove42.aShareTurnover.funds && viewItem == aShareFund",
+          "group": "holdings@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.remove",
+          "when": "view == welove42.aShareTurnover.funds && viewItem == aShareFund",
+          "group": "manage@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.funds.open",
+          "when": "view == welove42.aShareTurnover.funds && viewItem == aShareFund",
+          "group": "navigation@0"
         }
       ],
       "commandPalette": [
