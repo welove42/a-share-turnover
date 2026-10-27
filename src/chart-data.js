@@ -9,6 +9,17 @@ function eastmoneyUrl(input) {
   if (/^sh000\d{3}$/.test(symbol) || /^sz399\d{3}$/.test(symbol)) return `https://quote.eastmoney.com/zs${code}.html`;
   return `https://quote.eastmoney.com/${symbol}.html`;
 }
+function supportsChips(input) {
+  return /^(?:sh6\d{5}|sz(?:00|30)\d{4})$/.test(normalizeSymbol(input));
+}
+function eastmoneyChartUrl(input, mode = 'eastmoney') {
+  const symbol = normalizeSymbol(input), code = symbol.slice(2);
+  const market = symbol.startsWith('sh') ? '1' : '0';
+  if (mode === 'chips' && supportsChips(symbol)) {
+    return `https://quote.eastmoney.com/basic/h5chart-iframe.html?code=${code}&market=${market}`;
+  }
+  return `https://quote.eastmoney.com/basic/full.html?mcid=${market}.${code}`;
+}
 function number(value, label) {
   if (!['string', 'number'].includes(typeof value) || String(value).trim() === '') throw new Error(`${label}缺失`);
   const n = Number(value);
@@ -71,4 +82,4 @@ class ChartProvider {
     return parseChart(await this.request(url, signal), symbol, mode);
   }
 }
-module.exports = { eastmoneyUrl, parseChart, ChartProvider };
+module.exports = { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, ChartProvider };

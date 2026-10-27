@@ -5,13 +5,49 @@ function setup(load) {
   const h = harness(); let now = new Date('2026-10-26T10:30:00+08:00'), calls = 0;
   const { ChartController } = h.load('../src/charts');
   const c = new ChartController(h.context, { now: () => now, provider: { load: async (...args) => { calls++; return load ? load(...args) : { symbol: args[0], mode: args[1], name: '测试股', bars: [{ close: 10 }] }; } } });
-  return { ...h, c, calls: () => calls, setNow: time => { now = new Date(time); }, mode: (s, mode) => c.receive(s, { action: 'mode', mode, token: s.token }) };
+  return { ...h, c, calls: () => calls, setNow: time => { now = new Date(time); }, mode: (s, mode) => {
+    if (!s.ready) c.receive(s, { action: 'ready', token: s.token });
+    return c.receive(s, { action: 'mode', mode, token: s.token });
+  } };
 }
 test('同一个股复用图表标签，iframe模式不会每10秒重新加载网页', async () => {
   const h = setup(); try {
     await h.c.open('600519'); const state = h.c.panels.get('sh600519'), html = state.panel.webview.html;
-    assert.match(html, /<iframe[^>]+https:\/\/quote\.eastmoney\.com\/sh600519\.html/); assert.match(html, /frame-src https:\/\/quote\.eastmoney\.com/);
+    assert.match(html, /<iframe[^>]+https:\/\/quote\.eastmoney\.com\/basic\/full\.html\?mcid=1\.600519/); assert.match(html, /frame-src https:\/\/quote\.eastmoney\.com/);
     await h.c.open({ symbol: 'sh600519' }); h.c.tick(); assert.equal(h.panels.length, 1); assert.equal(state.panel.revealCalls, 1); assert.equal(h.calls(), 0); assert.equal(state.panel.webview.html, html);
+  } finally { h.c.dispose(); }
+});
+test('不同个股复用同一标签，保留筹码盘口模式；同一个股重复点击不重载', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105'), panel = s.panel;
+    await h.mode(s, 'chips'); const token = s.token;
+    await h.c.open('000001');
+    assert.equal(h.panels.length, 1); assert.equal(h.c.panels.size, 1); assert.equal(h.c.panels.get('sz000001'), s);
+    assert.equal(s.panel, panel); assert.equal(s.mode, 'chips'); assert.notEqual(s.token, token);
+    assert.match(panel.webview.html, /h5chart-iframe\.html\?code=000001&amp;market=0/);
+    const html = panel.webview.html;
+    await h.c.open('000001'); h.c.tick(); assert.equal(panel.webview.html, html); assert.equal(h.calls(), 0);
+    assert.equal(h.c.getState('sh600105'), undefined);
+  } finally { h.c.dispose(); }
+});
+test('筹码模式切换指数或ETF时退回常规图表并禁用不支持的入口', async () => {
+  const h = setup(); try {
+    await h.c.open('600105', 'chips');
+    await h.c.open('sh000001'); const s = h.c.panels.get('sh000001');
+    assert.equal(s.mode, 'eastmoney'); assert.match(s.panel.webview.html, /data-mode="chips"[^>]*disabled/);
+    await h.c.open('sh510300', 'chips'); assert.equal(s.mode, 'eastmoney');
+    await h.c.open('bj920002', 'chips'); assert.equal(s.mode, 'eastmoney');
+    assert.equal(h.panels.length, 1);
+  } finally { h.c.dispose(); }
+});
+test('Webview尚未就绪时切换模式，以最后一次选择初始化且不重复加载同个股票', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105'), html = s.panel.webview.html;
+    await h.c.open('600105', 'chips');
+    assert.equal(s.ready, false); assert.equal(s.mode, 'chips'); assert.equal(s.panel.webview.html, html);
+    h.c.receive(s, { action: 'ready', token: s.token });
+    assert.equal(s.panel.webview.messages.at(-1).mode, 'chips');
+    h.setNow('2026-10-26T10:31:00+08:00'); h.c.tick(); assert.equal(h.calls(), 0);
   } finally { h.c.dispose(); }
 });
 test('插件内图表交易期间10秒轮询，可见性和午休暂停，刷新仅发消息不替换HTML', async () => {
@@ -38,11 +74,32 @@ test('切换图表类型取消旧请求，迟到结果不覆盖新图，关闭�
     s.panel.dispose(); assert.equal(h.c.panels.size, 0);
   } finally { h.c.dispose(); }
 });
+test('切换个股取消旧行情请求及旧页面消息，迟到结果不能覆盖新股票', async () => {
+  const requests = [];
+  const h = setup((symbol, mode, signal) => new Promise(resolve => requests.push({ symbol, signal, resolve })));
+  try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105'), token = s.token;
+    const old = h.mode(s, 'intraday');
+    await h.c.open('000001'); assert.equal(requests[0].signal.aborted, true);
+    await h.c.receive(s, { action: 'mode', mode: 'chips', token }); assert.equal(s.mode, 'intraday');
+    await h.c.receive(s, { action: 'external', token }); assert.equal(h.opened.length, 0);
+    const current = h.mode(s, 'intraday');
+    requests[1].resolve({ symbol: 'sz000001', mode: 'intraday', name: '平安银行', bars: [] }); await current;
+    requests[0].resolve({ symbol: 'sh600105', mode: 'intraday', name: '过期永鼎', bars: [] }); await old;
+    assert.equal(s.data.symbol, 'sz000001'); assert.equal(s.panel.title, '平安银行 · 行情');
+    assert.equal(s.panel.webview.messages.filter(m => m.type === 'data').length, 1);
+    s.panel.dispose(); assert.equal(h.c.panels.size, 0);
+    await h.c.open('600105'); assert.equal(h.panels.length, 2); assert.equal(h.c.panels.size, 1);
+  } finally { h.c.dispose(); }
+});
 test('iframe不能传入任意URL打开系统浏览器，消息令牌不匹配时忽略', async () => {
   const h = setup(); try {
     await h.c.open('sh000001'); const s = h.c.panels.get('sh000001');
     await h.c.receive(s, { action: 'external', token: 'wrong', url: 'https://evil.example' }); assert.equal(h.opened.length, 0);
-    await h.c.receive(s, { action: 'external', token: s.token, url: 'https://evil.example' }); assert.deepEqual(h.opened, ['https://quote.eastmoney.com/zs000001.html']);
+    await h.c.receive(s, { action: 'external', token: s.token, url: 'https://evil.example' }); assert.deepEqual(h.opened, ['https://quote.eastmoney.com/basic/full.html?mcid=1.000001']);
+    await h.c.open('600105', 'chips');
+    await h.c.receive(s, { action: 'external', token: s.token, url: 'https://evil.example' });
+    assert.equal(h.opened.at(-1), 'https://quote.eastmoney.com/basic/h5chart-iframe.html?code=600105&market=1');
     await h.c.open('https://evil.example'); assert.equal(h.panels.length, 1);
   } finally { h.c.dispose(); }
 });

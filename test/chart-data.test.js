@@ -1,6 +1,6 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const { eastmoneyUrl, parseChart, ChartProvider } = require('../src/chart-data');
+const { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, ChartProvider } = require('../src/chart-data');
 const symbol = 'sh600519';
 const wrap = data => ({ code: 0, data: { [symbol]: data } });
 test('东方财富区分个股、沪深指数和北交所路径，拒绝URL注入', () => {
@@ -10,6 +10,21 @@ test('东方财富区分个股、沪深指数和北交所路径，拒绝URL注�
   assert.equal(eastmoneyUrl('sz399001'), 'https://quote.eastmoney.com/zs399001.html');
   assert.equal(eastmoneyUrl('bj920002'), 'https://quote.eastmoney.com/bj/920002.html');
   assert.throws(() => eastmoneyUrl('https://evil.example/'));
+});
+test('专用图表正确映射沪深及北交所；筹码盘口只向沪深A股开放', () => {
+  assert.equal(eastmoneyChartUrl('sh600105'), 'https://quote.eastmoney.com/basic/full.html?mcid=1.600105');
+  assert.equal(eastmoneyChartUrl('000001'), 'https://quote.eastmoney.com/basic/full.html?mcid=0.000001');
+  assert.equal(eastmoneyChartUrl('sh000001'), 'https://quote.eastmoney.com/basic/full.html?mcid=1.000001');
+  assert.equal(eastmoneyChartUrl('bj920002'), 'https://quote.eastmoney.com/basic/full.html?mcid=0.920002');
+  for (const symbol of ['sh600105', 'sh688001', 'sz000001', 'sz002594', 'sz300750', 'sz301001']) {
+    assert.equal(supportsChips(symbol), true);
+    assert.equal(eastmoneyChartUrl(symbol, 'chips'), `https://quote.eastmoney.com/basic/h5chart-iframe.html?code=${symbol.slice(2)}&market=${symbol.startsWith('sh') ? 1 : 0}`);
+  }
+  for (const symbol of ['sh000001', 'sz399001', 'sh510300', 'sz159915', 'bj920002']) {
+    assert.equal(supportsChips(symbol), false);
+    assert.equal(eastmoneyChartUrl(symbol, 'chips'), eastmoneyChartUrl(symbol));
+  }
+  assert.throws(() => eastmoneyChartUrl('https://evil.example'));
 });
 test('分时成交量为累计值，图表柱使用相邻差额；跳过集合竞价与零价格', () => {
   const result = parseChart(wrap({ data: { date: '20261026', data: ['0925 0 0', '0930 10.01 100', '0931 10.02 140', '0932 10.02 140', '1300 10.03 220'] } }), symbol, 'intraday');

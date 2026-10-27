@@ -8,13 +8,15 @@ strong { font-size: 18px; }
 nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 button, select { font: inherit; border: 1px solid var(--vscode-button-border, #49596e); border-radius: 4px; padding: 6px 12px; color: var(--vscode-button-secondaryForeground, #e6edf6); background: var(--vscode-button-secondaryBackground, #253247); cursor: pointer; }
 button:hover { background: var(--vscode-button-secondaryHoverBackground, #344762); }
+button:disabled { opacity: .45; cursor: not-allowed; }
 button[aria-pressed="true"] { color: var(--vscode-button-foreground, white); background: var(--vscode-button-background, #166ba5); border-color: var(--vscode-focusBorder, #55b1ef); }
 button:focus-visible, select:focus-visible, #plot:focus-visible { outline: 2px solid var(--vscode-focusBorder, #55b1ef); outline-offset: 2px; }
 .spacer { flex: 1; }
 #hint, .note { color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; line-height: 1.7; }
 #hint { margin: 9px 0 0; }
 main { padding: 0; }
-iframe { display: block; width: 100%; height: calc(100vh - 140px); min-height: 480px; border: 0; background: white; }
+#web-chart { overflow-x: auto; }
+iframe { display: block; width: 100%; min-width: 1000px; height: calc(100vh - 150px); min-height: 600px; border: 0; background: white; }
 [hidden] { display: none !important; }
 #local { padding: 14px 20px 20px; max-width: 1500px; margin: auto; }
 .chart-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 33px; }

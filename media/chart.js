@@ -2,9 +2,11 @@
 (() => {
   const vscode = acquireVsCodeApi();
   const $ = id => document.getElementById(id);
-  const { token, symbol, url, mode: initialMode } = document.body.dataset;
+  const { token, symbol, regularUrl, chipsUrl, mode: initialMode } = document.body.dataset;
   const up = '#f05b68', down = '#26bd8c', lineColor = '#5bbcff';
-  const modes = ['eastmoney', 'intraday', 'daily'];
+  const modes = ['eastmoney', 'chips', 'intraday', 'daily'];
+  const isWebMode = value => value === 'eastmoney' || value === 'chips';
+  const webUrl = () => mode === 'chips' ? chipsUrl : regularUrl;
   const saved = vscode.getState() || {};
   let mode = 'eastmoney', data = null, range = [60, 120, 180].includes(saved.range) ? saved.range : 180, hover = null;
   const send = (action, extra = {}) => vscode.postMessage({ action, token, ...extra });
@@ -13,28 +15,32 @@
   const price = value => Number(value).toFixed(precision);
   const volume = value => value >= 1e8 ? (value / 1e8).toFixed(2) + '亿手' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万手' : Number(value).toFixed(0) + '手';
   const clock = timestamp => timestamp ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)} ${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:${timestamp.slice(12, 14)}` : '';
-  function setMode(next) {
+  function setMode(next, notify = true) {
     if (!modes.includes(next)) return;
+    if (next === 'chips' && !chipsUrl) next = 'eastmoney';
     const changed = mode !== next;
     mode = next;
-    document.querySelectorAll('[data-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
-    $('eastmoney').hidden = mode !== 'eastmoney'; $('local').hidden = mode === 'eastmoney'; $('range-label').hidden = mode !== 'daily';
-    if (mode === 'eastmoney') {
-      if (!$('eastmoney').getAttribute('src')) $('eastmoney').src = url;
+    document.querySelectorAll('button[data-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
+    $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('range-label').hidden = mode !== 'daily';
+    if (isWebMode(mode)) {
+      if ($('eastmoney').getAttribute('src') !== webUrl()) $('eastmoney').src = webUrl();
     } else {
       // Release the third-party document while the user is viewing native charts.
       $('eastmoney').removeAttribute('src');
       if (changed) { data = null; hover = null; $('svg').replaceChildren(); $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格与成交量。'; }
     }
-    $('hint').textContent = mode === 'eastmoney'
-      ? '内嵌东方财富完整行情页。若空白或出现登录 / 验证，可切换分时、日K图，或在浏览器打开。'
-      : '插件内图表使用腾讯公开行情，不依赖东方财富网页登录。可随时切回完整网页。';
-    remember(); send('mode', { mode });
+    if (isWebMode(mode)) {
+      $('quote').textContent = '';
+      $('hint').textContent = (mode === 'chips' ? '东方财富筹码盘口：买卖五档、分时与K线；选择网页内“日K”可查看筹码分布。' : '东方财富常规图表：分时、日K及其他周期。')
+        + (!chipsUrl ? ' 当前品种使用常规图表，筹码盘口仅对沪深A股个股开放。' : '')
+        + ' 网页自行刷新；若空白，可切换插件内分时、日K或在浏览器打开。';
+    } else $('hint').textContent = '插件内图表使用腾讯公开行情，每10秒更新。可随时切回东方财富专用图表。';
+    remember(); if (notify) send('mode', { mode });
   }
-  document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
+  document.querySelectorAll('button[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
   $('external').addEventListener('click', () => send('external'));
   $('refresh').addEventListener('click', () => {
-    if (mode === 'eastmoney') { $('eastmoney').src = url; return; }
+    if (isWebMode(mode)) { $('eastmoney').src = webUrl(); return; }
     send('refresh');
   });
   $('range').value = String(range);
@@ -140,7 +146,7 @@
     if (message.mode && message.mode !== mode) return;
     if (message.type === 'loading') { $('status').className = ''; $('status').textContent = message.preserve ? '正在刷新，图表保留上次成功数据…' : '正在获取行情数据…'; }
     if (message.type === 'error') { $('status').className = 'error'; $('status').textContent = `${message.message}${message.preserve ? '；保留上次成功数据，等待下次刷新。' : '。可重试或在浏览器打开。'}`; }
-    if (message.type === 'data' && message.data?.mode === mode) {
+    if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
       data = message.data;
       $('status').className = ''; $('status').textContent = '';
       $('name').textContent = `${data.name} · ${symbol}`;
@@ -151,7 +157,7 @@
       draw();
     }
   });
+  // The host owns the selected symbol/mode; old Webview state only restores the range.
+  setMode(initialMode, false);
   send('ready');
-  const restore = modes.includes(saved.mode) ? saved.mode : initialMode;
-  if (restore !== 'eastmoney') setMode(restore);
 })();
