@@ -20,7 +20,6 @@
     if (next === 'chips' && !chipsUrl) next = 'eastmoney';
     const changed = mode !== next;
     mode = next;
-    document.querySelectorAll('button[data-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
     $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('range-label').hidden = mode !== 'daily';
     if (isWebMode(mode)) {
       if ($('eastmoney').getAttribute('src') !== webUrl()) $('eastmoney').src = webUrl();
@@ -29,20 +28,8 @@
       $('eastmoney').removeAttribute('src');
       if (changed) { data = null; hover = null; $('svg').replaceChildren(); $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格与成交量。'; }
     }
-    if (isWebMode(mode)) {
-      $('quote').textContent = '';
-      $('hint').textContent = (mode === 'chips' ? '东方财富筹码盘口：买卖五档、分时与K线；选择网页内“日K”可查看筹码分布。' : '东方财富常规图表：分时、日K及其他周期。')
-        + (!chipsUrl ? ' 当前品种使用常规图表，筹码盘口仅对沪深A股个股开放。' : '')
-        + ' 网页自行刷新；若空白，可切换插件内分时、日K或在浏览器打开。';
-    } else $('hint').textContent = '插件内图表使用腾讯公开行情，每10秒更新。可随时切回东方财富专用图表。';
-    remember(); if (notify) send('mode', { mode });
+    remember(); if (notify) send('mode-ready', { mode });
   }
-  document.querySelectorAll('button[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
-  $('external').addEventListener('click', () => send('external'));
-  $('refresh').addEventListener('click', () => {
-    if (isWebMode(mode)) { $('eastmoney').src = webUrl(); return; }
-    send('refresh');
-  });
   $('range').value = String(range);
   $('range').addEventListener('change', () => { range = Number($('range').value); remember(); draw(); });
   const svgNS = 'http://www.w3.org/2000/svg';
@@ -141,18 +128,17 @@
   window.addEventListener('message', event => {
     const message = event.data;
     if (!message || message.token !== token) return;
-    if (message.type === 'title') { $('name').textContent = `${message.name} · ${symbol}`; return; }
     if (message.type === 'select-mode') { setMode(message.mode); return; }
     if (message.mode && message.mode !== mode) return;
+    if (message.type === 'refresh' && isWebMode(mode)) { $('eastmoney').src = webUrl(); return; }
     if (message.type === 'loading') { $('status').className = ''; $('status').textContent = message.preserve ? '正在刷新，图表保留上次成功数据…' : '正在获取行情数据…'; }
     if (message.type === 'error') { $('status').className = 'error'; $('status').textContent = `${message.message}${message.preserve ? '；保留上次成功数据，等待下次刷新。' : '。可重试或在浏览器打开。'}`; }
     if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
       data = message.data;
       $('status').className = ''; $('status').textContent = '';
-      $('name').textContent = `${data.name} · ${symbol}`;
       $('meta').textContent = `${data.source} · ${mode === 'daily' ? data.adjustment : '分钟分时'} · 数据日期 ${data.date}${data.timestamp ? ` · 报价时间 ${clock(data.timestamp)}` : ''}（北京）`;
       const last = data.bars.at(-1).close, delta = data.previousClose ? (last / data.previousClose - 1) * 100 : null;
-      $('quote').textContent = `${price(last)}${delta === null || mode === 'daily' ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;
+      $('quote').textContent = `${data.name} · ${symbol}　${price(last)}${delta === null || mode === 'daily' ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;
       $('quote').style.color = delta === null || mode === 'daily' ? '' : delta >= 0 ? up : down;
       draw();
     }

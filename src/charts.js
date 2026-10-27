@@ -21,11 +21,8 @@ function chartHtml(webview, context, symbol, token, mode = 'eastmoney') {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https://quote.eastmoney.com; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; base-uri 'none'; form-action 'none';">
 <link rel="stylesheet" href="${escapeHtml(css)}"><title>${escapeHtml(symbol)} 行情图表</title></head>
 <body data-symbol="${escapeHtml(symbol)}" data-token="${token}" data-regular-url="${escapeHtml(regularUrl)}" data-chips-url="${escapeHtml(chipsUrl)}" data-mode="${escapeHtml(mode)}">
-<header><div class="identity"><strong id="name">${escapeHtml(symbol)}</strong><span id="quote"></span></div>
-<nav aria-label="图表类型"><button data-mode="eastmoney" aria-pressed="${mode === 'eastmoney'}">常规图表</button><button data-mode="chips" aria-pressed="${mode === 'chips'}"${chipsUrl ? '' : ' disabled title="筹码盘口仅支持沪深A股个股；当前品种请使用常规图表"'}>筹码盘口</button><button data-mode="intraday" aria-pressed="${mode === 'intraday'}">分时图</button><button data-mode="daily" aria-pressed="${mode === 'daily'}">日K图</button><span class="spacer"></span><button id="refresh">刷新</button><button id="external">浏览器打开 ↗</button></nav>
-<p id="hint">东方财富专用图表；点击其他个股会在此标签切换。若页面空白，可使用插件内分时、日K图或在浏览器打开。</p></header>
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表"${isWebMode(mode) ? ` src="${escapeHtml(url)}"` : ''} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
-<section id="local" hidden aria-label="插件内行情图表"><div class="chart-tools"><span id="meta"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60日</option><option value="120">120日</option><option value="180" selected>180日</option></select></label></div>
+<section id="local" hidden aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60日</option><option value="120">120日</option><option value="180" selected>180日</option></select></label></div><p id="meta"></p>
 <p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="img" aria-label="行情价格及成交量图"><svg id="svg" viewBox="0 0 1040 550" aria-hidden="true"></svg></div><p id="detail">移动鼠标查看价格与成交量。</p>
 <p class="note">分时为分钟价格，柱形为每分钟成交量；日K包含开高低收及 MA5 / MA10 / MA20。成交量单位：手。数据时间均为北京时间。插件内图表仅在可见且交易期间每10秒刷新；第三方网页按网站自身规则更新。</p></section></main>
 <script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
@@ -48,14 +45,13 @@ class ChartController {
       const nextMode = availableMode(symbol, requestedMode || existing.mode);
       if (existing.symbol !== symbol) {
         this.cancel(existing); this.panels.clear();
-        existing.symbol = symbol; existing.mode = nextMode; existing.data = null; existing.ready = false;
+        existing.symbol = symbol; existing.mode = nextMode; existing.data = null; existing.ready = false; existing.pendingRefresh = false;
         existing.token = randomBytes(24).toString('hex'); existing.lastAttempt = -Infinity;
         this.panels.set(symbol, existing);
         existing.panel.title = `${this.name(symbol) || symbol} · 行情`;
         existing.panel.webview.html = chartHtml(existing.panel.webview, this.context, symbol, existing.token, nextMode);
       } else if (requestedMode && nextMode !== existing.mode) {
-        this.cancel(existing); existing.mode = nextMode; existing.data = null;
-        if (existing.ready) this.send(existing, { type: 'select-mode', mode: nextMode });
+        this.changeMode(existing, nextMode);
       }
       existing.panel.reveal();
       return;
@@ -77,17 +73,56 @@ class ChartController {
   send(state, message) {
     if (!this.disposed && this.panels.get(state.symbol) === state) void Promise.resolve(state.panel.webview.postMessage({ ...message, token: state.token })).catch(() => {});
   }
+  visibleState() {
+    // The title toolbar can be clicked in a visible but unfocused editor group.
+    return this.disposed ? undefined : [...this.panels.values()].find(state => state.panel.visible);
+  }
+  changeMode(state, mode) {
+    const next = availableMode(state.symbol, mode);
+    if (state.mode !== next) { this.cancel(state); state.mode = next; state.data = null; }
+    if (state.ready) this.send(state, { type: 'select-mode', mode: next });
+  }
+  async chooseMode() {
+    const state = this.visibleState();
+    if (!state) return;
+    const token = state.token;
+    const items = [
+      { mode: 'eastmoney', label: '常规图表', detail: '东方财富：分时、日K及其他周期，网页自动更新。' },
+      { mode: 'chips', label: '筹码盘口', detail: '东方财富：买卖五档、分时与K线；网页内选择“日K → 筹码分布”。' },
+      { mode: 'intraday', label: '分时图', detail: '插件内分钟价格与成交量；网页空白时可切换使用。' },
+      { mode: 'daily', label: '日K图', detail: '插件内日K、均线与成交量，支持60 / 120 / 180日范围。' }
+    ].filter(item => item.mode !== 'chips' || supportsChips(state.symbol))
+      .map(item => ({ ...item, description: item.mode === state.mode ? '当前图表' : undefined }));
+    const picked = await vscode.window.showQuickPick(items, {
+      title: `${this.name(state.symbol) || state.symbol} · 切换图表类型`,
+      placeHolder: supportsChips(state.symbol) ? '选择图表类型' : '当前品种不支持筹码盘口，可选择常规图表或插件内图表',
+      matchOnDetail: true
+    });
+    // A picker opened for the previous stock must not change a newly opened stock.
+    if (picked && this.visibleState() === state && state.token === token) this.changeMode(state, picked.mode);
+  }
+  refreshActive() {
+    const state = this.visibleState();
+    if (!state) return;
+    if (!state.ready) { state.pendingRefresh = true; return; }
+    if (isWebMode(state.mode)) this.send(state, { type: 'refresh', mode: state.mode });
+    else return this.refresh(state);
+  }
+  openActiveExternal() {
+    const state = this.visibleState();
+    if (state) return this.openExternal(state.symbol, state.mode);
+  }
   receive(state, message) {
     if (this.disposed || this.panels.get(state.symbol) !== state || !message || message.token !== state.token) return;
     if (message.action === 'external') return this.openExternal(state.symbol, state.mode);
     if (message.action === 'ready') {
       state.ready = true;
-      this.send(state, { type: 'title', name: this.name(state.symbol) || state.symbol });
       this.send(state, { type: 'select-mode', mode: state.mode });
-    } else if (message.action === 'mode' && state.ready && MODES.includes(message.mode)) {
-      const mode = availableMode(state.symbol, message.mode);
-      if (state.mode !== mode) { this.cancel(state); state.mode = mode; state.data = null; }
-      if (mode !== message.mode) this.send(state, { type: 'select-mode', mode });
+      if (state.pendingRefresh) {
+        state.pendingRefresh = false;
+        if (isWebMode(state.mode)) this.send(state, { type: 'refresh', mode: state.mode });
+      }
+    } else if (message.action === 'mode-ready' && state.ready && message.mode === state.mode) {
       if (!isWebMode(state.mode)) return this.refresh(state);
     } else if (message.action === 'refresh' && state.ready && !isWebMode(state.mode)) return this.refresh(state);
   }

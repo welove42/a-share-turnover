@@ -7,7 +7,8 @@ function setup(load) {
   const c = new ChartController(h.context, { now: () => now, provider: { load: async (...args) => { calls++; return load ? load(...args) : { symbol: args[0], mode: args[1], name: '测试股', bars: [{ close: 10 }] }; } } });
   return { ...h, c, calls: () => calls, setNow: time => { now = new Date(time); }, mode: (s, mode) => {
     if (!s.ready) c.receive(s, { action: 'ready', token: s.token });
-    return c.receive(s, { action: 'mode', mode, token: s.token });
+    c.changeMode(s, mode);
+    return c.receive(s, { action: 'mode-ready', mode, token: s.token });
   } };
 }
 test('同一个股复用图表标签，iframe模式不会每10秒重新加载网页', async () => {
@@ -34,7 +35,7 @@ test('筹码模式切换指数或ETF时退回常规图表并禁用不支持的�
   const h = setup(); try {
     await h.c.open('600105', 'chips');
     await h.c.open('sh000001'); const s = h.c.panels.get('sh000001');
-    assert.equal(s.mode, 'eastmoney'); assert.match(s.panel.webview.html, /data-mode="chips"[^>]*disabled/);
+    assert.equal(s.mode, 'eastmoney'); assert.match(s.panel.webview.html, /data-chips-url=""/);
     await h.c.open('sh510300', 'chips'); assert.equal(s.mode, 'eastmoney');
     await h.c.open('bj920002', 'chips'); assert.equal(s.mode, 'eastmoney');
     assert.equal(h.panels.length, 1);
@@ -81,7 +82,7 @@ test('切换个股取消旧行情请求及旧页面消息，迟到结果不能�
     await h.c.open('600105'); const s = h.c.panels.get('sh600105'), token = s.token;
     const old = h.mode(s, 'intraday');
     await h.c.open('000001'); assert.equal(requests[0].signal.aborted, true);
-    await h.c.receive(s, { action: 'mode', mode: 'chips', token }); assert.equal(s.mode, 'intraday');
+    await h.c.receive(s, { action: 'mode-ready', mode: 'chips', token }); assert.equal(s.mode, 'intraday');
     await h.c.receive(s, { action: 'external', token }); assert.equal(h.opened.length, 0);
     const current = h.mode(s, 'intraday');
     requests[1].resolve({ symbol: 'sz000001', mode: 'intraday', name: '平安银行', bars: [] }); await current;
@@ -101,5 +102,60 @@ test('iframe不能传入任意URL打开系统浏览器，消息令牌不匹配�
     await h.c.receive(s, { action: 'external', token: s.token, url: 'https://evil.example' });
     assert.equal(h.opened.at(-1), 'https://quote.eastmoney.com/basic/h5chart-iframe.html?code=600105&market=1');
     await h.c.open('https://evil.example'); assert.equal(h.panels.length, 1);
+  } finally { h.c.dispose(); }
+});
+
+test('工具栏类型菜单仅列出支持的图表，保留当前选择，取消菜单不改变图表', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105');
+    h.c.receive(s, { action: 'ready', token: s.token });
+    let items;
+    h.api.window.showQuickPick = async list => { items = list; return list.find(item => item.mode === 'chips'); };
+    await h.c.chooseMode(); assert.equal(s.mode, 'chips');
+    assert.deepEqual(items.map(item => item.mode), ['eastmoney', 'chips', 'intraday', 'daily']);
+    assert.equal(items.find(item => item.mode === 'eastmoney').description, '当前图表');
+    assert.equal(s.panel.webview.messages.at(-1).type, 'select-mode');
+    h.api.window.showQuickPick = async list => { items = list; return undefined; };
+    await h.c.chooseMode(); assert.equal(s.mode, 'chips');
+    await h.c.open('sh000001'); await h.c.chooseMode();
+    assert.equal(s.mode, 'eastmoney'); assert.equal(items.some(item => item.mode === 'chips'), false);
+    assert.doesNotMatch(s.panel.webview.html, /<header|<nav|id="hint"|id="refresh"|id="external"/);
+  } finally { h.c.dispose(); }
+});
+test('类型菜单打开后切换个股或关闭详情，旧选择不影响新股票', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105'); let finish;
+    h.api.window.showQuickPick = () => new Promise(resolve => { finish = resolve; });
+    const pending = h.c.chooseMode(); await h.c.open('000001');
+    finish({ mode: 'daily' }); await pending; assert.equal(s.mode, 'eastmoney');
+    const closing = h.c.chooseMode(); s.panel.dispose();
+    finish({ mode: 'chips' }); await closing; assert.equal(h.c.panels.size, 0);
+  } finally { h.c.dispose(); }
+});
+test('右上角刷新和浏览器打开作用于当前详情股票；可见但未聚焦的分组也可使用', async () => {
+  const h = setup(); try {
+    await h.c.open('600105', 'chips'); const s = h.c.panels.get('sh600105');
+    s.panel.active = false;
+    h.c.refreshActive(); assert.equal(s.panel.webview.messages.length, 0);
+    h.c.receive(s, { action: 'ready', token: s.token });
+    assert.deepEqual(s.panel.webview.messages.slice(-2).map(m => m.type), ['select-mode', 'refresh']);
+    assert.equal(h.calls(), 0);
+    await h.c.openActiveExternal(); assert.match(h.opened.at(-1), /code=600105&market=1/);
+    await h.c.open('000001', 'intraday'); await h.mode(s, 'intraday');
+    const html = s.panel.webview.html;
+    await h.c.refreshActive(); assert.equal(h.calls(), 2); assert.equal(s.panel.webview.html, html);
+    await h.c.openActiveExternal(); assert.match(h.opened.at(-1), /sz000001/);
+    s.panel.setVisible(false); const messages = s.panel.webview.messages.length, opened = h.opened.length;
+    await h.c.refreshActive(); await h.c.openActiveExternal();
+    assert.equal(s.panel.webview.messages.length, messages); assert.equal(h.opened.length, opened);
+  } finally { h.c.dispose(); }
+});
+test('快速切换类型后，迟到的页面确认不能恢复旧模式或请求旧行情', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105');
+    h.c.receive(s, { action: 'ready', token: s.token });
+    h.c.changeMode(s, 'daily'); h.c.changeMode(s, 'chips');
+    await h.c.receive(s, { action: 'mode-ready', mode: 'daily', token: s.token });
+    assert.equal(s.mode, 'chips'); assert.equal(h.calls(), 0);
   } finally { h.c.dispose(); }
 });

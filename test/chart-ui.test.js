@@ -29,29 +29,29 @@ function page({ mode = 'eastmoney', chips = true, saved = {} } = {}) {
   return { nodes, buttons, messages, writes, receive: message => receivers.forEach(fn => fn({ data: { token: 'test-token', ...message } })) };
 }
 
-test('点击图表按钮不会因冒泡到body而切回默认图表；重复点击不重载iframe', () => {
-  const p = page(); p.buttons.chips.click();
-  assert.equal(p.buttons.chips.getAttribute('aria-pressed'), 'true');
+test('编辑器工具栏切换图表，重复选择不重载iframe，显式刷新才重载', () => {
+  const p = page(); p.receive({ type: 'select-mode', mode: 'chips' });
   assert.match(p.nodes.get('eastmoney').src, /h5chart-iframe/);
-  assert.equal(p.messages.filter(m => m.action === 'mode').length, 1);
+  assert.equal(p.messages.filter(m => m.action === 'mode-ready').length, 1);
   assert.equal(p.messages.at(-1).mode, 'chips');
-  const writes = p.writes.length; p.buttons.chips.click(); assert.equal(p.writes.length, writes);
-  p.nodes.get('external').click(); assert.equal(p.messages.at(-1).action, 'external');
-  p.nodes.get('refresh').click(); assert.equal(p.writes.length, writes + 1);
-  p.buttons.eastmoney.click(); assert.match(p.nodes.get('eastmoney').src, /full\.html/);
+  const writes = p.writes.length; p.receive({ type: 'select-mode', mode: 'chips' }); assert.equal(p.writes.length, writes);
+  p.receive({ type: 'refresh', mode: 'chips' }); assert.equal(p.writes.length, writes + 1);
+  p.receive({ type: 'refresh', mode: 'eastmoney' }); assert.equal(p.writes.length, writes + 1);
+  p.receive({ type: 'select-mode', mode: 'eastmoney' }); assert.match(p.nodes.get('eastmoney').src, /full\.html/);
 });
-test('本地图表释放iframe且不会冒泡回网页；新个股以宿主传入模式为准', () => {
+test('本地图表释放iframe，新个股以宿主传入模式为准', () => {
   const p = page({ mode: 'chips', saved: { mode: 'daily', range: 60 } });
-  assert.equal(p.buttons.chips.getAttribute('aria-pressed'), 'true');
-  p.buttons.daily.click(); assert.equal(p.nodes.get('web-chart').hidden, true);
+  assert.match(p.nodes.get('eastmoney').src, /h5chart-iframe/);
+  p.receive({ type: 'select-mode', mode: 'daily' }); assert.equal(p.nodes.get('web-chart').hidden, true);
   assert.equal(p.nodes.get('local').hidden, false); assert.equal(p.nodes.get('eastmoney').getAttribute('src'), null);
   assert.equal(p.messages.at(-1).mode, 'daily');
   p.receive({ type: 'select-mode', mode: 'chips' }); assert.match(p.nodes.get('eastmoney').src, /h5chart-iframe/);
 });
 test('不支持筹码的品种使用常规页，错误令牌不能切换模式', () => {
   const p = page({ chips: false }); p.receive({ type: 'select-mode', mode: 'chips' });
-  assert.equal(p.buttons.eastmoney.getAttribute('aria-pressed'), 'true');
-  assert.match(p.nodes.get('hint').textContent, /仅对沪深A股个股开放/);
+  assert.equal(p.messages.at(-1).mode, 'eastmoney');
   p.receive({ type: 'select-mode', mode: 'daily', token: 'wrong' });
-  assert.equal(p.buttons.eastmoney.getAttribute('aria-pressed'), 'true');
+  assert.equal(p.nodes.get('local').hidden, true);
+  const writes = p.writes.length;
+  p.receive({ type: 'refresh', mode: 'eastmoney', token: 'wrong' }); assert.equal(p.writes.length, writes);
 });

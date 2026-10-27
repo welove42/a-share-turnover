@@ -3,22 +3,13 @@ body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; }
 body.vscode-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) { color-scheme: dark; }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--vscode-foreground, #d9e1ee); background: var(--vscode-editor-background, #151c28); font: 13px var(--vscode-font-family, system-ui, sans-serif); }
-header { padding: 15px 20px 9px; border-bottom: 1px solid var(--vscode-panel-border, #354053); }
-.identity { display: flex; align-items: baseline; gap: 20px; min-height: 25px; margin-bottom: 10px; }
-strong { font-size: 18px; }
 #quote { font-size: 16px; font-variant-numeric: tabular-nums; }
-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-button, select { font: inherit; border: 1px solid var(--vscode-button-border, #49596e); border-radius: 4px; padding: 6px 12px; color: var(--vscode-button-secondaryForeground, #e6edf6); background: var(--vscode-button-secondaryBackground, #253247); cursor: pointer; }
-button:hover { background: var(--vscode-button-secondaryHoverBackground, #344762); }
-button:disabled { opacity: .45; cursor: not-allowed; }
-button[aria-pressed="true"] { color: var(--vscode-button-foreground, white); background: var(--vscode-button-background, #166ba5); border-color: var(--vscode-focusBorder, #55b1ef); }
-button:focus-visible, select:focus-visible, #plot:focus-visible { outline: 2px solid var(--vscode-focusBorder, #55b1ef); outline-offset: 2px; }
-.spacer { flex: 1; }
-#hint, .note { color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; line-height: 1.7; }
-#hint { margin: 9px 0 0; }
+select { font: inherit; border: 1px solid var(--vscode-dropdown-border, #49596e); border-radius: 4px; color: var(--vscode-dropdown-foreground, #e6edf6); background: var(--vscode-dropdown-background, #253247); cursor: pointer; }
+select:focus-visible, #plot:focus-visible { outline: 2px solid var(--vscode-focusBorder, #55b1ef); outline-offset: 2px; }
+.note { color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; line-height: 1.7; }
 main { padding: 0; }
-#web-chart { overflow-x: auto; background: var(--vscode-editor-background, #151c28); }
-iframe { display: block; width: 100%; min-width: 1000px; height: calc(100vh - 150px); min-height: 600px; border: 0; background: white; color-scheme: light; filter: none; }
+#web-chart { height: 100vh; overflow: auto; background: var(--vscode-editor-background, #151c28); }
+iframe { display: block; width: 100%; min-width: 1000px; height: 100%; border: 0; background: white; color-scheme: light; filter: none; }
 /* Eastmoney is cross-origin. Adapt its rendered surface without reloading the
    document; hue rotation keeps rising/falling colors recognizably red/green. */
 body.vscode-dark #eastmoney { filter: invert(.9) hue-rotate(180deg); }
@@ -41,4 +32,4 @@ svg text.ma5 { fill: #e2bd65; } svg text.ma10 { fill: #bc8aff; } svg text.ma20 {
 .crosshair { stroke: var(--vscode-foreground, #d9e1ee); opacity: .5; stroke-dasharray: 4 4; pointer-events: none; }
 #detail { min-height: 24px; font-variant-numeric: tabular-nums; line-height: 1.8; margin: 10px 0 0; }
 .note { margin: 7px 0; }
-@media (max-width: 600px) { header { padding: 12px; } #local { padding: 10px; } .identity { flex-wrap: wrap; gap: 8px; } button { padding: 6px 8px; } .spacer { display: none; } svg { min-height: 270px; } }
+@media (max-width: 600px) { #local { padding: 10px; } .chart-tools { flex-wrap: wrap; } svg { min-height: 270px; } }

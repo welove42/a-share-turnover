@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、图表与财经新闻",
   "description": "沪深成交额同刻对比、中文名或代码搜索自选股、底部指数切换、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -37,7 +37,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.3.2.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.3.3.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js"
@@ -132,6 +132,24 @@
       {
         "command": "welove42.aShareTurnover.stocks.openInBrowser",
         "title": "A股自选股：在浏览器打开东方财富",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "welove42.aShareTurnover.chart.selectMode",
+        "title": "A股图表：切换图表类型",
+        "shortTitle": "切换图表类型",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "welove42.aShareTurnover.chart.refresh",
+        "title": "A股图表：刷新当前图表",
+        "shortTitle": "刷新当前图表",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "welove42.aShareTurnover.chart.openInBrowser",
+        "title": "A股图表：在浏览器打开当前图表",
+        "shortTitle": "在浏览器打开当前图表",
         "icon": "$(link-external)"
       }
     ],
@@ -341,6 +359,35 @@
         {
           "command": "welove42.aShareTurnover.news.open",
           "when": "false"
+        },
+        {
+          "command": "welove42.aShareTurnover.chart.selectMode",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart"
+        },
+        {
+          "command": "welove42.aShareTurnover.chart.refresh",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart"
+        },
+        {
+          "command": "welove42.aShareTurnover.chart.openInBrowser",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "welove42.aShareTurnover.chart.selectMode",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart",
+          "group": "navigation@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.chart.refresh",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart",
+          "group": "navigation@2"
+        },
+        {
+          "command": "welove42.aShareTurnover.chart.openInBrowser",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart",
+          "group": "navigation@3"
         }
       ]
     }
