@@ -40,8 +40,17 @@ function session(now = new Date(), extra = []) {
 
 const PHASE_LABELS = {
   closed: '休市', before: '盘前', trading: '交易中', lunch: '午休',
-  settling: '收盘确认', after: '已收盘'
+  settling: '收盘确认', after: '已收盘', auction: '集合竞价', opening: '待开盘'
 };
+
+// Stock quotes update during the opening auction; turnover minute charts start at 09:30.
+function stockSession(now = new Date(), extra = []) {
+  const clock = session(now, extra);
+  if (clock.phase === 'before' && clock.minute >= 555) {
+    return { ...clock, phase: clock.minute < 565 ? 'auction' : 'opening', polling: true };
+  }
+  return clock;
+}
 
 function numeric(value, label) {
   if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) {
@@ -75,6 +84,11 @@ function timeToMinute(time) {
 
 function tradingMinute(minute) {
   return Math.max(0, Math.min(120, minute - 570)) + Math.max(0, Math.min(120, minute - 780));
+}
+
+function stockTradingMinute(minute) {
+  // The 09:25 auction result can remain unchanged until continuous trading begins.
+  return Math.max(0, Math.min(10, minute - 555)) + tradingMinute(minute);
 }
 
 function parsePoints(rows) {
@@ -195,5 +209,5 @@ function isSnapshot(value) {
 
 module.exports = {
   POLL_MS, PHASE_LABELS, shanghaiClock, session, numeric, normalizeDate, timeToMinute,
-  tradingMinute, parsePoints, parseMinute, parseHistory, change, minuteLabel, buildSnapshot, isSnapshot
+  tradingMinute, stockSession, stockTradingMinute, parsePoints, parseMinute, parseHistory, change, minuteLabel, buildSnapshot, isSnapshot
 };

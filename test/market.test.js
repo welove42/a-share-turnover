@@ -37,6 +37,22 @@ test('周末、交易所节假日及自定义休市；调休周六不交易', ()
   assert.equal(at('2026-10-08T10:00:00').phase, 'trading');
   assert.equal(market.session(now, ['2026-10-26']).phase, 'closed');
 });
+test('个股09:15至09:30持续轮询，成交额时段仍从09:30开始', () => {
+  for (const [time, phase, polling] of [
+    ['09:14:59', 'before', false], ['09:15:00', 'auction', true], ['09:24:59', 'auction', true],
+    ['09:25:00', 'opening', true], ['09:29:59', 'opening', true], ['09:30:00', 'trading', true],
+    ['11:30:00', 'lunch', false], ['13:00:00', 'trading', true], ['15:02:00', 'after', false]
+  ]) {
+    const date = new Date('2026-10-26T' + time + '+08:00');
+    const result = market.stockSession(date);
+    assert.equal(result.phase, phase, time); assert.equal(result.polling, polling, time);
+    if (time < '09:30:00') assert.equal(market.session(date).polling, false);
+  }
+  for (const day of ['2026-10-24', '2026-10-25', '2026-10-01']) {
+    assert.equal(market.stockSession(new Date(day + 'T09:20:00+08:00')).polling, false);
+  }
+  assert.equal(market.stockSession(new Date('2026-10-26T09:20:00+08:00'), ['2026-10-26']).polling, false);
+});
 
 test('实时成交额按元读取，避免误把万元当元', () => {
   const parsed = market.parseMinute(minutePayload('sh000002', 123.4567e8), 'sh000002');

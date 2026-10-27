@@ -1,6 +1,6 @@
 'use strict';
 const vscode = require('vscode');
-const { POLL_MS, PHASE_LABELS, session, timeToMinute, tradingMinute } = require('./market');
+const { POLL_MS, PHASE_LABELS, stockSession, timeToMinute, stockTradingMinute } = require('./market');
 const { INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, isQuote, signed, percentText, orderedSymbols, StockProvider } = require('./quotes');
 const { quoteClock } = require('./view');
 const { StockSearch } = require('./stock-search');
@@ -52,7 +52,7 @@ class WatchlistController {
     this.publish(true); this.timer = setInterval(() => void this.tick(), 1000);
     if (this.config.enabled && !this.paused) void this.refresh();
   }
-  clock() { return session(this.now(), this.config.closedDates); }
+  clock() { return stockSession(this.now(), this.config.closedDates); }
   tick() {
     if (this.disposed) return;
     const clock = this.clock(), key = clock.date + clock.phase;
@@ -64,7 +64,7 @@ class WatchlistController {
   stale(symbol) {
     const q = this.quotes.get(symbol), clock = this.clock();
     if (!q || this.cached || this.errors.has(symbol) || q.date !== clock.date) return true;
-    return clock.polling && tradingMinute(clock.minute) - tradingMinute(timeToMinute(q.timestamp.slice(8, 12))) > 2;
+    return clock.polling && stockTradingMinute(clock.minute) - stockTradingMinute(timeToMinute(q.timestamp.slice(8, 12))) > 2;
   }
   getChildren(element) {
     if (!this.config.enabled) return [];
@@ -108,7 +108,7 @@ class WatchlistController {
   publish(structural = false) {
     if (this.disposed) return;
     const clock = this.clock();
-    const description = !this.config.enabled ? '已禁用' : this.paused ? '已暂停' : `${PHASE_LABELS[clock.phase]} · 10秒刷新`;
+    const description = !this.config.enabled ? '已禁用' : this.paused ? '已暂停' : `${PHASE_LABELS[clock.phase]} · ${clock.polling ? '10秒刷新' : '自动刷新已停止'}`;
     if (this.tree.description !== description) this.tree.description = description;
     const failing = this.config.symbols.filter(s => this.errors.has(s)).length;
     const message = this.config.error || (failing ? `${failing} 个代码获取失败，已保留上次行情，可悬停查看原因。` : undefined);

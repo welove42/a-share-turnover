@@ -3,8 +3,8 @@ const test=require('node:test'), assert=require('node:assert/strict');
 const { harness }=require('./vscode-mock');
 const { parseQuotes }=require('../src/quotes');
 const NOW=new Date('2026-10-26T10:30:30+08:00');
-function quote(symbol,name='测试股',price='11.30',percent='0.89') {
-  const q=Array(40).fill('0');q[1]=name;q[2]=symbol.slice(2);q[3]=price;q[4]='11.20';q[30]='20261026103030';q[31]='0.10';q[32]=percent;q[33]='11.40';q[34]='11.00';
+function quote(symbol,name='测试股',price='11.30',percent='0.89',timestamp='20261026103030') {
+  const q=Array(40).fill('0');q[1]=name;q[2]=symbol.slice(2);q[3]=price;q[4]='11.20';q[30]=timestamp;q[31]='0.10';q[32]=percent;q[33]='11.40';q[34]='11.00';
   return parseQuotes(`v_${symbol}="${q.join('~')}";`,[symbol]).quotes.get(symbol);
 }
 function setup(extra={},load) {
@@ -107,6 +107,57 @@ test('每10秒请求一次，闲置检查不更新底部悬浮或重复触发行
     h.setNow('2026-10-26T10:30:39+08:00');await h.c.tick();assert.equal(h.calls(),1);assert.deepEqual(h.c.status.writes,writes);assert.equal(h.c.emitter.fired.length,events);
     h.setNow('2026-10-26T10:30:40+08:00');await h.c.tick();assert.equal(h.calls(),2);
   }finally{h.c.dispose();}
+});
+test('盘前09:15自动开始每10秒刷新，自选行和底部个股同步更新，09:25至09:30继续刷新',async()=>{
+  let stamp='20261026091459',price='11.30',percent='0.89';
+  const h=setup({'aShareTurnover.stocks.symbols':['sh600105'],'aShareTurnover.stocks.statusBarSymbol':'sh600105'},async symbols=>({quotes:new Map(symbols.map(s=>[s,quote(s,'永鼎股份',price,percent,stamp)])),errors:new Map()}));
+  try{
+    h.setNow('2026-10-26T09:14:59+08:00');h.c.phaseKey='2026-10-26before';await h.c.refresh();
+    stamp='20261026091500';price='11.50';percent='2.68';h.setNow('2026-10-26T09:15:00+08:00');await h.c.tick();assert.equal(h.calls(),2);
+    assert.match(h.c.tree.description,/集合竞价.*10秒刷新/);
+    assert.match(h.c.getTreeItem(h.c.element('sh600105')).label,/\+2.68%.*11.50/);assert.match(h.c.status.text,/11.50.*\+2.68%/);
+    h.setNow('2026-10-26T09:15:09+08:00');await h.c.tick();assert.equal(h.calls(),2);
+    stamp='20261026091510';h.setNow('2026-10-26T09:15:10+08:00');await h.c.tick();assert.equal(h.calls(),3);
+    stamp='20261026092500';h.setNow('2026-10-26T09:25:00+08:00');await h.c.tick();assert.equal(h.calls(),4);assert.match(h.c.tree.description,/待开盘.*10秒刷新/);
+    h.setNow('2026-10-26T09:25:10+08:00');await h.c.tick();assert.equal(h.calls(),5);
+    h.setNow('2026-10-26T09:29:59+08:00');await h.c.tick();assert.equal(h.calls(),6);
+    stamp='20261026093000';h.setNow('2026-10-26T09:30:00+08:00');await h.c.tick();assert.equal(h.calls(),7);assert.match(h.c.tree.description,/交易中/);
+  }finally{h.c.dispose();}
+});
+test('集合竞价的报价过期按竞价分钟判断，09:25至09:30等待阶段不误报过期',async()=>{
+  const h=setup();try{
+    h.c.cached=false;h.c.quotes.set('sh000001',quote('sh000001','指数','11.30','0.89','20261026091500'));
+    h.setNow('2026-10-26T09:18:00+08:00');assert.equal(h.c.stale('sh000001'),true);
+    h.c.quotes.set('sh000001',quote('sh000001','指数','11.30','0.89','20261026092500'));
+    h.setNow('2026-10-26T09:29:59+08:00');assert.equal(h.c.stale('sh000001'),false);
+    h.setNow('2026-10-26T09:30:00+08:00');assert.equal(h.c.stale('sh000001'),false);
+    h.setNow('2026-10-26T09:33:00+08:00');assert.equal(h.c.stale('sh000001'),true);
+  }finally{h.c.dispose();}
+});
+test('盘前失败保留报价并按10秒重试；暂停和禁用时不自动请求',async()=>{
+  let fail=false;
+  const h=setup({},async symbols=>{if(fail)throw new Error('临时断网');return{quotes:new Map(symbols.map(s=>[s,quote(s,'指数','11.30','0.89','20261026092000')])),errors:new Map()};});
+  try{
+    h.setNow('2026-10-26T09:20:00+08:00');h.c.phaseKey='2026-10-26auction';await h.c.tick();assert.equal(h.calls(),1);
+    fail=true;h.setNow('2026-10-26T09:20:10+08:00');await h.c.tick();assert.equal(h.calls(),2);assert.match(h.c.status.text,/未更新/);assert.ok(h.c.quotes.has('sh000001'));
+    fail=false;h.setNow('2026-10-26T09:20:20+08:00');await h.c.tick();assert.equal(h.calls(),3);
+    await h.c.togglePause();h.setNow('2026-10-26T09:20:30+08:00');await h.c.tick();assert.equal(h.calls(),3);
+    await h.api.workspace.getConfiguration('aShareTurnover').update('stocks.enabled',false);h.c.paused=false;
+    h.setNow('2026-10-26T09:25:00+08:00');await h.c.tick();assert.equal(h.calls(),3);
+  }finally{h.c.dispose();}
+});
+test('09:15前、午休、收盘和休市不持续请求，侧栏不再误称10秒刷新',async()=>{
+  for(const [stamp,extra] of [
+    ['2026-10-26T09:10:00+08:00',{}],['2026-10-26T12:00:00+08:00',{}],['2026-10-26T15:10:00+08:00',{}],
+    ['2026-10-24T09:20:00+08:00',{}],['2026-10-01T09:20:00+08:00',{}],
+    ['2026-10-26T09:20:00+08:00',{'aShareTurnover.additionalClosedDates':['2026-10-26']}]
+  ]){
+    const h=setup(extra);try{
+      h.setNow(stamp);const c=h.c.clock();h.c.phaseKey=c.date+c.phase;
+      await h.c.tick();h.setNow(new Date(new Date(stamp).getTime()+10000));await h.c.tick();
+      assert.equal(h.calls(),0,stamp);assert.doesNotMatch(h.c.tree.description,/10秒刷新/);
+    }finally{h.c.dispose();}
+  }
 });
 test('午休不轮询；请求失败保留缓存且不会当作实时',async()=>{
   let fail=false;
