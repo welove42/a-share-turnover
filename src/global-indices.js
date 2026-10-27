@@ -4,6 +4,7 @@ const { POLL_MS, shanghaiClock } = require('./market');
 const { signed, percentText } = require('./quotes');
 const { REGIONS, ALIASES, DEFAULT_INDEX_IDS, BUILTIN_INDICES, normalizeIndexIds, indexEntry, isGlobalQuote, GlobalIndexProvider, globalIndexUrl } = require('./global-index-data');
 const { StockSettings } = require('./stock-settings');
+const { trendIcon } = require('./trend-icon');
 
 function quoteTime(q) {
   if (!q) return '尚未获取';
@@ -71,8 +72,7 @@ class GlobalIndicesController {
     const item = new vscode.TreeItem(`${percentText(q?.percent ?? null).padStart(7)}   ${(q ? q.price.toFixed(2) : '—').padStart(9)}   [${entry.name}]`, vscode.TreeItemCollapsibleState.None);
     item.id = `global-index:${entry.id}`; item.contextValue = 'aShareGlobalIndex';
     item.description = `${error ? '获取失败 · ' : this.cached && q ? '缓存 · ' : ''}${q ? quoteTime(q).slice(5, 16) : '待获取'}`;
-    item.iconPath = error ? new vscode.ThemeIcon('warning') : new vscode.ThemeIcon(q?.percent > 0 ? 'chevron-up' : q?.percent < 0 ? 'chevron-down' : 'dash',
-      q?.percent > 0 ? new vscode.ThemeColor('charts.red') : q?.percent < 0 ? new vscode.ThemeColor('charts.green') : undefined);
+    item.iconPath = error ? new vscode.ThemeIcon('warning') : trendIcon(this.context.extensionUri, q?.percent);
     item.command = { command: 'welove42.aShareTurnover.globalIndices.open', title: '在浏览器查看指数详情', arguments: [entry.id] };
     const tip = new vscode.MarkdownString(); tip.isTrusted = false; tip.supportHtml = false;
     tip.appendText(`${entry.name}（${entry.code}）\n\n地区：${REGIONS.find(region => region.id === entry.region).name}\n指数点位：${q ? q.price.toFixed(2) : '—'}　涨跌幅：${percentText(q?.percent ?? null)}\n涨跌点数：${signed(q?.delta ?? null, 2)}\n今开：${q?.open ?? '—'}　昨收：${q?.previousClose ?? '—'}\n最高：${q?.high ?? '—'}　最低：${q?.low ?? '—'}\n行情时间：${quoteTime(q)}（北京时间）\n来源：东方财富。不同地区交易时段不同，行情可能延迟，以所示时间为准。`);

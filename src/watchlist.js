@@ -5,6 +5,7 @@ const { INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, isQuote, signed, percen
 const { quoteClock } = require('./view');
 const { StockSearch } = require('./stock-search');
 const { StockSettings } = require('./stock-settings');
+const { trendIcon } = require('./trend-icon');
 
 class WatchlistController {
   constructor(context, { provider = new StockProvider(), search = new StockSearch(), now = () => new Date(), log = () => {} } = {}) {
@@ -89,8 +90,7 @@ class WatchlistController {
     item.command = { command: 'welove42.aShareTurnover.stocks.openChart', title: '查看详细行情图表', arguments: [element.symbol] };
     item.description = this.errors.has(element.symbol) ? '获取失败' : stale ? q && q.date !== this.clock().date ? q.date.slice(5) : '缓存' : '';
     item.iconPath = this.errors.has(element.symbol) ? new vscode.ThemeIcon('warning')
-      : new vscode.ThemeIcon(q?.percent > 0 ? 'chevron-up' : q?.percent < 0 ? 'chevron-down' : 'dash',
-        q?.percent > 0 ? new vscode.ThemeColor('charts.red') : q?.percent < 0 ? new vscode.ThemeColor('charts.green') : undefined);
+      : trendIcon(this.context.extensionUri, q?.percent);
     item.tooltip = this.tooltip(element.symbol);
     item.accessibilityInformation = { label: `${q?.name || element.symbol} ${element.symbol}，现价 ${q?.priceText || '未知'}，涨跌幅 ${percentText(q?.percent ?? null)}${stale ? '，非实时或缓存' : ''}` };
     return item;

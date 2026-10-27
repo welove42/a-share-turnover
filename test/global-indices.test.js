@@ -19,7 +19,7 @@ test('默认平铺三个指数；完整行情目录不自动填满列表，隔�
     assert.equal(h.c.getChildren()[0], rows[0]); assert.equal(h.c.getParent(rows[0]), undefined);
     assert.deepEqual(h.c.getChildren(rows[0]), []);
     assert.match(h.c.getTreeItem(rows[1]).label, /\+1.25%.*12345.67.*日经225/);
-    assert.equal(h.c.getTreeItem(rows[0]).iconPath.color.id, 'charts.red');
+    assert.equal(h.c.getTreeItem(rows[0]).iconPath.dark, 'file:///extension/media/trend-up-dark.svg');
     h.setNow('2026-10-27T09:00:00+08:00');
     const nasdaq = h.c.getTreeItem(h.c.element('100.NDX'));
     assert.match(nasdaq.description, /10-26 23:00/); assert.match(nasdaq.tooltip.value, /北京时间/); assert.doesNotMatch(nasdaq.description, /实时/);

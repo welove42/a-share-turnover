@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深成交额同刻对比、自选股和全球指数、基金净值与本机持仓收益、东方财富行情图表，以及输出面板财经快讯。",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -42,7 +42,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.5.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.5.1.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",

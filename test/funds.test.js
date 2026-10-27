@@ -19,7 +19,7 @@ test('基金默认空列表不请求数据，完整代码添加去重并保存�
     await h.c.add('110020,000198,110020'); await h.c.refresh();
     assert.deepEqual(h.c.symbols, ['110020', '000198']); assert.deepEqual(h.values.get('aShareTurnover.funds.symbols'), h.c.symbols);
     const row = h.c.getTreeItem(h.c.element('110020')); assert.match(row.label, /\+0.50%.*1.5000/); assert.match(row.description, /2026-10-26/);
-    assert.equal(row.iconPath.color.id, 'charts.red'); assert.equal(h.c.getChildren()[0], h.c.element('110020'));
+    assert.equal(row.iconPath.dark, 'file:///extension/media/trend-up-dark.svg'); assert.equal(h.c.getChildren()[0], h.c.element('110020'));
   } finally { h.c.dispose(); }
 });
 test('持仓两步输入原子保存，收益率使用总成本；取消第二步不改旧持仓且不发送给接口', async () => {

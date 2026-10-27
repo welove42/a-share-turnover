@@ -30,10 +30,17 @@ test('自选行使用稳定对象、名称现价涨跌幅及红绿图标',async(
   const h=setup({'aShareTurnover.stocks.symbols':['600519','000001']});
   try{await h.c.refresh();const group=h.c.getChildren()[0],rows=h.c.getChildren(group);
     assert.equal(h.c.getChildren(group)[0],rows[0]);assert.equal(h.c.getParent(rows[0]),group);
-    const item=h.c.getTreeItem(rows[0]);assert.match(item.label,/\+0.89%.*11.30.*测试股/);assert.equal(item.iconPath.color.id,'charts.red');
+    const item=h.c.getTreeItem(rows[0]);assert.match(item.label,/\+0.89%.*11.30.*测试股/);
+    assert.equal(item.iconPath.dark,'file:///extension/media/trend-up-dark.svg');
+    assert.equal(item.iconPath.light,'file:///extension/media/trend-up-light.svg');
     assert.deepEqual(item.command,{command:'welove42.aShareTurnover.stocks.openChart',title:'查看详细行情图表',arguments:['sh600519']});
     h.c.quotes.set('sz000001',quote('sz000001','下跌股','10.00','-2.00'));
-    assert.equal(h.c.getTreeItem(rows[1]).iconPath.color.id,'charts.green');
+    assert.equal(h.c.getTreeItem(rows[1]).iconPath.dark,'file:///extension/media/trend-down-dark.svg');
+    assert.equal(h.c.getTreeItem(rows[1]).iconPath.light,'file:///extension/media/trend-down-light.svg');
+    h.c.quotes.set('sz000001',quote('sz000001','平盘股','11.20','0.00'));
+    assert.equal(h.c.getTreeItem(rows[1]).iconPath.id,'dash');
+    h.c.errors.set('sz000001','请求失败');
+    assert.equal(h.c.getTreeItem(rows[1]).iconPath.id,'warning');
   }finally{h.c.dispose();}
 });
 

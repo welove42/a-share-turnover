@@ -3,6 +3,7 @@ const vscode = require('vscode');
 const { shanghaiClock } = require('./market');
 const { signed, percentText } = require('./quotes');
 const { StockSettings } = require('./stock-settings');
+const { trendIcon } = require('./trend-icon');
 const { FUND_POLL_MS, fundCode, fundCodes, isFundQuote, holdingPosition, holdingReturn, FundProvider, fundUrl } = require('./fund-data');
 
 class FundsController {
@@ -56,8 +57,7 @@ class FundsController {
     item.description = `${failed ? '获取失败 · ' : this.cached && q ? '缓存 · ' : ''}${q?.date || '待公布'} · ${detail}`;
     item.command = { command: 'welove42.aShareTurnover.funds.open', title: '查看基金详情', arguments: [code] };
     item.iconPath = failed ? new vscode.ThemeIcon('warning') : q?.kind === 'money' ? new vscode.ThemeIcon('pie-chart')
-      : new vscode.ThemeIcon(q?.percent > 0 ? 'chevron-up' : q?.percent < 0 ? 'chevron-down' : 'dash',
-        q?.percent > 0 ? new vscode.ThemeColor('charts.red') : q?.percent < 0 ? new vscode.ThemeColor('charts.green') : undefined);
+      : trendIcon(this.context.extensionUri, q?.percent);
     const tip = new vscode.MarkdownString(); tip.isTrusted = false; tip.supportHtml = false;
     tip.appendText(`${q?.name || code}（${code}）\n类型：${q?.type || '待查询'}\n\n`);
     if (!q) tip.appendText('尚未获取已公布数据。');
