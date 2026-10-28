@@ -139,7 +139,7 @@ test('工具栏类型菜单仅列出支持的图表，保留当前选择，取�
     let items;
     h.api.window.showQuickPick = async list => { items = list; return list.find(item => item.mode === 'chips'); };
     await h.c.chooseMode(); assert.equal(s.mode, 'chips');
-    assert.deepEqual(items.map(item => item.mode), ['intraday', 'daily', 'weekly', 'monthly', 'eastmoney', 'chips']);
+    assert.deepEqual(items.map(item => item.mode), ['intraday', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly', 'eastmoney', 'chips']);
     assert.equal(items.find(item => item.mode === 'intraday').description, '当前图表');
     assert.equal(s.panel.webview.messages.at(-1).type, 'select-mode');
     h.api.window.showQuickPick = async list => { items = list; return undefined; };

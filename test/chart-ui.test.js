@@ -22,7 +22,7 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
   body = node('body', { symbol: 'sh600105', token: 'test-token', mode,
     regularUrl: 'https://quote.eastmoney.com/basic/full.html?mcid=1.600105',
     chipsUrl: chips ? 'https://quote.eastmoney.com/basic/h5chart-iframe.html?code=600105&market=1' : '' });
-  const buttons = Object.fromEntries(['intraday', 'daily', 'weekly', 'monthly'].map(period => [period, node(period, { period })]));
+  const buttons = Object.fromEntries(['intraday', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'].map(period => [period, node(period, { period })]));
   const document = { body, getElementById: id => nodes.get(id) || node(id),
     createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
     querySelectorAll: selector => selector === 'button[data-period]' ? Object.values(buttons) : [] };

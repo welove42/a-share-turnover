@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -46,7 +46,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.7.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.8.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -357,6 +357,11 @@
           "type": "string",
           "enum": [
             "intraday",
+            "m1",
+            "m5",
+            "m15",
+            "m30",
+            "m60",
             "daily",
             "weekly",
             "monthly",
@@ -367,6 +372,11 @@
           "scope": "application",
           "enumDescriptions": [
             "内置分时图，直接绘制价格、成交量及技术指标。",
+            "内置1分钟K线。",
+            "内置5分钟K线。",
+            "内置15分钟K线。",
+            "内置30分钟K线。",
+            "内置60分钟K线。",
             "内置日K、均线及技术指标。",
             "内置周K、均线及技术指标。",
             "内置月K、均线及技术指标。",
@@ -464,6 +474,28 @@
             "type": "string"
           },
           "description": "默认仅伦敦金、布伦特原油、伦敦铜、伦敦银，顺序按此列表保存。点击＋可按名称、拼音简称或代码从支持的商品目录添加其他品种；代码支持XAU或hf_XAU格式。空数组保持空列表。"
+        },
+        "aShareTurnover.risk.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "状态栏显示基于沪深成交额较昨同刻与上证指数跌幅的风险提示；依赖成交额及自选股行情模块。"
+        },
+        "aShareTurnover.risk.volumePercent": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 1000,
+          "scope": "application",
+          "description": "触发放量或缩量下跌提示所需的同刻成交额变化绝对值（百分比）。"
+        },
+        "aShareTurnover.risk.dropPercent": {
+          "type": "number",
+          "default": 1.5,
+          "minimum": 0.1,
+          "maximum": 100,
+          "scope": "application",
+          "description": "触发提示所需的上证指数跌幅（百分比）。"
         }
       }
     },

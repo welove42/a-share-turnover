@@ -4,8 +4,8 @@
   const $ = id => document.getElementById(id);
   const { token, symbol, regularUrl, chipsUrl } = document.body.dataset;
   const up = 'var(--chart-up, #f05b68)', down = 'var(--chart-down, #26bd8c)', lineColor = 'var(--chart-series-2, #5bbcff)';
-  const modes = ['eastmoney', 'chips', 'intraday', 'daily', 'weekly', 'monthly'];
-  const names = { intraday: '分时', daily: '日K', weekly: '周K', monthly: '月K' };
+  const modes = ['eastmoney', 'chips', 'intraday', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'];
+  const names = { intraday: '分时', m1: '1分钟K', m5: '5分钟K', m15: '15分钟K', m30: '30分钟K', m60: '60分钟K', daily: '日K', weekly: '周K', monthly: '月K' };
   const isWebMode = value => value === 'eastmoney' || value === 'chips';
   const webUrl = () => mode === 'chips' ? chipsUrl : regularUrl;
   const saved = vscode.getState() || {};
@@ -117,7 +117,7 @@
       label.classList.add('ma' + a.n);
     });
     const ticks = mode === 'intraday' ? [[L, '09:30'], [L + width / 4, '10:30'], [L + width / 2, '11:30 / 13:00'], [L + width * .75, '14:00'], [R, '15:00']]
-      : [...new Set([0, Math.floor((bars.length - 1) / 2), bars.length - 1])].map(i => [x(bars[i], i), bars[i].time]);
+      : [...new Set([0, Math.floor((bars.length - 1) / 2), bars.length - 1])].map(i => [x(bars[i], i), /^m\d+$/.test(mode) ? bars[i].time.slice(5) : bars[i].time]);
     if (withIndicator) {
       const lines = indicatorData.lines.map(s => ({ ...s, values: s.values.slice(start) }));
       const histogram = indicatorData.histogram?.slice(start);

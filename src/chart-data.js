@@ -3,6 +3,7 @@ const { requestJson } = require('./http');
 const { normalizeSymbol } = require('./quotes');
 const { normalizeDate, timeToMinute } = require('./market');
 const PERIODS = { daily: 'day', weekly: 'week', monthly: 'month' };
+const MINUTES = ['m1', 'm5', 'm15', 'm30', 'm60'];
 
 function eastmoneyUrl(input) {
   const symbol = normalizeSymbol(input), code = symbol.slice(2);
@@ -35,7 +36,7 @@ function metadata(data, symbol) {
 }
 function parseChart(payload, input, mode) {
   const symbol = normalizeSymbol(input);
-  if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode)) throw new Error('图表类型无效');
+  if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode) && !MINUTES.includes(mode)) throw new Error('图表类型无效');
   const data = payload?.code === 0 && payload.data?.[symbol];
   if (!data) throw new Error('未获取到图表数据，请检查代码或稍后刷新');
   const bars = [], meta = metadata(data, symbol);
@@ -55,6 +56,20 @@ function parseChart(payload, input, mode) {
       const volume = total - cumulative; cumulative = total;
       if (price > 0) bars.push({ time, open: price, close: price, high: price, low: price, volume });
     }
+  } else if (MINUTES.includes(mode)) {
+    const rows = data[mode];
+    if (!Array.isArray(rows)) throw new Error('缺少分钟K线数据');
+    for (const row of rows) {
+      if (!Array.isArray(row) || !/^\d{12}$/.test(String(row[0]))) throw new Error('分钟K线时间格式异常');
+      const raw = String(row[0]), day = normalizeDate(raw.slice(0, 8));
+      timeToMinute(raw.slice(8));
+      const time = `${day} ${raw.slice(8, 10)}:${raw.slice(10, 12)}`;
+      const [open, close, high, low, volume] = row.slice(1, 6).map(value => number(value, '分钟K线字段'));
+      if (open === 0 && close === 0 && high === 0 && low === 0) continue;
+      if (low <= 0 || low > Math.min(open, close) || high < Math.max(open, close) || (bars.length && time <= bars.at(-1).time)) throw new Error('分钟K线价格或时间顺序异常');
+      bars.push({ time, open, close, high, low, volume });
+    }
+    date = bars.at(-1)?.time.slice(0, 10);
   } else {
     const period = PERIODS[mode], adjusted = data['qfq' + period];
     const rows = Array.isArray(adjusted) && adjusted.length ? adjusted : data[period];
@@ -80,9 +95,10 @@ class ChartProvider {
   constructor(request = requestJson) { this.request = request; }
   async load(input, mode, signal) {
     const symbol = normalizeSymbol(input);
-    if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode)) throw new Error('图表类型无效');
+    if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode) && !MINUTES.includes(mode)) throw new Error('图表类型无效');
     const url = mode === 'intraday'
       ? `https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=${symbol}`
+      : MINUTES.includes(mode) ? `https://ifzq.gtimg.cn/appstock/app/kline/mkline?param=${symbol},${mode},,240`
       : `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},${PERIODS[mode]},,,240,qfq`;
     return parseChart(await this.request(url, signal), symbol, mode);
   }

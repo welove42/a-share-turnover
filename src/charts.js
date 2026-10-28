@@ -5,7 +5,8 @@ const { normalizeSymbol, INDEX_SYMBOL } = require('./quotes');
 const { POLL_MS, session } = require('./market');
 const { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } = require('./chart-data');
 
-const MODES = ['eastmoney', 'chips', 'intraday', 'daily', 'weekly', 'monthly'];
+const MINUTE_MODES = ['m1', 'm5', 'm15', 'm30', 'm60'];
+const MODES = ['eastmoney', 'chips', 'intraday', ...MINUTE_MODES, 'daily', 'weekly', 'monthly'];
 const INDICATORS = ['macd', 'kdj', 'rsi', 'none'];
 const isWebMode = mode => mode === 'eastmoney' || mode === 'chips';
 const availableMode = (symbol, mode) => MODES.includes(mode) && (mode !== 'chips' || supportsChips(symbol)) ? mode : 'intraday';
@@ -18,7 +19,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
   mode = availableMode(symbol, mode);
   const regularUrl = eastmoneyChartUrl(symbol), chipsUrl = supportsChips(symbol) ? eastmoneyChartUrl(symbol, 'chips') : '';
   const nonce = randomBytes(18).toString('base64');
-  const periods = [['intraday', '分时'], ['daily', '日K'], ['weekly', '周K'], ['monthly', '月K']]
+  const periods = [['intraday', '分时'], ...MINUTE_MODES.map(value => [value, `${value.slice(1)}分钟`]), ['daily', '日K'], ['weekly', '周K'], ['monthly', '月K']]
     .map(([value, label]) => `<button type="button" data-period="${value}" aria-pressed="${mode === value}">${label}</button>`).join('');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -28,7 +29,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
 <section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div><p id="meta"></p>
 <p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="img" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 700" aria-hidden="true"></svg></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="indicator-detail"></p>
-<p class="note" id="indicator-note"></p><p class="note">图表上方可切换分时 / 日K / 周K / 月K，右上角切换副图指标。K线含 MA5 / MA10 / MA20；成交量单位为手，时间为北京时间。当前周/月最后一根随行情更新。可见且交易期间每10秒刷新。</p></section></main>
+<p class="note" id="indicator-note"></p><p class="note">图表上方切换分时、分钟K线及日 / 周 / 月K，右上角切换副图指标。分钟K线时间为周期结束时间，最后一根可能尚未完成。K线含 MA5 / MA10 / MA20；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
 <script nonce="${nonce}" src="${escapeHtml(indicators)}"></script><script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
 }
 
@@ -95,6 +96,7 @@ class ChartController {
     const token = state.token;
     const items = [
       { mode: 'intraday', label: '分时图（内置）', detail: '分钟价格、成交量及技术指标，无需加载东方财富网页。' },
+      ...MINUTE_MODES.map(mode => ({ mode, label: `${mode.slice(1)}分钟K线（内置）`, detail: '分钟开高低收、成交量、均线及技术指标。' })),
       { mode: 'daily', label: '日K图（内置）', detail: '日K、均线、成交量及技术指标，支持60 / 120 / 180根。' },
       { mode: 'weekly', label: '周K图（内置）', detail: '使用行情源周K，含均线、成交量及周线技术指标。' },
       { mode: 'monthly', label: '月K图（内置）', detail: '使用行情源月K，含均线、成交量及月线技术指标。' },
@@ -142,7 +144,7 @@ class ChartController {
     if (this.disposed || this.panels.get(state.symbol) !== state || !message || message.token !== state.token) return;
     if (message.action === 'external') return this.openExternal(state.symbol, state.mode);
     if (message.action === 'period' && state.ready && !isWebMode(state.mode)
-      && ['intraday', 'daily', 'weekly', 'monthly'].includes(message.mode)) {
+      && ['intraday', ...MINUTE_MODES, 'daily', 'weekly', 'monthly'].includes(message.mode)) {
       if (message.mode !== state.mode) this.changeMode(state, message.mode);
       return;
     }

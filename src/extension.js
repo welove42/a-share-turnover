@@ -11,6 +11,7 @@ const { GlobalIndicesController } = require('./global-indices');
 const { FundsController } = require('./funds');
 const { CommoditiesController } = require('./commodities');
 const { warnLegacy } = require('./legacy');
+const { marketRisk } = require('./risk');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -57,7 +58,8 @@ class TurnoverController {
       comparisonMode: config.get('comparisonMode', 'sameTime'),
       showDifferenceAmount: config.get('showDifferenceAmount', true),
       colorMode: config.get('colorMode', 'neutral'),
-      additionalClosedDates: config.get('additionalClosedDates', [])
+      additionalClosedDates: config.get('additionalClosedDates', []),
+      risk: { enabled: config.get('risk.enabled', true), volumePercent: config.get('risk.volumePercent', 30), dropPercent: config.get('risk.dropPercent', 1.5) }
     };
   }
 
@@ -131,6 +133,12 @@ class TurnoverController {
     }
     const now = this.now();
     const result = view(this.snapshot, this.state, this.config, session(now, this.config.additionalClosedDates), now);
+    const risk = marketRisk(this.snapshot, this.state, this.riskSource?.(), session(now, this.config.additionalClosedDates), now, this.config.risk);
+    if (risk) {
+      result.text += ` | $(warning) ${risk.label}`;
+      result.markdown += `\n\n**风险提示：${risk.label}**。沪深A股成交额较昨同刻 ${risk.volume >= 0 ? '+' : ''}${risk.volume.toFixed(2)}%，上证指数 ${risk.change.toFixed(2)}%；比较时间 ${risk.comparisonTime}，触发阈值为成交额变化至少 ${risk.volumeLimit}% 且指数跌幅至少 ${risk.dropLimit}%。`;
+      result.accessibility += ` 风险提示：${risk.label}。`;
+    }
     const markdown = result.markdown.replace(/[<>]/g, '');
     const previous = this.rendered;
     // Avoid invalidating the status bar/hover during unchanged clock checks.
@@ -198,6 +206,10 @@ class TurnoverController {
 function activate(context) {
   const controller = new TurnoverController(context);
   const stocks = new WatchlistController(context, { log: message => controller.log(message) });
+  controller.riskSource = () => {
+    const quote = stocks.quotes.get('sh000001');
+    return quote ? { ...quote, stale: !stocks.config.enabled || stocks.paused || stocks.stale('sh000001') } : null;
+  };
   const news = new NewsController(context, { log: message => controller.log(message) });
   const charts = new ChartController(context, { selected: () => stocks.config.selected, name: symbol => stocks.quotes.get(symbol)?.name });
   const globals = new GlobalIndicesController(context, { log: message => controller.log(message) });
