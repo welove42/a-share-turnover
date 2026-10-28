@@ -5,7 +5,8 @@ const { normalizeSymbol, INDEX_SYMBOL } = require('./quotes');
 const { POLL_MS, session } = require('./market');
 const { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } = require('./chart-data');
 
-const MODES = ['eastmoney', 'chips', 'intraday', 'daily'];
+const MODES = ['eastmoney', 'chips', 'intraday', 'daily', 'weekly', 'monthly'];
+const INDICATORS = ['macd', 'kdj', 'rsi', 'none'];
 const isWebMode = mode => mode === 'eastmoney' || mode === 'chips';
 const availableMode = (symbol, mode) => MODES.includes(mode) && (mode !== 'chips' || supportsChips(symbol)) ? mode : 'intraday';
 
@@ -13,6 +14,7 @@ const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp
 function chartHtml(webview, context, symbol, token, mode = 'intraday') {
   const css = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'chart.css'));
   const js = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'chart.js'));
+  const indicators = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'indicators.js'));
   mode = availableMode(symbol, mode);
   const regularUrl = eastmoneyChartUrl(symbol), chipsUrl = supportsChips(symbol) ? eastmoneyChartUrl(symbol, 'chips') : '';
   const nonce = randomBytes(18).toString('base64');
@@ -22,16 +24,18 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <link rel="stylesheet" href="${escapeHtml(css)}"><title>${escapeHtml(symbol)} 行情图表</title></head>
 <body data-symbol="${escapeHtml(symbol)}" data-token="${token}" data-regular-url="${escapeHtml(regularUrl)}" data-chips-url="${escapeHtml(chipsUrl)}" data-mode="${escapeHtml(mode)}">
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
-<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60日</option><option value="120">120日</option><option value="180" selected>180日</option></select></label></div><p id="meta"></p>
-<p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="img" aria-label="行情价格及成交量图"><svg id="svg" viewBox="0 0 1040 550" aria-hidden="true"></svg></div><p id="detail">移动鼠标查看价格与成交量。</p>
-<p class="note">分时为分钟价格，柱形为每分钟成交量；日K包含开高低收及 MA5 / MA10 / MA20。成交量单位：手。数据时间均为北京时间。插件内图表仅在可见且交易期间每10秒刷新；第三方网页按网站自身规则更新。</p></section></main>
-<script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
+<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><p id="meta"></p>
+<p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="img" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 700" aria-hidden="true"></svg></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="indicator-detail"></p>
+<p class="note" id="indicator-note"></p><p class="note">右上角可切换分时 / 日K / 周K / 月K及副图指标。K线含 MA5 / MA10 / MA20；成交量单位为手，时间为北京时间。当前周/月最后一根随行情更新。可见且交易期间每10秒刷新。</p></section></main>
+<script nonce="${nonce}" src="${escapeHtml(indicators)}"></script><script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
 }
 
 class ChartController {
   constructor(context, { provider = new ChartProvider(), now = () => new Date(), selected = () => INDEX_SYMBOL, name = () => undefined } = {}) {
     this.context = context; this.provider = provider; this.now = now; this.selected = selected; this.name = name;
     this.panels = new Map(); this.cache = new Map(); this.disposed = false;
+    const savedIndicator = context.globalState.get('chartIndicator', 'macd');
+    this.indicator = INDICATORS.includes(savedIndicator) ? savedIndicator : 'macd';
     this.timer = setInterval(() => this.tick(), 1000);
   }
   resolve(element) { return normalizeSymbol(typeof element === 'string' ? element : element?.symbol || this.selected()); }
@@ -88,8 +92,10 @@ class ChartController {
     if (!state) return;
     const token = state.token;
     const items = [
-      { mode: 'intraday', label: '分时图（内置，推荐）', detail: '分钟价格与成交量，直接绘图，无需加载东方财富网页。' },
-      { mode: 'daily', label: '日K图（内置）', detail: '日K、均线与成交量，支持60 / 120 / 180日范围。' },
+      { mode: 'intraday', label: '分时图（内置）', detail: '分钟价格、成交量及技术指标，无需加载东方财富网页。' },
+      { mode: 'daily', label: '日K图（内置）', detail: '日K、均线、成交量及技术指标，支持60 / 120 / 180根。' },
+      { mode: 'weekly', label: '周K图（内置）', detail: '使用行情源周K，含均线、成交量及周线技术指标。' },
+      { mode: 'monthly', label: '月K图（内置）', detail: '使用行情源月K，含均线、成交量及月线技术指标。' },
       { mode: 'eastmoney', label: '常规图表（东方财富）', detail: '网页支持更多周期；遇验证码可切换内置图表，或用右上角浏览器按钮打开。' },
       { mode: 'chips', label: '筹码盘口（东方财富）', detail: '买卖五档及“日K → 筹码分布”；遇验证码建议在浏览器打开并手动完成验证。' }
     ].filter(item => item.mode !== 'chips' || supportsChips(state.symbol))
@@ -101,6 +107,23 @@ class ChartController {
     });
     // A picker opened for the previous stock must not change a newly opened stock.
     if (picked && this.visibleState() === state && state.token === token) this.changeMode(state, picked.mode);
+  }
+  async chooseIndicator() {
+    const state = this.visibleState(); if (!state) return;
+    const token = state.token;
+    const picked = await vscode.window.showQuickPick([
+      { indicator: 'macd', label: 'MACD (12,26,9)', detail: 'DIF、DEA与红绿柱；默认显示。' },
+      { indicator: 'kdj', label: 'KDJ (9,3,3)', detail: 'K、D、J三条曲线；分时使用分钟采样价格计算。' },
+      { indicator: 'rsi', label: 'RSI (6,12,24)', detail: '6、12、24周期相对强弱曲线。' },
+      { indicator: 'none', label: '隐藏技术指标', detail: '仅保留主图与成交量。' }
+    ].map(item => ({ ...item, description: item.indicator === this.indicator ? '当前指标' : undefined })), {
+      title: '切换内置副图指标', placeHolder: isWebMode(state.mode) ? '选择后切到内置分时图；网页指标由网站自身控制' : '指标按当前图表周期计算，切换不请求网络'
+    });
+    if (!picked || !INDICATORS.includes(picked.indicator) || this.visibleState() !== state || state.token !== token) return;
+    this.indicator = picked.indicator;
+    void Promise.resolve(this.context.globalState.update('chartIndicator', this.indicator)).catch(() => {});
+    if (state.ready) this.send(state, { type: 'select-indicator', indicator: this.indicator });
+    if (isWebMode(state.mode)) this.changeMode(state, 'intraday');
   }
   refreshActive() {
     const state = this.visibleState();
@@ -118,6 +141,7 @@ class ChartController {
     if (message.action === 'external') return this.openExternal(state.symbol, state.mode);
     if (message.action === 'ready') {
       state.ready = true;
+      this.send(state, { type: 'select-indicator', indicator: this.indicator });
       this.send(state, { type: 'select-mode', mode: state.mode });
       if (state.pendingRefresh) {
         state.pendingRefresh = false;
@@ -174,7 +198,7 @@ class ChartController {
   }
   getState(symbol) {
     const state = this.panels.get(symbol);
-    return state ? { symbol, mode: state.mode, ready: Boolean(state.ready), date: state.data?.date, bars: state.data?.bars?.length || 0 } : undefined;
+    return state ? { symbol, mode: state.mode, indicator: this.indicator, ready: Boolean(state.ready), date: state.data?.date, bars: state.data?.bars?.length || 0 } : undefined;
   }
   close(state) {
     this.cancel(state);

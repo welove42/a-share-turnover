@@ -9,9 +9,10 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
   let body;
   function node(id, dataset = {}) {
     const attrs = new Map(), listeners = new Map();
-    const value = { dataset, style: {}, classList: { add() {} }, hidden: false,
+    const value = { tag: id, children: [], dataset, style: {}, classList: { add() {} }, hidden: false,
       setAttribute(key, data) { attrs.set(key, String(data)); }, getAttribute: key => attrs.get(key) ?? null,
-      removeAttribute: key => attrs.delete(key), replaceChildren() {},
+      removeAttribute: key => attrs.delete(key), replaceChildren(...items) { this.children = items; }, append(...items) { this.children.push(...items); },
+      dispatch(key, event = {}) { for (const fn of listeners.get(key) || []) fn({ target: value, preventDefault() {}, ...event }); },
       addEventListener(key, fn) { if (!listeners.has(key)) listeners.set(key, []); listeners.get(key).push(fn); },
       click() { for (const fn of listeners.get('click') || []) fn({ target: value }); if (value !== body) body.click(); }
     };
@@ -23,9 +24,10 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
     chipsUrl: chips ? 'https://quote.eastmoney.com/basic/h5chart-iframe.html?code=600105&market=1' : '' });
   const buttons = Object.fromEntries(['eastmoney', 'chips', 'intraday', 'daily'].map(mode => [mode, node(mode, { mode })]));
   const document = { body, getElementById: id => nodes.get(id) || node(id),
+    createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
     querySelectorAll: selector => selector === 'button[data-mode]' ? Object.values(buttons) : selector === '[data-mode]' ? [body, ...Object.values(buttons)] : [] };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/chart.js'), 'utf8'), {
-    document, window: { addEventListener: (event, fn) => { if (event === 'message') receivers.push(fn); } },
+    document, marketIndicators: require('../media/indicators'), window: { addEventListener: (event, fn) => { if (event === 'message') receivers.push(fn); } },
     Date: { now: () => now }, setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { at: now + ms, fn }); return id; }, clearTimeout: id => timers.delete(id),
     acquireVsCodeApi: () => ({ getState: () => saved, setState() {}, postMessage: message => messages.push(message) })
   });
@@ -44,6 +46,45 @@ test('编辑器切换网页图表合并快速选择，重复选择不重载，�
   p.advance(400); assert.equal(p.writes.length, writes + 1);
   p.receive({ type: 'refresh', mode: 'eastmoney' }); assert.equal(p.writes.length, writes + 1);
   p.receive({ type: 'select-mode', mode: 'eastmoney' }); p.advance(400); assert.match(p.nodes.get('eastmoney').src, /full\.html/);
+});
+
+const sampleBars = Array.from({ length: 240 }, (_, i) => ({ time: `2026-${String(1 + Math.floor(i / 28)).padStart(2, '0')}-${String(1 + i % 28).padStart(2, '0')}`, open: 10 + i * .01, close: 10 + i * .01 + Math.sin(i) * .2, high: 11 + i * .01, low: 9 + i * .01, volume: 100 + i }));
+const descendants = item => [item, ...item.children.flatMap(descendants)];
+
+test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期保留选择', () => {
+  const p = page();
+  for (const mode of ['daily', 'weekly', 'monthly']) {
+    p.receive({ type: 'select-mode', mode });
+    p.receive({ type: 'data', data: { symbol: 'sh600105', name: '测试股', source: '测试', mode, date: '2026-10-28', adjustment: '前复权', bars: sampleBars } });
+    assert.equal(p.nodes.get('range-label').hidden, false);
+    assert.match(p.nodes.get('meta').textContent, new RegExp({ daily: '日K', weekly: '周K', monthly: '月K' }[mode]));
+    assert.ok(descendants(p.nodes.get('svg')).some(n => n.getAttribute('class') === 'indicator-bar'));
+    assert.doesNotMatch(JSON.stringify(descendants(p.nodes.get('svg')).map(n => n.getAttribute('points'))), /NaN|Infinity/);
+  }
+  const messages = p.messages.length;
+  p.receive({ type: 'select-indicator', indicator: 'rsi' });
+  assert.match(p.nodes.get('indicator-detail').textContent, /RSI6.*RSI12.*RSI24/);
+  const latest = p.nodes.get('indicator-detail').textContent;
+  p.nodes.get('plot').dispatch('keydown', { key: 'ArrowLeft' });
+  assert.notEqual(p.nodes.get('indicator-detail').textContent, latest);
+  p.nodes.get('range').value = '60'; p.nodes.get('range').dispatch('change');
+  assert.equal(p.nodes.get('indicator-detail').textContent, latest);
+  p.receive({ type: 'select-indicator', indicator: 'none' });
+  assert.equal(p.nodes.get('indicator-detail').textContent, ''); assert.equal(p.nodes.get('svg').getAttribute('viewBox'), '0 0 1040 550');
+  assert.equal(p.messages.length, messages); assert.equal(p.writes.length, 0);
+});
+
+test('短分时KDJ提示数据不足、RSI无无效数值，旧股票消息不覆盖当前图', () => {
+  const p = page(); p.receive({ type: 'select-mode', mode: 'intraday' });
+  p.receive({ type: 'data', data: { symbol: 'sh600105', mode: 'intraday', name: '测试股', source: '测试', date: '2026-10-28', previousClose: 10, bars: [{ ...sampleBars[0], time: '0930' }] } });
+  p.receive({ type: 'select-indicator', indicator: 'kdj' });
+  assert.ok(descendants(p.nodes.get('svg')).some(n => /数据不足/.test(n.textContent)));
+  assert.match(p.nodes.get('indicator-note').textContent, /不代表完整1分钟K线/);
+  p.receive({ type: 'select-indicator', indicator: 'rsi' });
+  assert.match(p.nodes.get('indicator-detail').textContent, /RSI6 —/);
+  const detail = p.nodes.get('detail').textContent;
+  p.receive({ type: 'data', data: { symbol: 'sz000001', mode: 'intraday', bars: [] } });
+  assert.equal(p.nodes.get('detail').textContent, detail);
 });
 test('本地图表释放iframe，新个股以宿主传入模式为准', () => {
   const p = page({ mode: 'chips', saved: { mode: 'daily', range: 60 } });

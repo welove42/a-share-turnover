@@ -48,3 +48,28 @@ test('图表请求只使用已校验代码与固定数据域名，取消信号�
   assert.match(calls[0][0], /^https:\/\/web\.ifzq\.gtimg\.cn\/appstock\/app\/fqkline\/get\?param=sh600519,/); assert.equal(calls[0][1], signal);
   await assert.rejects(provider.load('600519', 'other', signal), /类型/);
 });
+
+test('日周月分别请求对应周期及240根历史，不将日线冒充周月线', async () => {
+  const modes = { daily: 'day', weekly: 'week', monthly: 'month' };
+  for (const [mode, period] of Object.entries(modes)) {
+    const rows = [['2026-09-30', '10', '11', '12', '9', '1000'], ['2026-10-28', '11', '12', '13', '10', '2200']];
+    const provider = new ChartProvider(async url => {
+      assert.equal(new URL(url).searchParams.get('param'), `${symbol},${period},,,240,qfq`);
+      return wrap({ ['qfq' + period]: rows, day: [['2026-10-28', '99', '99', '99', '99', '1']] });
+    });
+    const data = await provider.load(symbol, mode);
+    assert.equal(data.mode, mode); assert.equal(data.bars.length, 2); assert.equal(data.bars.at(-1).volume, 2200);
+    assert.equal(data.adjustment, '前复权'); assert.equal(data.date, '2026-10-28');
+    assert.equal(parseChart(wrap({ [period]: rows }), symbol, mode).adjustment, '不复权');
+    if (mode !== 'daily') assert.throws(() => parseChart(wrap({ day: rows }), symbol, mode), /缺少/);
+  }
+});
+
+test('长期前复权允许历史负价格但仍拒绝负成交量、未复权负价格和错误高低价', () => {
+  const row = ['2008-10-31', '0.219', '-0.004', '0.307', '-0.015', '610703.350'];
+  const data = parseChart(wrap({ qfqmonth: [row] }), symbol, 'monthly');
+  assert.equal(data.bars[0].close, -.004); assert.equal(data.bars[0].low, -.015);
+  assert.throws(() => parseChart(wrap({ month: [row] }), symbol, 'monthly'), /价格/);
+  assert.throws(() => parseChart(wrap({ qfqmonth: [[...row.slice(0, 5), '-1']] }), symbol, 'monthly'), /成交量/);
+  assert.throws(() => parseChart(wrap({ qfqmonth: [['2008-10-31', '.2', '-.004', '.1', '-.015', '100']] }), symbol, 'monthly'), /价格/);
+});

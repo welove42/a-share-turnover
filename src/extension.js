@@ -231,6 +231,7 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.stocks.openChart', (element, mode) => charts.open(element, mode)),
     vscode.commands.registerCommand('welove42.aShareTurnover.stocks.openInBrowser', element => charts.openExternal(element)),
     vscode.commands.registerCommand('welove42.aShareTurnover.chart.selectMode', () => charts.chooseMode()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.chart.selectIndicator', () => charts.chooseIndicator()),
     vscode.commands.registerCommand('welove42.aShareTurnover.chart.refresh', () => charts.refreshActive()),
     vscode.commands.registerCommand('welove42.aShareTurnover.chart.openInBrowser', () => charts.openActiveExternal()),
     vscode.commands.registerCommand('welove42.aShareTurnover.stocks.add', input => stocks.add(input)),

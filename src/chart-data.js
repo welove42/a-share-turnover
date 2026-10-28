@@ -2,6 +2,7 @@
 const { requestJson } = require('./http');
 const { normalizeSymbol } = require('./quotes');
 const { normalizeDate, timeToMinute } = require('./market');
+const PERIODS = { daily: 'day', weekly: 'week', monthly: 'month' };
 
 function eastmoneyUrl(input) {
   const symbol = normalizeSymbol(input), code = symbol.slice(2);
@@ -20,10 +21,10 @@ function eastmoneyChartUrl(input, mode = 'eastmoney') {
   }
   return `https://quote.eastmoney.com/basic/full.html?mcid=${market}.${code}`;
 }
-function number(value, label) {
+function number(value, label, signed = false) {
   if (!['string', 'number'].includes(typeof value) || String(value).trim() === '') throw new Error(`${label}缺失`);
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) throw new Error(`${label}异常`);
+  if (!Number.isFinite(n) || (!signed && n < 0)) throw new Error(`${label}异常`);
   return n;
 }
 function metadata(data, symbol) {
@@ -34,7 +35,7 @@ function metadata(data, symbol) {
 }
 function parseChart(payload, input, mode) {
   const symbol = normalizeSymbol(input);
-  if (!['intraday', 'daily'].includes(mode)) throw new Error('图表类型无效');
+  if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode)) throw new Error('图表类型无效');
   const data = payload?.code === 0 && payload.data?.[symbol];
   if (!data) throw new Error('未获取到图表数据，请检查代码或稍后刷新');
   const bars = [], meta = metadata(data, symbol);
@@ -55,15 +56,19 @@ function parseChart(payload, input, mode) {
       if (price > 0) bars.push({ time, open: price, close: price, high: price, low: price, volume });
     }
   } else {
-    const rows = Array.isArray(data.qfqday) && data.qfqday.length ? data.qfqday : data.day;
-    if (!Array.isArray(rows)) throw new Error('缺少日K数据');
-    adjustment = rows === data.qfqday ? '前复权' : '不复权';
+    const period = PERIODS[mode], adjusted = data['qfq' + period];
+    const rows = Array.isArray(adjusted) && adjusted.length ? adjusted : data[period];
+    if (!Array.isArray(rows)) throw new Error('缺少所选周期K线数据');
+    adjustment = rows === adjusted ? '前复权' : '不复权';
     for (const row of rows) {
       if (!Array.isArray(row)) throw new Error('日K格式异常');
       const time = normalizeDate(String(row[0]).replaceAll('-', ''));
-      const [open, close, high, low, volume] = row.slice(1, 6).map(value => number(value, '日K字段'));
+      // Cash-dividend forward adjustment can legitimately make old prices negative.
+      const adjustedPrices = adjustment === '前复权';
+      const [open, close, high, low] = row.slice(1, 5).map(value => number(value, 'K线价格', adjustedPrices));
+      const volume = number(row[5], 'K线成交量');
       if (open === 0 && close === 0 && high === 0 && low === 0) continue;
-      if (low <= 0 || low > Math.min(open, close) || high < Math.max(open, close) || (bars.length && time <= bars.at(-1).time)) throw new Error('日K价格或日期顺序异常');
+      if ((!adjustedPrices && low <= 0) || low > Math.min(open, close) || high < Math.max(open, close) || (bars.length && time <= bars.at(-1).time)) throw new Error('K线价格或日期顺序异常');
       bars.push({ time, open, close, high, low, volume });
     }
     date = bars.at(-1)?.time;
@@ -75,10 +80,10 @@ class ChartProvider {
   constructor(request = requestJson) { this.request = request; }
   async load(input, mode, signal) {
     const symbol = normalizeSymbol(input);
-    if (!['intraday', 'daily'].includes(mode)) throw new Error('图表类型无效');
+    if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode)) throw new Error('图表类型无效');
     const url = mode === 'intraday'
       ? `https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=${symbol}`
-      : `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},day,,,180,qfq`;
+      : `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},${PERIODS[mode]},,,240,qfq`;
     return parseChart(await this.request(url, signal), symbol, mode);
   }
 }

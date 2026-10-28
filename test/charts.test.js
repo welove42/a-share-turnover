@@ -139,7 +139,7 @@ test('工具栏类型菜单仅列出支持的图表，保留当前选择，取�
     let items;
     h.api.window.showQuickPick = async list => { items = list; return list.find(item => item.mode === 'chips'); };
     await h.c.chooseMode(); assert.equal(s.mode, 'chips');
-    assert.deepEqual(items.map(item => item.mode), ['intraday', 'daily', 'eastmoney', 'chips']);
+    assert.deepEqual(items.map(item => item.mode), ['intraday', 'daily', 'weekly', 'monthly', 'eastmoney', 'chips']);
     assert.equal(items.find(item => item.mode === 'intraday').description, '当前图表');
     assert.equal(s.panel.webview.messages.at(-1).type, 'select-mode');
     h.api.window.showQuickPick = async list => { items = list; return undefined; };
@@ -185,5 +185,23 @@ test('快速切换类型后，迟到的页面确认不能恢复旧模式或请�
     h.c.changeMode(s, 'daily'); h.c.changeMode(s, 'chips');
     await h.c.receive(s, { action: 'mode-ready', mode: 'daily', token: s.token });
     assert.equal(s.mode, 'chips'); assert.equal(h.calls(), 0);
+  } finally { h.c.dispose(); }
+});
+
+test('指标默认MACD，右上角切换不请求行情，跨股票及重开保留并拒绝迟到选择', async () => {
+  const h = setup(); try {
+    await h.c.open('600105', 'weekly'); const s = h.c.panels.get('sh600105'); await h.mode(s, 'weekly');
+    assert.equal(h.c.getState('sh600105').indicator, 'macd');
+    const before = h.calls();
+    h.api.window.showQuickPick = async items => items.find(item => item.indicator === 'rsi');
+    await h.c.chooseIndicator(); assert.equal(h.calls(), before);
+    assert.equal(s.panel.webview.messages.at(-1).type, 'select-indicator'); assert.equal(h.store.get('chartIndicator'), 'rsi');
+    await h.c.open('000001'); await h.mode(s, 'weekly');
+    assert.equal(h.c.getState('sz000001').indicator, 'rsi');
+    let finish; h.api.window.showQuickPick = () => new Promise(resolve => { finish = resolve; });
+    const pending = h.c.chooseIndicator(); await h.c.open('600105', 'monthly');
+    finish({ indicator: 'kdj' }); await pending; assert.equal(h.c.indicator, 'rsi');
+    s.panel.dispose(); await h.c.open('000001', 'monthly');
+    assert.equal(h.c.getState('sz000001').indicator, 'rsi');
   } finally { h.c.dispose(); }
 });

@@ -4,7 +4,7 @@ const { StockSearch } = require('../src/stock-search');
 (async () => {
   const provider = new ChartProvider();
   for (const symbol of ['sh600519', 'sz000001', 'sh000001', 'sh510300', 'bj920002']) {
-    for (const mode of ['intraday', 'daily']) {
+    for (const mode of ['intraday', 'daily', 'weekly', 'monthly']) {
       const data = await provider.load(symbol, mode);
       console.log(`${symbol} ${data.name} ${mode} ${data.date} ${data.bars.length} points ${data.adjustment} last=${data.bars.at(-1).close} ${eastmoneyUrl(symbol)}`);
     }

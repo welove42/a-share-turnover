@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -46,7 +46,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.6.3.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.7.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -151,6 +151,12 @@
         "title": "A股图表：切换图表类型",
         "shortTitle": "切换图表类型",
         "icon": "$(graph-line)"
+      },
+      {
+        "command": "welove42.aShareTurnover.chart.selectIndicator",
+        "title": "A股图表：切换技术指标",
+        "shortTitle": "切换技术指标",
+        "icon": "$(pulse)"
       },
       {
         "command": "welove42.aShareTurnover.chart.refresh",
@@ -349,12 +355,21 @@
         },
         "aShareTurnover.charts.defaultMode": {
           "type": "string",
-          "enum": ["intraday", "daily", "eastmoney", "chips"],
+          "enum": [
+            "intraday",
+            "daily",
+            "weekly",
+            "monthly",
+            "eastmoney",
+            "chips"
+          ],
           "default": "intraday",
           "scope": "application",
           "enumDescriptions": [
-            "内置分时图（推荐），直接绘图，不加载东方财富网页。",
-            "内置日K图，包含均线与成交量。",
+            "内置分时图，直接绘制价格、成交量及技术指标。",
+            "内置日K、均线及技术指标。",
+            "内置周K、均线及技术指标。",
+            "内置月K、均线及技术指标。",
             "东方财富常规网页图表，可能要求验证码。",
             "东方财富筹码盘口网页，可能要求验证码；不支持的品种使用内置分时。"
           ],
@@ -684,6 +699,10 @@
         {
           "command": "welove42.aShareTurnover.globalIndices.search",
           "when": "false"
+        },
+        {
+          "command": "welove42.aShareTurnover.chart.selectIndicator",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart"
         }
       ],
       "editor/title": [
@@ -693,14 +712,19 @@
           "group": "navigation@1"
         },
         {
-          "command": "welove42.aShareTurnover.chart.refresh",
+          "command": "welove42.aShareTurnover.chart.selectIndicator",
           "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart",
           "group": "navigation@2"
         },
         {
-          "command": "welove42.aShareTurnover.chart.openInBrowser",
+          "command": "welove42.aShareTurnover.chart.refresh",
           "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart",
           "group": "navigation@3"
+        },
+        {
+          "command": "welove42.aShareTurnover.chart.openInBrowser",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart",
+          "group": "navigation@4"
         }
       ]
     }
