@@ -1,5 +1,5 @@
-:root { color-scheme: light dark; --chart-series-0: #e2bd65; --chart-series-1: #bc8aff; --chart-series-2: #5bbcff; --chart-up: #f05b68; --chart-down: #26bd8c; }
-body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; --chart-series-0: #9b6a00; --chart-series-1: #8b35bd; --chart-series-2: #0079b5; --chart-up: #ce3447; --chart-down: #008360; }
+:root { color-scheme: light dark; --chart-series-0: #e2bd65; --chart-series-1: #bc8aff; --chart-series-2: #5bbcff; --chart-series-3: #65d9c0; --chart-series-4: #f3a079; --chart-up: #f05b68; --chart-down: #26bd8c; }
+body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; --chart-series-0: #9b6a00; --chart-series-1: #8b35bd; --chart-series-2: #0079b5; --chart-series-3: #08796c; --chart-series-4: #b45320; --chart-up: #ce3447; --chart-down: #008360; }
 body.vscode-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) { color-scheme: dark; }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--vscode-foreground, #d9e1ee); background: var(--vscode-editor-background, #151c28); font: 13px var(--vscode-font-family, system-ui, sans-serif); }
@@ -27,15 +27,18 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) #eastmoney { filter: 
 select { padding: 4px 8px; }
 #status { min-height: 20px; margin: 5px 0; color: var(--vscode-descriptionForeground, #9caec5); }
 #status.error { color: var(--vscode-errorForeground, #f48771); }
-#plot { border: 1px solid var(--vscode-panel-border, #354053); border-radius: 6px; overflow: hidden; background: var(--vscode-editor-background, #151c28); touch-action: pan-y; }
+#plot { position: relative; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 6px; overflow: hidden; background: var(--vscode-editor-background, #151c28); touch-action: pan-y; }
+#chart-tooltip { position: absolute; top: 38px; right: 12px; z-index: 1; pointer-events: none; max-width: calc(100% - 24px); padding: 9px 12px; border: 1px solid var(--vscode-editorHoverWidget-border, #59677c); border-radius: 5px; background: var(--vscode-editorHoverWidget-background, #202937); color: var(--vscode-editorHoverWidget-foreground, #d9e1ee); box-shadow: 0 3px 12px #0003; white-space: pre-wrap; font-size: 12px; line-height: 1.8; font-variant-numeric: tabular-nums; }
+body.vscode-light #chart-tooltip, body.vscode-high-contrast-light #chart-tooltip { background: var(--vscode-editorHoverWidget-background, #fff); color: var(--vscode-editorHoverWidget-foreground, #222); }
 svg { display: block; width: 100%; height: clamp(440px, 72vh, 760px); }
 svg text { fill: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; font-family: inherit; }
 svg text.ma5, svg text.series-0 { fill: var(--chart-series-0); } svg text.ma10, svg text.series-1 { fill: var(--chart-series-1); } svg text.ma20, svg text.series-2 { fill: var(--chart-series-2); }
+svg text.ma30 { fill: var(--chart-series-3); } svg text.ma60 { fill: var(--chart-series-4); }
 svg text.indicator-title { fill: var(--vscode-foreground, #d9e1ee); font-weight: 600; }
 .grid { stroke: var(--vscode-panel-border, #354053); stroke-width: 1; }
 .baseline { stroke: var(--vscode-descriptionForeground, #9caec5); stroke-dasharray: 5 5; opacity: .7; }
 .crosshair { stroke: var(--vscode-foreground, #d9e1ee); opacity: .5; stroke-dasharray: 4 4; pointer-events: none; }
 #detail { min-height: 24px; font-variant-numeric: tabular-nums; line-height: 1.8; margin: 10px 0 0; }
-#indicator-detail { min-height: 18px; margin: 3px 0; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground, #9caec5); }
+#indicator-detail, #average-detail { min-height: 18px; margin: 3px 0; line-height: 1.8; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground, #9caec5); }
 .note { margin: 7px 0; }
 @media (max-width: 600px) { #local { padding: 10px; } .chart-tools { flex-wrap: wrap; } svg { min-height: 270px; } }

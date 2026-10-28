@@ -44,17 +44,27 @@ function parseChart(payload, input, mode) {
   if (mode === 'intraday') {
     date = normalizeDate(data.data?.date);
     if (!Array.isArray(data.data?.data)) throw new Error('缺少分时数据');
-    let cumulative = 0, lastMinute = -1;
+    let cumulative = 0, lastMinute = -1, previousAmount = 0, largestAmount = 0;
+    // These stocks/ETFs use 100 shares per lot. Index turnover cannot be
+    // divided by aggregate constituent volume to obtain an index average.
+    const supportsAverage = /^(?:sh[56]\d{5}|sz[03]\d{5}|sz1[568]\d{4}|bj\d{6})$/.test(symbol);
     for (const row of data.data.data) {
       if (typeof row !== 'string') throw new Error('分时格式异常');
-      const [time, rawPrice, rawVolume] = row.trim().split(/\s+/);
+      const [time, rawPrice, rawVolume, rawAmount] = row.trim().split(/\s+/);
       const minute = timeToMinute(time);
       if (!((minute >= 570 && minute <= 690) || (minute >= 780 && minute <= 900))) continue;
       const price = number(rawPrice, '分时价格'), total = number(rawVolume, '累计成交量');
       if (minute <= lastMinute || total < cumulative) throw new Error('分时累计成交量或时间顺序异常');
       lastMinute = minute;
       const volume = total - cumulative; cumulative = total;
-      if (price > 0) bars.push({ time, open: price, close: price, high: price, low: price, volume });
+      const amountValue = rawAmount === undefined ? NaN : Number(rawAmount);
+      const cumulativeAmount = Number.isFinite(amountValue) && amountValue >= largestAmount ? amountValue : null;
+      const amount = cumulativeAmount !== null && previousAmount !== null ? cumulativeAmount - previousAmount : null;
+      previousAmount = cumulativeAmount;
+      if (cumulativeAmount !== null) largestAmount = cumulativeAmount;
+      const averagePrice = supportsAverage && total > 0 && cumulativeAmount > 0 ? cumulativeAmount / (total * 100) : null;
+      if (price > 0) bars.push({ time, open: price, close: price, high: price, low: price, volume,
+        cumulativeVolume: total, amount, cumulativeAmount, averagePrice });
     }
   } else if (MINUTES.includes(mode)) {
     const rows = data[mode];

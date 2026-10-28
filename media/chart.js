@@ -12,12 +12,15 @@
   const periodButtons = [...document.querySelectorAll('button[data-period]')];
   let mode = 'intraday', data = null, range = [60, 120, 180].includes(saved.range) ? saved.range : 180, hover = null;
   let webTimer = null, pendingUrl = '', lastWebLoad = -Infinity;
-  let indicator = 'macd', indicatorData = null;
+  let indicator = 'macd', indicatorData = null, metrics = {}, averages = [], volumeAverages = [], legend = [];
   const send = (action, extra = {}) => vscode.postMessage({ action, token, ...extra });
   const remember = () => vscode.setState({ mode, range });
   const precision = /^(sh5|sz1)/.test(symbol) ? 3 : 2;
   const price = value => Number(value).toFixed(precision);
   const volume = value => value >= 1e8 ? (value / 1e8).toFixed(2) + '亿手' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万手' : Number(value).toFixed(0) + '手';
+  const amount = value => !Number.isFinite(value) ? '—' : value >= 1e8 ? (value / 1e8).toFixed(2) + '亿元' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万元' : value.toFixed(2) + '元';
+  const priceOrDash = value => Number.isFinite(value) ? price(value) : '—';
+  const signed = (value, digits = 2) => Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value.toFixed(digits)}` : '—';
   const clock = timestamp => timestamp ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)} ${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:${timestamp.slice(12, 14)}` : '';
   function cancelWebLoad() { clearTimeout(webTimer); webTimer = null; pendingUrl = ''; }
   function loadWeb(force = false) {
@@ -45,7 +48,7 @@
     } else {
       // Release the third-party document while the user is viewing native charts.
       cancelWebLoad(); $('eastmoney').removeAttribute('src');
-      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
+      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
     }
     remember(); if (notify) send('mode-ready', { mode });
   }
@@ -61,10 +64,22 @@
   }
   function draw() {
     if (!data || data.mode !== mode) return;
-    const all = data.bars, candles = mode !== 'intraday', bars = candles ? all.slice(-range) : all;
-    indicatorData = globalThis.marketIndicators.calculate(all, indicator);
+    const all = data.bars, candles = mode !== 'intraday';
+    let start = candles ? Math.max(0, all.length - range) : 0;
+    if (candles && hover?.active) {
+      const selectedIndex = all.findIndex(b => b.time === hover.bars[hover.index].time);
+      if (selectedIndex >= 0) start = Math.min(start, selectedIndex);
+    }
+    const bars = candles ? all.slice(start, start + range) : all;
+    const { calculate, movingAverage } = globalThis.marketIndicators;
+    metrics = Object.fromEntries(['macd', 'kdj', 'rsi'].map(name => [name, calculate(all, name)]));
+    indicatorData = metrics[indicator] || null;
+    averages = candles ? [5, 10, 20, 30, 60].map((n, i) => ({ name: 'MA' + n, color: `var(--chart-series-${i})`, values: movingAverage(all, n) }))
+      : [{ name: '均价', color: 'var(--chart-series-0)', values: all.map(b => b.averagePrice ?? null) }];
+    volumeAverages = candles ? [5, 10].map((n, i) => ({ name: 'VMA' + n, color: `var(--chart-series-${i})`, values: movingAverage(all, n, 'volume') })) : [];
+    legend = [];
     const withIndicator = Boolean(indicatorData);
-    const start = all.length - bars.length, svg = $('svg');
+    const svg = $('svg');
     const height = withIndicator ? Math.max(440, Math.min(900, Math.round(svg.clientHeight * 1040 / svg.clientWidth) || 700)) : 550;
     const L = 68, R = 967, T = 40, B = withIndicator ? height * .46 : 380, V = withIndicator ? height * .53 : 430, VB = withIndicator ? height * .64 : 505;
     const I = height * .72, IB = height - 45, bottom = withIndicator ? IB : VB;
@@ -74,19 +89,35 @@
       return Math.max(0, Math.min(120, m - 570)) + Math.max(0, Math.min(120, m - 780));
     };
     const x = (bar, i) => candles ? L + (i + .5) * width / bars.length : L + minute(bar.time) / 240 * width;
-    const ma = n => bars.map((_, i) => i + start + 1 >= n ? all.slice(i + start + 1 - n, i + start + 1).reduce((sum, b) => sum + b.close, 0) / n : null);
-    const averages = candles ? [5, 10, 20].map((n, i) => ({ n, color: `var(--chart-series-${i})`, values: ma(n) })) : [];
-    let min = Math.min(...bars.map(b => b.low), ...averages.flatMap(a => a.values.filter(v => v !== null)));
-    let max = Math.max(...bars.map(b => b.high), ...averages.flatMap(a => a.values.filter(v => v !== null)));
+    let min = Math.min(...bars.map(b => b.low), ...averages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)));
+    let max = Math.max(...bars.map(b => b.high), ...averages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)));
     if (mode === 'intraday' && data.previousClose) {
       const spread = Math.max(Math.abs(min - data.previousClose), Math.abs(max - data.previousClose), data.previousClose * .002);
       min = data.previousClose - spread; max = data.previousClose + spread;
     }
     const pad = Math.max((max - min) * .08, max * .001, .001); min -= pad; max += pad;
     const y = value => B - (value - min) / (max - min) * (B - T);
-    const maxVolume = Math.max(...bars.map(b => b.volume), 1);
+    const maxVolume = Math.max(...bars.map(b => b.volume), ...volumeAverages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)), 1);
     const fragment = document.createDocumentFragment();
     const add = (tag, attrs, text) => { const e = element(tag, attrs, text); fragment.append(e); return e; };
+    const addLegend = (series, attrs, format = numberOrDash) => {
+      const label = add('text', { ...attrs, 'data-series': series.name }, '');
+      legend.push({ label, series, format }); return label;
+    };
+    const drawSeries = (series, yForValue, className) => {
+      // Break a line at missing source values rather than bridging the gap.
+      let points = [];
+      const flush = () => {
+        if (points.length === 1) { const [cx, cy] = points[0].split(','); add('circle', { cx, cy, r: 2, fill: series.color, class: className }); }
+        else if (points.length) add('polyline', { points: points.join(' '), fill: 'none', stroke: series.color, 'stroke-width': 1.3, class: className });
+        points = [];
+      };
+      bars.forEach((bar, i) => {
+        const value = series.values[start + i];
+        if (Number.isFinite(value)) points.push(`${x(bar, i)},${yForValue(value)}`); else flush();
+      });
+      flush();
+    };
     for (let i = 0; i <= 4; i++) {
       const yy = T + i * (B - T) / 4, p = max - i * (max - min) / 4;
       add('line', { x1: L, x2: R, y1: yy, y2: yy, class: 'grid' }); add('text', { x: L - 8, y: yy + 4, 'text-anchor': 'end' }, price(p));
@@ -110,17 +141,18 @@
       add('rect', { x: xx - barWidth / 2, y: VB - vh, width: barWidth, height: vh, fill: color, opacity: .8 });
     });
     averages.forEach((a, index) => {
-      const points = bars.map((bar, i) => a.values[i] === null ? null : `${x(bar, i)},${y(a.values[i])}`).filter(Boolean);
-      if (points.length) add('polyline', { points: points.join(' '), fill: 'none', stroke: a.color, 'stroke-width': 1.3 });
-      const last = a.values.at(-1);
-      const label = add('text', { x: L + index * 185, y: 21 }, `MA${a.n} ${last === null ? '—' : price(last)}`);
-      label.classList.add('ma' + a.n);
+      drawSeries(a, y, candles ? 'price-average' : 'intraday-average');
+      addLegend(a, { x: L + index * 175, y: 21, class: candles ? a.name.toLowerCase() : 'series-0' }, priceOrDash);
+    });
+    volumeAverages.forEach((a, index) => {
+      drawSeries(a, value => VB - value / maxVolume * (VB - V), 'volume-average');
+      addLegend(a, { x: L + 310 + index * 260, y: V - 12, class: 'series-' + index }, value => Number.isFinite(value) ? volume(value) : '—');
     });
     const ticks = mode === 'intraday' ? [[L, '09:30'], [L + width / 4, '10:30'], [L + width / 2, '11:30 / 13:00'], [L + width * .75, '14:00'], [R, '15:00']]
       : [...new Set([0, Math.floor((bars.length - 1) / 2), bars.length - 1])].map(i => [x(bars[i], i), /^m\d+$/.test(mode) ? bars[i].time.slice(5) : bars[i].time]);
     if (withIndicator) {
-      const lines = indicatorData.lines.map(s => ({ ...s, values: s.values.slice(start) }));
-      const histogram = indicatorData.histogram?.slice(start);
+      const lines = indicatorData.lines.map(s => ({ ...s, values: s.values.slice(start, start + bars.length) }));
+      const histogram = indicatorData.histogram?.slice(start, start + bars.length);
       const values = lines.flatMap(s => s.values.filter(Number.isFinite)).concat((histogram || []).filter(Number.isFinite));
       let low = Math.min(...values, ...(indicatorData.bounds || []), ...indicatorData.levels);
       let high = Math.max(...values, ...(indicatorData.bounds || []), ...indicatorData.levels);
@@ -128,8 +160,8 @@
       const padding = (high - low) * .08; low -= padding; high += padding;
       const iy = value => IB - (value - low) / (high - low) * (IB - I);
       add('text', { x: L, y: I - 16, class: 'indicator-title' }, indicatorData.label);
-      lines.forEach((s, i) => add('text', { x: L + 250 + i * 180, y: I - 16, class: 'series-' + i }, `${s.name} ${numberOrDash(s.values.at(-1))}`));
-      if (histogram) add('text', { x: L + 610, y: I - 16 }, `柱 ${numberOrDash(histogram.at(-1))}`);
+      indicatorData.lines.forEach((s, i) => addLegend(s, { x: L + 250 + i * 180, y: I - 16, class: 'series-' + i }));
+      if (histogram) addLegend({ name: '柱', values: indicatorData.histogram }, { x: L + 610, y: I - 16 });
       for (let i = 0; i <= 2; i++) {
         const value = low + (high - low) * i / 2, yy = iy(value);
         add('line', { x1: L, x2: R, y1: yy, y2: yy, class: 'grid' });
@@ -149,39 +181,74 @@
     }
     ticks.forEach(([xx, text]) => add('text', { x: xx, y: bottom + 30, 'text-anchor': 'middle' }, text));
     const cross = add('line', { x1: L, x2: L, y1: T, y2: bottom, class: 'crosshair', visibility: 'hidden' });
+    const marker = add('circle', { cx: L, cy: T, r: 3, fill: lineColor, visibility: 'hidden' });
     svg.replaceChildren(fragment);
     $('plot').setAttribute('aria-label', `${data.name} ${names[mode]}图，${bars[0].time} 至 ${bars.at(-1).time}，最新价格 ${price(bars.at(-1).close)}${withIndicator ? '，副图 ' + indicatorData.label : ''}。可用左右方向键查看数据。`);
     $('indicator-note').textContent = !withIndicator ? '' : mode === 'intraday'
       ? '指标按当日分钟采样价格计算并每日重置；KDJ使用采样价范围，不代表完整1分钟K线高低价。'
       : `指标按${names[mode]}全量已获取记录计算后截取显示范围；不同历史长度及初始化方式可能产生数值差异。`;
-    hover = { bars, x, cross, L, R, start, index: bars.length - 1 };
-    detail(bars.at(-1), all.length - 1);
+    const selected = hover?.active && (candles || hover.date === data.date) ? bars.findIndex(b => b.time === hover.bars[hover.index].time) : -1;
+    const side = hover?.side || 'right';
+    hover = { bars, x, y, cross, marker, L, R, start, index: bars.length - 1, date: data.date, active: false, side };
+    if (selected >= 0) pointAt(selected);
+    else { $('chart-tooltip').hidden = true; detail(bars.at(-1), all.length - 1); }
   }
   const numberOrDash = value => Number.isFinite(value) ? value.toFixed(4) : '—';
   function detail(bar, index) {
     const time = mode === 'intraday' ? `${data.date} ${bar.time.slice(0, 2)}:${bar.time.slice(2)}` : bar.time;
-    const change = data.previousClose ? (bar.close / data.previousClose - 1) * 100 : null;
+    const previous = mode === 'intraday' ? data.previousClose : data.bars[index - 1]?.close;
+    // Historical/weekly/monthly bars must use their preceding bar, not today's quote.
+    const delta = Number.isFinite(previous) && previous > 0 ? bar.close - previous : null;
+    const change = delta === null ? null : delta / previous * 100;
+    const amplitude = delta === null ? null : (bar.high - bar.low) / previous * 100;
+    const changes = `涨跌 ${signed(delta, precision)}　涨跌幅 ${signed(change)}%`;
+    const mainAverages = averages.map(a => `${a.name} ${priceOrDash(a.values[index])}`);
+    const volumeValues = volumeAverages.map(a => `${a.name} ${Number.isFinite(a.values[index]) ? volume(a.values[index]) : '—'}`);
+    const indicatorText = item => `${item.label}　${item.lines.map(s => `${s.name} ${numberOrDash(s.values[index])}`).join('　')}${item.histogram ? '　柱 ' + numberOrDash(item.histogram[index]) : ''}`;
+    for (const { label, series, format } of legend) label.textContent = `${series.name} ${format(series.values[index])}`;
     $('detail').textContent = mode !== 'intraday'
-      ? `${time}　开 ${price(bar.open)}　高 ${price(bar.high)}　低 ${price(bar.low)}　收 ${price(bar.close)}　成交量 ${volume(bar.volume)}`
-      : `${time}　价格 ${price(bar.close)}${change === null ? '' : `　涨跌幅 ${change > 0 ? '+' : ''}${change.toFixed(2)}%`}　该分钟成交量 ${volume(bar.volume)}`;
-    $('indicator-detail').textContent = !indicatorData ? '' : `${indicatorData.label}　${indicatorData.lines.map(s => `${s.name} ${numberOrDash(s.values[index])}`).join('　')}${indicatorData.histogram ? '　柱 ' + numberOrDash(indicatorData.histogram[index]) : ''}`;
+      ? `${time}　开 ${price(bar.open)}　高 ${price(bar.high)}　低 ${price(bar.low)}　收 ${price(bar.close)}　${changes}　振幅 ${signed(amplitude)}%　成交量 ${volume(bar.volume)}`
+      : `${time}　价格 ${price(bar.close)}　${changes}　均价 ${priceOrDash(bar.averagePrice)}　该分钟成交量 ${volume(bar.volume)}　该分钟成交额 ${amount(bar.amount)}　累计成交额 ${amount(bar.cumulativeAmount)}`;
+    $('average-detail').textContent = [...mainAverages, ...volumeValues].join('　');
+    $('indicator-detail').textContent = !indicatorData ? '' : indicatorText(indicatorData);
+    const rows = mode === 'intraday'
+      ? [time, `价格 ${price(bar.close)}　均价 ${priceOrDash(bar.averagePrice)}`, changes,
+        `分钟量 ${volume(bar.volume)}　累计量 ${Number.isFinite(bar.cumulativeVolume) ? volume(bar.cumulativeVolume) : '—'}`,
+        `分钟额 ${amount(bar.amount)}　累计额 ${amount(bar.cumulativeAmount)}`]
+      : [time, `开 ${price(bar.open)}　收 ${price(bar.close)}`, `高 ${price(bar.high)}　低 ${price(bar.low)}`,
+        changes, `振幅 ${signed(amplitude)}%　量 ${volume(bar.volume)}`,
+        mainAverages.slice(0, 3).join('　'), mainAverages.slice(3).join('　'), volumeValues.join('　')];
+    $('chart-tooltip').textContent = [...rows, ...Object.values(metrics).map(indicatorText)].join('\n');
   }
   function pointAt(index) {
     if (!hover) return;
     hover.index = Math.max(0, Math.min(hover.bars.length - 1, index));
+    hover.active = true;
     const bar = hover.bars[hover.index], xx = hover.x(bar, hover.index);
     hover.cross.setAttribute('x1', xx); hover.cross.setAttribute('x2', xx); hover.cross.setAttribute('visibility', 'visible'); detail(bar, hover.start + hover.index);
+    hover.marker.setAttribute('cx', xx); hover.marker.setAttribute('cy', hover.y(bar.close)); hover.marker.setAttribute('visibility', 'visible');
+    $('chart-tooltip').hidden = false;
+    $('chart-tooltip').style.left = hover.side === 'left' ? '12px' : 'auto';
+    $('chart-tooltip').style.right = hover.side === 'right' ? '12px' : 'auto';
   }
   $('plot').addEventListener('pointermove', event => {
     if (!hover) return;
     const transform = $('svg').getScreenCTM(); if (!transform) return;
     const xx = new DOMPoint(event.clientX, event.clientY).matrixTransform(transform.inverse()).x;
+    hover.side = xx > (hover.L + hover.R) / 2 ? 'left' : 'right';
     let best = 0;
     hover.bars.forEach((bar, i) => { if (Math.abs(hover.x(bar, i) - xx) < Math.abs(hover.x(hover.bars[best], best) - xx)) best = i; });
     pointAt(best);
   });
-  $('plot').addEventListener('pointerleave', () => { if (hover) hover.cross.setAttribute('visibility', 'hidden'); });
+  function resetSelection() {
+    if (!hover) return;
+    hover.active = false;
+    draw();
+  }
+  $('plot').addEventListener('pointerleave', resetSelection);
+  $('plot').addEventListener('blur', resetSelection);
   $('plot').addEventListener('keydown', event => {
+    if (event.key === 'Escape') { resetSelection(); return; }
     if (hover && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); pointAt(hover.index + (event.key === 'ArrowLeft' ? -1 : 1)); }
   });
   window.addEventListener('message', event => {

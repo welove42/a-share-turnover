@@ -40,7 +40,16 @@
     if (name === 'rsi') return { label: 'RSI (6,12,24)', lines: [6, 12, 24].map((n, i) => line('RSI' + n, colors[i], rsiValues(bars, n))), levels: [20, 80], bounds: [0, 100] };
     return null;
   }
-  const api = { calculate };
+  function movingAverage(bars, period, field = 'close') {
+    if (!Number.isInteger(period) || period < 1) throw new Error('均线周期无效');
+    let total = 0;
+    return bars.map((bar, i) => {
+      total += bar[field];
+      if (i >= period) total -= bars[i - period][field];
+      return i + 1 < period ? null : total / period;
+    });
+  }
+  const api = { calculate, movingAverage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.marketIndicators = api;
 })();

@@ -17,6 +17,7 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
       click() { for (const fn of listeners.get('click') || []) fn({ target: value }); if (value !== body) body.click(); }
     };
     Object.defineProperty(value, 'src', { get: () => attrs.get('src'), set: url => { attrs.set('src', url); writes.push(url); } });
+    value.getScreenCTM = () => ({ inverse: () => ({}) });
     nodes.set(id, value); return value;
   }
   body = node('body', { symbol: 'sh600105', token: 'test-token', mode,
@@ -27,7 +28,7 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
     createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
     querySelectorAll: selector => selector === 'button[data-period]' ? Object.values(buttons) : [] };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/chart.js'), 'utf8'), {
-    document, marketIndicators: require('../media/indicators'), window: { addEventListener: (event, fn) => { if (event === 'message') receivers.push(fn); } },
+    document, marketIndicators: require('../media/indicators'), DOMPoint: class { constructor(x, y) { this.x = x; this.y = y; } matrixTransform() { return this; } }, window: { addEventListener: (event, fn) => { if (event === 'message') receivers.push(fn); } },
     Date: { now: () => now }, setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { at: now + ms, fn }); return id; }, clearTimeout: id => timers.delete(id),
     acquireVsCodeApi: () => ({ getState: () => saved, setState() {}, postMessage: message => messages.push(message) })
   });
@@ -67,11 +68,67 @@ test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期
   const latest = p.nodes.get('indicator-detail').textContent;
   p.nodes.get('plot').dispatch('keydown', { key: 'ArrowLeft' });
   assert.notEqual(p.nodes.get('indicator-detail').textContent, latest);
+  const selected = p.nodes.get('indicator-detail').textContent;
   p.nodes.get('range').value = '60'; p.nodes.get('range').dispatch('change');
-  assert.equal(p.nodes.get('indicator-detail').textContent, latest);
+  assert.equal(p.nodes.get('indicator-detail').textContent, selected);
   p.receive({ type: 'select-indicator', indicator: 'none' });
   assert.equal(p.nodes.get('indicator-detail').textContent, ''); assert.equal(p.nodes.get('svg').getAttribute('viewBox'), '0 0 1040 550');
   assert.equal(p.messages.length, messages); assert.equal(p.writes.length, 0);
+});
+
+test('日周月及所有分钟周期悬停同步MA、副图图例、详情卡，历史涨幅使用前一根K线', () => {
+  const p = page(), plot = () => p.nodes.get('plot');
+  for (const mode of ['daily', 'weekly', 'monthly', 'm1', 'm5', 'm15', 'm30', 'm60']) {
+    const bars = sampleBars.map(b => ({ ...b }));
+    const data = { symbol: 'sh600105', name: '测试股', mode, date: '2026-10-28', previousClose: 999, bars };
+    p.receive({ type: 'select-mode', mode }); p.receive({ type: 'data', data });
+    const before = p.nodes.get('average-detail').textContent;
+    // With 180 visible bars, the first bar is absolute index 60.
+    plot().dispatch('pointermove', { clientX: 68, clientY: 100 });
+    const expected = bars.slice(56, 61).reduce((s, b) => s + b.close, 0) / 5;
+    const series = name => descendants(p.nodes.get('svg')).find(n => n.getAttribute('data-series') === name).textContent;
+    assert.equal(series('MA5'), `MA5 ${expected.toFixed(2)}`);
+    assert.notEqual(p.nodes.get('average-detail').textContent, before);
+    assert.match(p.nodes.get('chart-tooltip').textContent, new RegExp(bars[60].time));
+    assert.match(p.nodes.get('chart-tooltip').textContent, /MA5.*MA10.*MA20[\s\S]*MA30.*MA60[\s\S]*VMA5.*VMA10[\s\S]*MACD[\s\S]*KDJ[\s\S]*RSI/);
+    const change = (bars[60].close / bars[59].close - 1) * 100;
+    assert.ok(p.nodes.get('detail').textContent.includes(`${change > 0 ? '+' : ''}${change.toFixed(2)}%`));
+    assert.ok(p.nodes.get('indicator-detail').textContent.includes(series('DIF')));
+    for (const indicator of ['rsi', 'kdj']) {
+      p.receive({ type: 'select-indicator', indicator });
+      assert.match(p.nodes.get('chart-tooltip').textContent, new RegExp(bars[60].time));
+      assert.ok(p.nodes.get('indicator-detail').textContent.includes(series(indicator === 'rsi' ? 'RSI6' : 'K')));
+    }
+    p.receive({ type: 'select-indicator', indicator: 'macd' });
+    // New history is appended; the selected date and its values must survive redraw.
+    const selected = p.nodes.get('average-detail').textContent;
+    p.receive({ type: 'data', data: { ...data, bars: [...bars, { ...bars.at(-1), time: '2026-12-31', close: 50, high: 51 }] } });
+    assert.equal(p.nodes.get('average-detail').textContent, selected);
+    assert.match(p.nodes.get('detail').textContent, new RegExp(bars[60].time));
+    plot().dispatch('pointerleave');
+    assert.equal(p.nodes.get('chart-tooltip').hidden, true);
+    assert.match(p.nodes.get('detail').textContent, /2026-12-31/);
+  }
+});
+
+test('分时绘制真实成交均价，鼠标定位及跨日刷新不串值；缺字段显示空值', () => {
+  const p = page();
+  const data = { symbol: 'sh600105', mode: 'intraday', name: '测试股', source: '测试', date: '2026-10-28', previousClose: 10,
+    bars: ['0930', '0931', '0932'].map((time, i) => ({ time, open: 10 + i, close: 10 + i, high: 10 + i, low: 10 + i,
+      volume: 100, cumulativeVolume: 100 * (i + 1), amount: 100000 + i * 10000, cumulativeAmount: (i + 1) * (100000 + i * 5000), averagePrice: 10 + i * .5 })) };
+  p.receive({ type: 'data', data });
+  assert.ok(descendants(p.nodes.get('svg')).some(n => n.getAttribute('class') === 'intraday-average'));
+  p.nodes.get('plot').dispatch('pointermove', { clientX: 68, clientY: 100 });
+  assert.match(p.nodes.get('chart-tooltip').textContent, /09:30[\s\S]*均价 10.00[\s\S]*累计额 10.00万元/);
+  p.receive({ type: 'data', data });
+  assert.match(p.nodes.get('detail').textContent, /09:30/);
+  p.receive({ type: 'data', data: { ...data, date: '2026-10-29' } });
+  assert.equal(p.nodes.get('chart-tooltip').hidden, true);
+  assert.match(p.nodes.get('detail').textContent, /2026-10-29 09:32/);
+  p.receive({ type: 'data', data: { ...data, bars: [{ ...data.bars[0], averagePrice: null, amount: null, cumulativeAmount: null }] } });
+  assert.match(p.nodes.get('average-detail').textContent, /均价 —/);
+  assert.doesNotMatch(p.nodes.get('detail').textContent, /NaN|Infinity/);
+  assert.ok(!descendants(p.nodes.get('svg')).some(n => n.getAttribute('class') === 'intraday-average'));
 });
 
 test('短分时KDJ提示数据不足、RSI无无效数值，旧股票消息不覆盖当前图', () => {

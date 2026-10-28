@@ -3,6 +3,30 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, ChartProvider } = require('../src/chart-data');
 const symbol = 'sh600519';
 const wrap = data => ({ code: 0, data: { [symbol]: data } });
+
+test('股票及ETF分时成交均价按累计成交额元除以累计手数乘100，缺额不伪造均价', () => {
+  for (const symbol of ['sh600105', 'sh510300', 'sz159915', 'bj920002']) {
+    const input = { code: 0, data: { [symbol]: { data: { date: '20261028', data: [
+      '0930 10 100 100000', '0931 12 300 340000', '0932 12 300 340000',
+      '0933 13 400', '0934 14 500 610000', '0935 14 600 750000'
+    ] } } } };
+    const { bars } = parseChart(input, symbol, 'intraday');
+    assert.equal(bars[0].averagePrice, 10);
+    assert.equal(bars[1].averagePrice, 340000 / 30000);
+    assert.equal(bars[1].amount, 240000); assert.equal(bars[1].volume, 200);
+    assert.equal(bars[2].amount, 0); assert.equal(bars[2].averagePrice, bars[1].averagePrice);
+    assert.equal(bars[3].averagePrice, null); assert.equal(bars[3].cumulativeAmount, null);
+    assert.equal(bars[4].amount, null); assert.equal(bars[4].averagePrice, 12.2);
+    assert.equal(bars[5].amount, 140000);
+  }
+});
+test('指数不从成分股聚合成交量伪造均价；无量与错误成交额保留价格图', () => {
+  const make = (s, rows) => parseChart({ code: 0, data: { [s]: { data: { date: '20261028', data: rows } } } }, s, 'intraday');
+  assert.equal(make('sh000001', ['0930 3000 100 100000']).bars[0].averagePrice, null);
+  const { bars } = make('sh600105', ['0930 10 0 0', '0931 10 100 100000', '0932 10 200 90000', '0933 10 300 NaN']);
+  assert.equal(bars[0].averagePrice, null); assert.equal(bars[1].averagePrice, 10);
+  assert.equal(bars[2].averagePrice, null); assert.equal(bars[3].averagePrice, null);
+});
 test('东方财富区分个股、沪深指数和北交所路径，拒绝URL注入', () => {
   assert.equal(eastmoneyUrl('600519.SH'), 'https://quote.eastmoney.com/sh600519.html');
   assert.equal(eastmoneyUrl('000001'), 'https://quote.eastmoney.com/sz000001.html');

@@ -1,8 +1,20 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const { calculate } = require('../media/indicators');
+const { calculate, movingAverage } = require('../media/indicators');
 const bars = closes => closes.map(close => ({ close, high: close + 1, low: close - 1 }));
 const near = (value, expected) => assert.ok(Math.abs(value - expected) < 1e-9, `${value} != ${expected}`);
+
+test('价格与成交量均线使用完整历史窗口，未满窗口为空且不包含未来数据', () => {
+  const input = [1, 3, 5, 7, 9, 11].map((close, i) => ({ close, volume: 100 + 100 * i }));
+  const snapshot = JSON.stringify(input);
+  assert.deepEqual(movingAverage(input, 5), [null, null, null, null, 5, 7]);
+  assert.deepEqual(movingAverage(input, 5, 'volume'), [null, null, null, null, 300, 400]);
+  assert.deepEqual(movingAverage(input, 1), input.map(b => b.close));
+  assert.deepEqual(movingAverage(input, 10), Array(6).fill(null));
+  assert.deepEqual(movingAverage([], 5), []);
+  assert.throws(() => movingAverage(input, 0), /周期/);
+  assert.equal(JSON.stringify(input), snapshot);
+});
 
 test('MACD首价初始化EMA，DIF/DEA/两倍柱与手算一致', () => {
   const result = calculate(bars([10, 11, 12]), 'macd');
