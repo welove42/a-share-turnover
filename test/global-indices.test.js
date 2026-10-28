@@ -9,7 +9,7 @@ function response(date = '2026-10-26T23:00:00+08:00', price = 12345.67) {
 function setup(load, config = {}) {
   const h = harness(config); let now = new Date('2026-10-26T23:00:10+08:00'), calls = 0;
   const { GlobalIndicesController } = h.load('../src/global-indices');
-  const c = new GlobalIndicesController(h.context, { now: () => now, provider: { load: async signal => { calls++; return load ? load(signal) : response(); } } });
+  const c = new GlobalIndicesController(h.context, { now: () => now, provider: { load: async (ids, signal) => { calls++; return load ? load(signal, ids) : response(); } } });
   return { ...h, c, calls: () => calls, setNow: value => { now = new Date(value); } };
 }
 test('默认平铺三个指数；完整行情目录不自动填满列表，隔夜报价保留真实时间', async () => {
@@ -134,9 +134,50 @@ test('完整目录内未选择指数的故障不影响列表提示，直接修�
   try {
     await h.c.refresh(); assert.equal(h.c.tree.message, undefined);
     await h.api.workspace.getConfiguration('aShareTurnover').update('globalIndices.symbols', ['SPX', 'ndx']);
+    await h.c.refresh();
     assert.deepEqual(h.c.getChildren().map(item => item.id), ['100.SPX', '100.NDX']);
     assert.match(h.c.tree.message, /1 个指数未更新/);
     await h.api.workspace.getConfiguration('aShareTurnover').update('globalIndices.symbols', []);
     assert.deepEqual(h.c.getChildren(), []); assert.match(h.c.tree.message, /点击右上角＋/);
+  } finally { h.c.dispose(); }
+});
+
+test('只刷新所选指数；目录失败不污染行情，候选仍可使用且目录请求会冷却', async () => {
+  let ids, catalogCalls = 0; const h = setup((signal, selected) => { ids = selected; return response(); });
+  h.c.provider.loadCatalog = async () => { catalogCalls++; throw new Error('目录连接断开'); };
+  try {
+    await h.c.refresh(); assert.deepEqual(ids, DEFAULT_INDEX_IDS); assert.equal(catalogCalls, 0);
+    h.api.window.showQuickPick = async items => { assert.ok(items.find(item => item.id === '100.SPX')); return undefined; };
+    await h.c.add(); await h.c.add(); assert.equal(catalogCalls, 1); assert.equal(h.c.errors.size, 0); assert.equal(h.c.tree.message, undefined);
+    await h.c.saveSelection([]); const calls = h.calls(); await h.c.refresh(); assert.equal(h.calls(), calls);
+  } finally { h.c.dispose(); }
+});
+test('全源失败按20、40、60秒退避，手动刷新可立即重试，恢复后重回10秒', async () => {
+  let failing = true; const h = setup(() => { if (failing) throw new Error('所有源断开'); return response(); });
+  try {
+    h.c.tree.visible = true; await h.c.tick(); assert.equal(h.c.pollDelay, 20000);
+    h.setNow('2026-10-26T23:00:20+08:00'); await h.c.tick(); assert.equal(h.calls(), 1);
+    h.setNow('2026-10-26T23:00:30+08:00'); await h.c.tick(); assert.equal(h.calls(), 2); assert.equal(h.c.pollDelay, 40000);
+    h.setNow('2026-10-26T23:01:10+08:00'); await h.c.tick(); assert.equal(h.c.pollDelay, 60000); assert.match(h.c.tree.description, /60秒/);
+    failing = false; await h.c.refresh(); assert.equal(h.c.pollDelay, 10000); assert.equal(h.c.errors.size, 0);
+  } finally { h.c.dispose(); }
+});
+test('切换来源区分更新时间与成交时间，不误判同日旧时钟；同源倒退仍保留原值', async () => {
+  let source = 'sina', timestamp = Date.parse('2026-10-26T23:00:00+08:00') / 1000;
+  const h = setup(() => { const r = response(); for (const q of r.quotes.values()) Object.assign(q, { source, timestampKind: source === 'sina' ? 'updated' : 'quote', timestamp }); return r; });
+  try {
+    await h.c.refresh(); assert.match(h.c.getTreeItem(h.c.element('100.NDX')).description, /备用/); assert.match(h.c.getTreeItem(h.c.element('100.NDX')).tooltip.value, /来源更新时间.*\n来源：新浪财经/);
+    source = 'eastmoney'; timestamp -= 1800; await h.c.refresh(); assert.equal(h.c.errors.size, 0); assert.equal(h.c.quotes.get('100.NDX').source, 'eastmoney');
+    source = 'sina'; timestamp -= 60; await h.c.refresh(); assert.ok(h.c.errors.has('100.NDX')); assert.equal(h.c.quotes.get('100.NDX').source, 'eastmoney');
+  } finally { h.c.dispose(); }
+});
+test('修改已选指数时取消旧请求，迟到响应不会重新写入已移除项', async () => {
+  const requests = []; const h = setup((signal, ids) => new Promise(resolve => requests.push({ signal, ids, resolve })));
+  try {
+    h.c.tree.visible = true; const first = h.c.refresh(); await h.c.saveSelection(['NDX']);
+    assert.equal(requests[0].signal.aborted, true); requests[0].resolve(response()); await first;
+    await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(requests[1].ids, ['100.NDX']);
+    assert.equal(h.c.quotes.size, 0); requests[1].resolve(response()); await h.c.inflight;
+    assert.deepEqual([...h.c.quotes.keys()], ['100.NDX']);
   } finally { h.c.dispose(); }
 });

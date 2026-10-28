@@ -30,13 +30,13 @@ test('接口分页完整合并，使用固定数据域名；取消后不返回�
     const u = new URL(url); assert.equal(u.host, 'push2.eastmoney.com'); assert.equal(u.searchParams.get('fltt'), '2');
     return payload(u.searchParams.get('pn') === '1' ? [row('N225')] : [row('KS11')], 2);
   } });
-  const result = await provider.load(abort.signal); assert.equal(result.quotes.size, 2); assert.equal(calls.length, 2);
+  const result = await provider.loadCatalog(abort.signal); assert.equal(result.quotes.size, 2); assert.equal(calls.length, 2);
   const cancelled = new GlobalIndexProvider({ request: async () => { abort.abort(); return payload([row('NDX')]); } });
-  await assert.rejects(cancelled.load(abort.signal), /取消/);
+  await assert.rejects(cancelled.loadCatalog(abort.signal), /取消/);
 });
 test('接口翻页重复数据不会静默截断；详情链接拒绝任意URL及A股代码', async () => {
   const provider = new GlobalIndexProvider({ request: async () => payload([row('N225')], 2) });
-  await assert.rejects(provider.load(), /不完整/);
+  await assert.rejects(provider.loadCatalog(), /不完整/);
   assert.equal(globalIndexUrl('100.KS11'), 'https://quote.eastmoney.com/gb/zsKS11.html');
   for (const id of ['https://evil.example', '100.NDX?x=1', 'sh000001', '100.../evil']) assert.throws(() => globalIndexUrl(id));
 });

@@ -254,7 +254,7 @@ function activate(context) {
     getStockQuote: symbol => { const q = stocks.quotes.get(symbol); return q ? { ...q } : undefined; },
     getNewsCount: () => news.items.length, getChartState: symbol => charts.getState(symbol),
     getGlobalIndices: () => globals.selectedIds.map(id => ({ ...globals.catalog.get(id), quote: globals.quotes.get(id), error: globals.errors.get(id) })),
-    getGlobalIndicesStatus: () => ({ enabled: globals.enabled, visible: globals.tree.visible, paused: globals.paused, lastAttempt: globals.lastAttempt }),
+    getGlobalIndicesStatus: () => ({ enabled: globals.enabled, visible: globals.tree.visible, paused: globals.paused, lastAttempt: globals.lastAttempt, retryIntervalMs: globals.pollDelay }),
     getFunds: () => funds.symbols.map(code => ({ code, quote: funds.quotes.get(code), error: funds.errors.get(code), hasHolding: Boolean(funds.holdings[code]) })),
     getFundsStatus: () => ({ enabled: funds.enabled, visible: funds.tree.visible, paused: funds.paused, lastAttempt: funds.lastAttempt }),
     getCommodities: () => commodities.codes.map(code => ({ code, quote: commodities.quotes.get(code), error: commodities.errors.get(code) })),

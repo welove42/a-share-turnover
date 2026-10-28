@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -46,7 +46,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.6.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.6.2.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -379,7 +379,7 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "显示自选股下方的全球指数栏目。默认仅纳斯达克综合、日经225和韩国KOSPI，其他指数通过＋添加；栏目可见时每10秒刷新，不受A股交易时段限制。"
+          "description": "显示自选股下方的全球指数栏目。默认仅纳斯达克综合、日经225和韩国KOSPI，其他指数通过＋添加；栏目可见时每10秒刷新所选指数，主源失败自动回退，全源失败逐步退避；不受A股交易时段限制。"
         },
         "aShareTurnover.globalIndices.symbols": {
           "type": "array",
