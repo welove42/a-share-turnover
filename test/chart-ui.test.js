@@ -22,10 +22,10 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
   body = node('body', { symbol: 'sh600105', token: 'test-token', mode,
     regularUrl: 'https://quote.eastmoney.com/basic/full.html?mcid=1.600105',
     chipsUrl: chips ? 'https://quote.eastmoney.com/basic/h5chart-iframe.html?code=600105&market=1' : '' });
-  const buttons = Object.fromEntries(['eastmoney', 'chips', 'intraday', 'daily'].map(mode => [mode, node(mode, { mode })]));
+  const buttons = Object.fromEntries(['intraday', 'daily', 'weekly', 'monthly'].map(period => [period, node(period, { period })]));
   const document = { body, getElementById: id => nodes.get(id) || node(id),
     createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
-    querySelectorAll: selector => selector === 'button[data-mode]' ? Object.values(buttons) : selector === '[data-mode]' ? [body, ...Object.values(buttons)] : [] };
+    querySelectorAll: selector => selector === 'button[data-period]' ? Object.values(buttons) : [] };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/chart.js'), 'utf8'), {
     document, marketIndicators: require('../media/indicators'), window: { addEventListener: (event, fn) => { if (event === 'message') receivers.push(fn); } },
     Date: { now: () => now }, setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { at: now + ms, fn }); return id; }, clearTimeout: id => timers.delete(id),
@@ -119,4 +119,16 @@ test('就绪前切换及连续网页切换只加载最终选中的一种', () =>
   p.receive({ type: 'select-mode', mode: 'eastmoney' }); p.advance(200);
   p.receive({ type: 'select-mode', mode: 'chips' }); p.receive({ type: 'refresh', mode: 'chips' });
   p.advance(400); assert.equal(p.writes.length, 1); assert.match(p.writes[0], /h5chart-iframe/);
+});
+
+test('页面周期按钮向宿主发消息，确认后高亮；点击冒泡不会回到分时', () => {
+  const p = page(); p.receive({ type: 'select-mode', mode: 'intraday' });
+  p.buttons.weekly.click(); assert.equal(p.messages.at(-1).action, 'period'); assert.equal(p.messages.at(-1).mode, 'weekly');
+  p.receive({ type: 'select-mode', mode: 'weekly' });
+  assert.equal(p.buttons.weekly.getAttribute('aria-pressed'), 'true'); assert.equal(p.buttons.intraday.getAttribute('aria-pressed'), 'false');
+  const before = p.messages.length; p.buttons.monthly.click(); p.buttons.intraday.click();
+  assert.deepEqual(p.messages.slice(before).map(m => m.mode), ['monthly', 'intraday']);
+  p.receive({ type: 'select-mode', mode: 'intraday' }); assert.equal(p.buttons.intraday.getAttribute('aria-pressed'), 'true');
+  p.receive({ type: 'select-mode', mode: 'daily' }); assert.equal(p.buttons.daily.getAttribute('aria-pressed'), 'true');
+  assert.equal(p.writes.length, 0);
 });

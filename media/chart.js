@@ -9,6 +9,7 @@
   const isWebMode = value => value === 'eastmoney' || value === 'chips';
   const webUrl = () => mode === 'chips' ? chipsUrl : regularUrl;
   const saved = vscode.getState() || {};
+  const periodButtons = [...document.querySelectorAll('button[data-period]')];
   let mode = 'intraday', data = null, range = [60, 120, 180].includes(saved.range) ? saved.range : 180, hover = null;
   let webTimer = null, pendingUrl = '', lastWebLoad = -Infinity;
   let indicator = 'macd', indicatorData = null;
@@ -37,6 +38,7 @@
     if (next === 'chips' && !chipsUrl) next = 'intraday';
     const changed = mode !== next;
     mode = next;
+    for (const button of periodButtons) button.setAttribute('aria-pressed', String(button.dataset.period === mode));
     $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('range-label').hidden = mode === 'intraday' || isWebMode(mode);
     if (isWebMode(mode)) {
       loadWeb();
@@ -48,6 +50,7 @@
     remember(); if (notify) send('mode-ready', { mode });
   }
   $('range').value = String(range);
+  for (const button of periodButtons) button.addEventListener('click', () => send('period', { mode: button.dataset.period }));
   $('range').addEventListener('change', () => { range = Number($('range').value); remember(); draw(); });
   const svgNS = 'http://www.w3.org/2000/svg';
   function element(tag, attrs, text) {

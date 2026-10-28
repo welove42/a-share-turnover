@@ -205,3 +205,20 @@ test('指标默认MACD，右上角切换不请求行情，跨股票及重开保�
     assert.equal(h.c.getState('sz000001').indicator, 'rsi');
   } finally { h.c.dispose(); }
 });
+
+test('页面切周期同步宿主并取消旧请求，重复点击不重载，拒绝旧股票和非法周期', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105'); await h.mode(s, 'intraday');
+    const html = s.panel.webview.html, token = s.token;
+    h.c.receive(s, { action: 'period', mode: 'weekly', token });
+    assert.equal(s.mode, 'weekly'); assert.equal(s.panel.webview.html, html);
+    await h.c.receive(s, { action: 'mode-ready', mode: 'weekly', token });
+    const calls = h.calls(), messages = s.panel.webview.messages.length;
+    h.c.receive(s, { action: 'period', mode: 'weekly', token }); assert.equal(h.calls(), calls); assert.equal(s.panel.webview.messages.length, messages);
+    for (const mode of ['chips', 'eastmoney', 'https://evil.example']) h.c.receive(s, { action: 'period', mode, token });
+    assert.equal(s.mode, 'weekly');
+    h.c.receive(s, { action: 'period', mode: 'monthly', token }); h.c.receive(s, { action: 'period', mode: 'intraday', token });
+    await h.c.receive(s, { action: 'mode-ready', mode: 'monthly', token }); assert.equal(h.calls(), calls);
+    await h.c.open('000001'); h.c.receive(s, { action: 'period', mode: 'monthly', token }); assert.equal(s.mode, 'intraday');
+  } finally { h.c.dispose(); }
+});
