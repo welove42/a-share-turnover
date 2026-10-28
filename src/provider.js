@@ -2,6 +2,7 @@
 
 const { requestJson } = require('./http');
 const { parseMinute, parseHistory, buildSnapshot } = require('./market');
+const { MinuteFeed } = require('./minute-feed');
 const SYMBOLS = ['sh000002', 'sz399107'];
 const ROOT = 'https://web.ifzq.gtimg.cn/appstock/app';
 
@@ -18,6 +19,7 @@ class MarketProvider {
     this.request = request;
     this.log = log;
     this.now = now;
+    this.minuteFeed = new MinuteFeed(request, () => this.now().getTime());
     this.histories = [[], []];
     this.historyDate = '';
     this.historyAttempt = 0;
@@ -25,7 +27,7 @@ class MarketProvider {
 
   async load(signal, forceHistory = false) {
     const markets = await pair(async symbol => parseMinute(
-      await this.request(`${ROOT}/minute/query?code=${symbol}`, signal), symbol));
+      (await this.minuteFeed.load(symbol, signal)).payload, symbol));
     if (signal?.aborted) throw new Error('行情请求已取消');
     if (markets[0].date !== markets[1].date) throw new Error('沪深行情日期不一致，等待两市更新');
     const date = markets[0].date;

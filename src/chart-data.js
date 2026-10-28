@@ -2,6 +2,7 @@
 const { requestJson } = require('./http');
 const { normalizeSymbol } = require('./quotes');
 const { normalizeDate, timeToMinute } = require('./market');
+const { MinuteFeed } = require('./minute-feed');
 const PERIODS = { daily: 'day', weekly: 'week', monthly: 'month' };
 const MINUTES = ['m1', 'm5', 'm15', 'm30', 'm60'];
 
@@ -102,13 +103,17 @@ function parseChart(payload, input, mode) {
   return { symbol, mode, ...meta, date, adjustment, bars: bars.slice(-300), source: '腾讯行情' };
 }
 class ChartProvider {
-  constructor(request = requestJson) { this.request = request; }
+  constructor(request = requestJson) { this.request = request; this.minuteFeed = new MinuteFeed(request); }
   async load(input, mode, signal) {
     const symbol = normalizeSymbol(input);
     if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode) && !MINUTES.includes(mode)) throw new Error('图表类型无效');
-    const url = mode === 'intraday'
-      ? `https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=${symbol}`
-      : MINUTES.includes(mode) ? `https://ifzq.gtimg.cn/appstock/app/kline/mkline?param=${symbol},${mode},,240`
+    if (mode === 'intraday') {
+      const { payload, backup } = await this.minuteFeed.load(symbol, signal);
+      const data = parseChart(payload, symbol, mode);
+      if (backup) data.source = '腾讯行情（分时备用）';
+      return data;
+    }
+    const url = MINUTES.includes(mode) ? `https://ifzq.gtimg.cn/appstock/app/kline/mkline?param=${symbol},${mode},,240`
       : `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},${PERIODS[mode]},,,240,qfq`;
     return parseChart(await this.request(url, signal), symbol, mode);
   }

@@ -13,7 +13,10 @@ function requestBuffer(url, signal, headers = {}) {
       headers: { Referer: 'https://gu.qq.com/', 'User-Agent': 'A-Share-Turnover-VSCode/1.1', Accept: '*/*', ...headers }
     }, response => {
       if (response.statusCode !== 200) {
-        response.resume(); finish(new Error(`数据接口 HTTP ${response.statusCode}`)); return;
+        response.resume();
+        const error = new Error(`数据接口 HTTP ${response.statusCode}`);
+        error.statusCode = response.statusCode;
+        finish(error); return;
       }
       const chunks = [];
       let size = 0;
