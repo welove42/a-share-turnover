@@ -17,7 +17,7 @@
 
 [扩展市场](https://marketplace.visualstudio.com/items?itemName=welove42.a-share-turnover) · [GitHub](https://github.com/welove42/a-share-turnover)
 
-![A股行情宣传海报，界面与数据为示意](../media/promotion/community-poster.png)
+![A股行情宣传海报，使用插件真实图表截图](../media/promotion/community-poster.png)
 
 项目采用MIT许可证，欢迎试用、提建议。第三方行情可能延迟；基金使用已公布净值，市场温度和提示只做信息展示，不预测未来涨跌。温度历史从功能启用后开始采集。
 

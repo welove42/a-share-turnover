@@ -6,9 +6,9 @@ A股行情为 VS Code 提供紧凑的状态栏、可折叠的行情列表和独�
 
 [安装扩展](https://marketplace.visualstudio.com/items?itemName=welove42.a-share-turnover) · [GitHub 源码](https://github.com/welove42/a-share-turnover) · [使用手册](docs/USER_GUIDE.zh-CN.md) · [反馈问题](https://github.com/welove42/a-share-turnover/issues)
 
-![A股行情社区宣传海报，界面与数据为示意](media/promotion/community-poster.png)
+![A股行情社区宣传海报，使用插件真实图表截图](media/promotion/community-poster.png)
 
-*海报为界面与数据示意；下方展示实际图表界面。*
+*海报使用插件真实图表截图；截图中的行情为2026年10月28日的历史数据。*
 
 ## 一眼看盘，按需展开
 
