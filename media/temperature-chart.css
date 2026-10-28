@@ -1,0 +1,29 @@
+:root { color-scheme: light dark; --temperature-ice: #6ca8ff; --temperature-cold: #68c6da; --temperature-neutral: #a6adba; --temperature-warm: #e9b957; --temperature-hot: #f47683; --temperature-line: #77bfff; }
+body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; --temperature-ice: #305db8; --temperature-cold: #087b8b; --temperature-neutral: #606875; --temperature-warm: #956400; --temperature-hot: #c23248; --temperature-line: #0869ad; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--vscode-editor-background, #151c28); color: var(--vscode-foreground, #d9e1ee); font: 13px var(--vscode-font-family, system-ui, sans-serif); }
+main { max-width: 1500px; margin: auto; padding: 22px; }
+.heading { display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+h1 { font-size: 19px; margin: 0 0 7px; font-weight: 600; } #date { color: var(--vscode-descriptionForeground, #9caec5); font-size: 13px; font-weight: 400; margin-left: 8px; }
+#current { font-size: 24px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#status { margin: 0; color: var(--vscode-descriptionForeground, #9caec5); line-height: 1.7; }
+.summary { margin: 20px 0 12px; display: flex; flex-wrap: wrap; gap: 10px 28px; color: var(--vscode-descriptionForeground, #9caec5); font-variant-numeric: tabular-nums; }
+.summary b { color: var(--vscode-foreground, #d9e1ee); font-weight: 500; }
+#temperature-plot { position: relative; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 7px; overflow: hidden; touch-action: pan-y; }
+#temperature-plot:focus-visible { outline: 2px solid var(--vscode-focusBorder, #55b1ef); outline-offset: 2px; }
+svg { width: 100%; height: clamp(340px, 58vh, 620px); display: block; }
+svg text { fill: var(--vscode-descriptionForeground, #9caec5); font-family: inherit; font-size: 12px; }
+.grid { stroke: var(--vscode-panel-border, #354053); stroke-width: 1; }
+.crosshair { stroke: var(--vscode-foreground, #d9e1ee); stroke-dasharray: 4 4; opacity: .7; pointer-events: none; }
+.lunch { fill: var(--vscode-descriptionForeground, #9caec5); opacity: .055; }
+.temperature-line { fill: none; stroke: var(--temperature-line); stroke-width: 2; stroke-linejoin: round; }
+.temperature-band { opacity: .055; }
+body.vscode-high-contrast .temperature-band { opacity: .13; }
+#temperature-tooltip { position: absolute; top: 15px; right: 14px; pointer-events: none; padding: 10px 14px; border: 1px solid var(--vscode-editorHoverWidget-border, #59677c); border-radius: 5px; background: var(--vscode-editorHoverWidget-background, #202937); color: var(--vscode-editorHoverWidget-foreground, #d9e1ee); white-space: pre-wrap; font-variant-numeric: tabular-nums; line-height: 1.9; box-shadow: 0 3px 12px #0003; max-width: calc(100% - 28px); }
+body.vscode-light #temperature-tooltip, body.vscode-high-contrast-light #temperature-tooltip { background: var(--vscode-editorHoverWidget-background, white); color: var(--vscode-editorHoverWidget-foreground, #222); }
+#temperature-detail { min-height: 24px; font-variant-numeric: tabular-nums; line-height: 1.8; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 12px 0; border-top: 1px solid var(--vscode-panel-border, #354053); }
+.coldest { color: var(--temperature-ice); } .cold { color: var(--temperature-cold); } .warm { color: var(--temperature-warm); } .hot { color: var(--temperature-hot); }
+.note { color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; line-height: 1.8; margin: 8px 0; }
+[hidden] { display: none !important; }
+@media (max-width: 600px) { main { padding: 14px; } .heading { align-items: flex-start; flex-wrap: wrap; gap: 8px; } #current { font-size: 21px; } .summary { margin-top: 14px; gap: 8px 18px; } }

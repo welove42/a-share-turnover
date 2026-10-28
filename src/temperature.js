@@ -1,5 +1,6 @@
 'use strict';
 const { normalizeDate, timeToMinute, tradingMinute, PHASE_LABELS } = require('./market');
+const { label: temperatureLabel } = require('../media/temperature-model');
 
 const clamp = value => Math.max(0, Math.min(100, value));
 const missing = (label, reason) => ({ score: null, label, reason });
@@ -47,7 +48,7 @@ function marketTemperature(snapshot, state, clock, now) {
     turnover: clamp(50 + snapshot.sameTime.percent)
   };
   const score = Math.round(.6 * components.breadth + .25 * components.momentum + .15 * components.turnover);
-  const label = score < 20 ? '冰点' : score < 40 ? '偏冷' : score < 60 ? '中性' : score < 80 ? '偏热' : '过热';
+  const label = temperatureLabel(score);
   return { score, label, components, counts, total, averagePercent, volumePercent: snapshot.sameTime.percent,
     markets: inputs, comparisonTime: snapshot.comparisonTime, date: snapshot.date,
     phase: PHASE_LABELS[clock.phase], reason: '' };
@@ -71,7 +72,7 @@ function temperatureView(result, options = {}) {
     '分级：0–19 冰点；20–39 偏冷；40–59 中性；60–79 偏热；80–100 过热。', '',
     '范围：腾讯上证A股（000002）与深证A指（399107）的涨跌家数及行情口径，不含北交所、B股；家数按数据源实际返回值统计。与当前自选个股无关。', '',
     '此指标描述参与度与活跃度，不预测未来涨跌；放量可能出现在上涨或下跌中，须结合现有风险提示。交易期间随成交额每10秒更新，可在设置中隐藏。', '',
-    '点击查看计算明细。');
+    '点击查看当天温度走势图；图表右上角可查看计算明细。');
   const color = options.colorize !== false && scored ? result.score >= 60 ? 'charts.red' : result.score < 40 ? 'charts.blue' : undefined : undefined;
   return { text, markdown: lines.join('\n'), detail: lines.join('\n').replaceAll('**', ''), color,
     accessibility: `沪深A股市场${text}。${scored ? `范围0至100，行情日期${result.date}。` : result.reason}` };

@@ -2,7 +2,7 @@
 
 const vscode = require('vscode');
 const { MarketProvider } = require('./provider');
-const { POLL_MS, session, isSnapshot } = require('./market');
+const { POLL_MS, session, isSnapshot, PHASE_LABELS } = require('./market');
 const { view } = require('./view');
 const { WatchlistController } = require('./watchlist');
 const { NewsController } = require('./news');
@@ -13,6 +13,8 @@ const { CommoditiesController } = require('./commodities');
 const { warnLegacy } = require('./legacy');
 const { marketRisk } = require('./risk');
 const { marketTemperature, temperatureView } = require('./temperature');
+const { TemperatureHistory } = require('./temperature-history');
+const { TemperatureChartController } = require('./temperature-chart');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -37,6 +39,8 @@ class TurnoverController {
     this.temperatureItem.name = '沪深A股市场温度';
     this.temperatureItem.command = 'welove42.aShareTurnover.showTemperature';
     this.temperatureOutput = vscode.window.createOutputChannel('A股市场温度');
+    this.temperatureHistory = new TemperatureHistory(context.globalState, session(this.now()).date, message => this.log(message));
+    this.temperatureChart = new TemperatureChartController(context, () => this.temperatureChartData());
     this.provider = provider || new MarketProvider({ log: message => this.log(message), now });
     this.config = this.readConfig();
     this.requestController = null;
@@ -123,6 +127,12 @@ class TurnoverController {
       this.snapshot = snapshot;
       this.state.error = '';
       this.state.cached = false;
+      this.temperatureHistory.rollover(clock.date);
+      if (this.config.temperature.enabled) {
+        const result = marketTemperature(snapshot, this.state, clock, this.now());
+        this.temperatureHistory.record(result, snapshot.fetchedAt);
+        await this.temperatureHistory.flush();
+      }
       await this.context.globalState.update('snapshot', snapshot).catch(error => this.log(`缓存保存失败：${error.message}`));
     } catch (error) {
       if (this.disposed || signal.aborted) return;
@@ -133,13 +143,14 @@ class TurnoverController {
 
   render() {
     if (this.disposed) return;
+    const now = this.now(), clock = session(now, this.config.additionalClosedDates);
+    this.temperatureHistory.rollover(clock.date);
     if (!this.config.enabled) {
       if (this.visible) { this.item.hide(); this.visible = false; }
       if (this.temperatureVisible) { this.temperatureItem.hide(); this.temperatureVisible = false; }
+      this.temperatureChart.update();
       return;
     }
-    const now = this.now();
-    const clock = session(now, this.config.additionalClosedDates);
     const result = view(this.snapshot, this.state, this.config, clock, now);
     const risk = marketRisk(this.snapshot, this.state, this.riskSource?.(), clock, now, this.config.risk);
     if (risk) {
@@ -167,6 +178,7 @@ class TurnoverController {
     this.rendered = { ...result, markdown };
     if (!this.visible) { this.item.show(); this.visible = true; }
     this.renderTemperature(clock, now);
+    this.temperatureChart.update();
   }
 
   renderTemperature(clock, now) {
@@ -188,7 +200,21 @@ class TurnoverController {
     if (!this.temperatureVisible) { this.temperatureItem.show(); this.temperatureVisible = true; }
   }
 
+  temperatureChartData() {
+    const now = this.now(), clock = session(now, this.config.additionalClosedDates);
+    const result = !this.config.enabled || !this.config.temperature.enabled
+      ? { score: null, label: '已停用', reason: '温度或成交额模块已停用，当前曲线保留已采集记录。' }
+      : marketTemperature(this.snapshot, this.state, clock, now);
+    return { ...this.temperatureHistory.data(), current: { score: result.score, label: result.label, reason: result.reason }, phase: PHASE_LABELS[clock.phase] };
+  }
+
   showTemperature() {
+    if (this.disposed) return;
+    this.temperatureHistory.rollover(session(this.now(), this.config.additionalClosedDates).date);
+    this.temperatureChart.open();
+  }
+
+  showTemperatureDetails() {
     const now = this.now(), clock = session(now, this.config.additionalClosedDates);
     const result = marketTemperature(this.snapshot, this.state, clock, now);
     this.temperatureOutput.clear();
@@ -220,7 +246,7 @@ class TurnoverController {
     const selected = await vscode.window.showQuickPick([
       { label: '$(refresh) 立即刷新', command: 'welove42.aShareTurnover.refresh' },
       { label: '$(arrow-swap) 切换比较口径', command: 'welove42.aShareTurnover.switchComparison' },
-      { label: '$(dashboard) 市场温度明细', command: 'welove42.aShareTurnover.showTemperature' },
+      { label: '$(dashboard) 市场温度走势图', command: 'welove42.aShareTurnover.showTemperature' },
       { label: this.state.paused ? '$(play) 恢复自动刷新' : '$(debug-pause) 暂停自动刷新', command: 'welove42.aShareTurnover.togglePause' },
       { label: '$(settings-gear) 插件设置', command: 'settings' },
       { label: '$(output) 查看请求日志', command: 'welove42.aShareTurnover.showLog' }
@@ -238,6 +264,7 @@ class TurnoverController {
     this.item.dispose();
     this.temperatureItem.dispose();
     this.temperatureOutput.dispose();
+    this.temperatureChart.dispose();
     this.output.dispose();
   }
 }
@@ -261,6 +288,8 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.switchComparison', () => controller.switchComparison()),
     vscode.commands.registerCommand('welove42.aShareTurnover.showLog', () => controller.output.show()),
     vscode.commands.registerCommand('welove42.aShareTurnover.showTemperature', () => controller.showTemperature()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.showTemperatureDetails', () => controller.showTemperatureDetails()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.temperature.refresh', () => controller.refresh(true)),
     stocks, news, charts, globals, funds, commodities,
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),
@@ -303,6 +332,7 @@ function activate(context) {
   void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
   return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
     getMarketTemperature: () => controller.temperatureResult ? { ...controller.temperatureResult } : undefined,
+    getMarketTemperatureHistory: () => controller.temperatureHistory.data(),
     getStockSearchState: () => stocks.activePicker ? { title: stocks.activePicker.title, query: stocks.activePicker.value, busy: stocks.activePicker.busy,
       candidates: stocks.activePicker.items.filter(item => item.symbols).map(item => ({ name: item.label, symbols: [...item.symbols] })) } : undefined,
     getStockQuote: symbol => { const q = stocks.quotes.get(symbol); return q ? { ...q } : undefined; },

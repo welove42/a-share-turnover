@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.10.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.11.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -79,8 +79,18 @@
         "title": "A股成交额：查看日志"
       },
       {
+        "command": "welove42.aShareTurnover.showTemperatureDetails",
+        "title": "A股行情：查看市场温度计算明细",
+        "icon": "$(info)"
+      },
+      {
+        "command": "welove42.aShareTurnover.temperature.refresh",
+        "title": "市场温度：刷新行情",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "welove42.aShareTurnover.showTemperature",
-        "title": "A股行情：查看市场温度明细"
+        "title": "A股行情：查看市场温度走势图"
       },
       {
         "command": "welove42.aShareTurnover.stocks.add",
@@ -775,6 +785,16 @@
           "command": "welove42.aShareTurnover.chart.openInBrowser",
           "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart",
           "group": "navigation@4"
+        },
+        {
+          "command": "welove42.aShareTurnover.temperature.refresh",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.temperatureChart",
+          "group": "navigation@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.showTemperatureDetails",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.temperatureChart",
+          "group": "navigation@2"
         }
       ]
     }

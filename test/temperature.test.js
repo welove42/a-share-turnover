@@ -116,7 +116,7 @@ test('温度状态栏不增加行情请求，重复刷新和每秒检查不重�
     const writes = { ...c.temperatureItem.writes }, tooltip = c.temperatureItem.tooltip;
     for (let second=31; second<=39; second++) { now = new Date(`2026-10-26T10:30:${second}+08:00`); await c.tick(); }
     assert.equal(calls, 1); assert.deepEqual(c.temperatureItem.writes, writes); assert.equal(c.temperatureItem.tooltip, tooltip);
-    c.showTemperature(); assert.equal(c.temperatureOutput.shown, 1); assert.match(c.temperatureOutput.lines[0], /65\/100/);
+    c.showTemperatureDetails(); assert.equal(c.temperatureOutput.shown, 1); assert.match(c.temperatureOutput.lines[0], /65\/100/);
     await c.refresh(); assert.equal(calls, 2); assert.equal(c.temperatureItem.tooltip, tooltip);
     await h.api.workspace.getConfiguration('aShareTurnover').update('temperature.enabled', false);
     assert.equal(c.temperatureItem.visible, false); assert.equal(c.item.visible, true);
