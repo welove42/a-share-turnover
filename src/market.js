@@ -115,6 +115,17 @@ function payloadData(payload, symbol) {
   return payload.data[symbol];
 }
 
+function parseBreadth(values) {
+  // Tencent's own index page labels qt.zhishu[2]/[3]/[4] as rising/flat/falling.
+  // Missing optional breadth must not interrupt the existing turnover feed.
+  if (!Array.isArray(values)) return null;
+  const counts = [values[2], values[3], values[4]].map(value =>
+    (typeof value === 'string' && /^\d+$/.test(value)) || typeof value === 'number' ? Number(value) : NaN);
+  if (!counts.every(value => Number.isSafeInteger(value) && value >= 0 && value <= 100000)) return null;
+  const [advancing, unchanged, declining] = counts;
+  return advancing + unchanged + declining > 0 ? { advancing, unchanged, declining } : null;
+}
+
 function parseMinute(payload, symbol) {
   const data = payloadData(payload, symbol);
   const quote = data.qt?.[symbol];
@@ -130,7 +141,9 @@ function parseMinute(payload, symbol) {
   if (detail.length !== 3) throw new Error(`${symbol}实时成交额字段缺失`);
   return {
     symbol, date, timestamp: quote[30], amount: numeric(detail[2], '实时成交额'),
-    points: parsePoints(data.data?.data)
+    points: parsePoints(data.data?.data), breadth: parseBreadth(data.qt?.zhishu),
+    percent: Number(quote[3]) > 0 && Number(quote[4]) > 0 && Number.isFinite(Number(quote[3])) && Number.isFinite(Number(quote[4]))
+      ? (Number(quote[3]) / Number(quote[4]) - 1) * 100 : null
   };
 }
 
@@ -155,7 +168,7 @@ function buildSnapshot(markets, histories, fetchedAt = new Date()) {
   const snapshot = {
     version: 1, date, fetchedAt: fetchedAt.toISOString(),
     amount: markets.reduce((sum, market) => sum + market.amount, 0),
-    markets: markets.map(({ symbol, amount, timestamp }) => ({ symbol, amount, timestamp })),
+    markets: markets.map(({ symbol, amount, timestamp, breadth, percent }) => ({ symbol, amount, timestamp, breadth: breadth || null, percent: percent ?? null })),
     previousDate: null, sameTime: null, previousDay: null, comparisonTime: null,
     warning: ''
   };
@@ -209,5 +222,5 @@ function isSnapshot(value) {
 
 module.exports = {
   POLL_MS, PHASE_LABELS, shanghaiClock, session, numeric, validDate, normalizeDate, timeToMinute,
-  tradingMinute, stockSession, stockTradingMinute, parsePoints, parseMinute, parseHistory, change, minuteLabel, buildSnapshot, isSnapshot
+  tradingMinute, stockSession, stockTradingMinute, parsePoints, parseMinute, parseHistory, change, minuteLabel, buildSnapshot, isSnapshot, parseBreadth
 };

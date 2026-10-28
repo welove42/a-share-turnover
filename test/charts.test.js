@@ -132,20 +132,31 @@ test('iframe不能传入任意URL打开系统浏览器，消息令牌不匹配�
   } finally { h.c.dispose(); }
 });
 
-test('工具栏类型菜单仅列出支持的图表，保留当前选择，取消菜单不改变图表', async () => {
+test('工具栏移除重复的内置周期，仅保留网页来源；网页可返回上次内置周期', async () => {
   const h = setup(); try {
     await h.c.open('600105'); const s = h.c.panels.get('sh600105');
     h.c.receive(s, { action: 'ready', token: s.token });
+    h.c.changeMode(s, 'm15');
     let items;
     h.api.window.showQuickPick = async list => { items = list; return list.find(item => item.mode === 'chips'); };
     await h.c.chooseMode(); assert.equal(s.mode, 'chips');
-    assert.deepEqual(items.map(item => item.mode), ['intraday', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly', 'eastmoney', 'chips']);
-    assert.equal(items.find(item => item.mode === 'intraday').description, '当前图表');
+    assert.deepEqual(items.map(item => item.mode), ['eastmoney', 'chips']);
     assert.equal(s.panel.webview.messages.at(-1).type, 'select-mode');
     h.api.window.showQuickPick = async list => { items = list; return undefined; };
     await h.c.chooseMode(); assert.equal(s.mode, 'chips');
+    assert.deepEqual(items.map(item => item.mode), ['m15', 'eastmoney', 'chips']);
+    assert.equal(items[0].label, '返回内置图表');
+    assert.equal(items.find(item => item.mode === 'chips').description, '当前图表');
+    h.api.window.showQuickPick = async list => list.find(item => item.label === '返回内置图表');
+    await h.c.chooseMode(); assert.equal(s.mode, 'm15');
+    h.c.changeMode(s, 'chips');
+    h.api.window.showQuickPick = async list => { items = list; return undefined; };
     await h.c.open('sh000001'); await h.c.chooseMode();
     assert.equal(s.mode, 'intraday'); assert.equal(items.some(item => item.mode === 'chips'), false);
+    assert.deepEqual(items.map(item => item.mode), ['eastmoney']);
+    h.c.changeMode(s, 'eastmoney');
+    h.api.window.showQuickPick = async list => list.find(item => item.label === '返回内置图表');
+    await h.c.chooseMode(); assert.equal(s.mode, 'intraday');
     assert.doesNotMatch(s.panel.webview.html, /<header|<nav|id="hint"|id="refresh"|id="external"/);
   } finally { h.c.dispose(); }
 });

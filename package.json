@@ -1,8 +1,8 @@
 {
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
-  "description": "沪深成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.9.0",
+  "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
+  "version": "1.10.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -28,7 +28,8 @@
     "黄金",
     "原油",
     "伦敦铜",
-    "白银"
+    "白银",
+    "市场温度"
   ],
   "main": "./src/extension.js",
   "extensionKind": [
@@ -46,13 +47,14 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.9.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.10.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
     "smoke:global": "node scripts/smoke-global.js",
     "smoke:funds": "node scripts/smoke-funds.js",
-    "smoke:commodities": "node scripts/smoke-commodities.js"
+    "smoke:commodities": "node scripts/smoke-commodities.js",
+    "smoke:temperature": "node scripts/smoke-temperature.js"
   },
   "contributes": {
     "commands": [
@@ -75,6 +77,10 @@
       {
         "command": "welove42.aShareTurnover.showLog",
         "title": "A股成交额：查看日志"
+      },
+      {
+        "command": "welove42.aShareTurnover.showTemperature",
+        "title": "A股行情：查看市场温度明细"
       },
       {
         "command": "welove42.aShareTurnover.stocks.add",
@@ -474,6 +480,18 @@
             "type": "string"
           },
           "description": "默认仅伦敦金、布伦特原油、伦敦铜、伦敦银，顺序按此列表保存。点击＋可按名称、拼音简称或代码从支持的商品目录添加其他品种；代码支持XAU或hf_XAU格式。空数组保持空列表。"
+        },
+        "aShareTurnover.temperature.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "底部显示沪深A股市场温度（0–100）：涨跌家数60%、两市A股指数平均涨跌幅25%、昨日同刻成交额变化15%。复用成交额行情每10秒更新；属于自定义情绪指标，依赖成交额模块。"
+        },
+        "aShareTurnover.temperature.colorize": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "市场温度使用主题颜色：偏热/过热为红色，偏冷/冰点为蓝色，中性及无有效评分时使用默认颜色。"
         },
         "aShareTurnover.risk.enabled": {
           "type": "boolean",

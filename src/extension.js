@@ -12,6 +12,7 @@ const { FundsController } = require('./funds');
 const { CommoditiesController } = require('./commodities');
 const { warnLegacy } = require('./legacy');
 const { marketRisk } = require('./risk');
+const { marketTemperature, temperatureView } = require('./temperature');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -32,6 +33,10 @@ class TurnoverController {
     this.item = vscode.window.createStatusBarItem('aShareTurnover', vscode.StatusBarAlignment.Right, 100);
     this.item.name = '沪深 A 股成交额';
     this.item.command = 'welove42.aShareTurnover.showMenu';
+    this.temperatureItem = vscode.window.createStatusBarItem('aShareTurnover.temperature', vscode.StatusBarAlignment.Right, 99);
+    this.temperatureItem.name = '沪深A股市场温度';
+    this.temperatureItem.command = 'welove42.aShareTurnover.showTemperature';
+    this.temperatureOutput = vscode.window.createOutputChannel('A股市场温度');
     this.provider = provider || new MarketProvider({ log: message => this.log(message), now });
     this.config = this.readConfig();
     this.requestController = null;
@@ -59,6 +64,7 @@ class TurnoverController {
       showDifferenceAmount: config.get('showDifferenceAmount', true),
       colorMode: config.get('colorMode', 'neutral'),
       additionalClosedDates: config.get('additionalClosedDates', []),
+      temperature: { enabled: config.get('temperature.enabled', true), colorize: config.get('temperature.colorize', true) },
       risk: { enabled: config.get('risk.enabled', true), volumePercent: config.get('risk.volumePercent', 30), dropPercent: config.get('risk.dropPercent', 1.5) }
     };
   }
@@ -129,11 +135,13 @@ class TurnoverController {
     if (this.disposed) return;
     if (!this.config.enabled) {
       if (this.visible) { this.item.hide(); this.visible = false; }
+      if (this.temperatureVisible) { this.temperatureItem.hide(); this.temperatureVisible = false; }
       return;
     }
     const now = this.now();
-    const result = view(this.snapshot, this.state, this.config, session(now, this.config.additionalClosedDates), now);
-    const risk = marketRisk(this.snapshot, this.state, this.riskSource?.(), session(now, this.config.additionalClosedDates), now, this.config.risk);
+    const clock = session(now, this.config.additionalClosedDates);
+    const result = view(this.snapshot, this.state, this.config, clock, now);
+    const risk = marketRisk(this.snapshot, this.state, this.riskSource?.(), clock, now, this.config.risk);
     if (risk) {
       result.text += ` | $(warning) ${risk.label}`;
       result.markdown += `\n\n**风险提示：${risk.label}**。沪深A股成交额较昨同刻 ${risk.volume >= 0 ? '+' : ''}${risk.volume.toFixed(2)}%，上证指数 ${risk.change.toFixed(2)}%；比较时间 ${risk.comparisonTime}，触发阈值为成交额变化至少 ${risk.volumeLimit}% 且指数跌幅至少 ${risk.dropLimit}%。`;
@@ -158,6 +166,34 @@ class TurnoverController {
     }
     this.rendered = { ...result, markdown };
     if (!this.visible) { this.item.show(); this.visible = true; }
+    this.renderTemperature(clock, now);
+  }
+
+  renderTemperature(clock, now) {
+    if (!this.config.temperature.enabled) {
+      if (this.temperatureVisible) { this.temperatureItem.hide(); this.temperatureVisible = false; }
+      return;
+    }
+    this.temperatureResult = marketTemperature(this.snapshot, this.state, clock, now);
+    const result = temperatureView(this.temperatureResult, this.config.temperature), previous = this.temperatureRendered;
+    if (!previous || previous.text !== result.text) this.temperatureItem.text = result.text;
+    if (!previous || previous.markdown !== result.markdown) {
+      const tooltip = new vscode.MarkdownString(result.markdown);
+      tooltip.isTrusted = false; tooltip.supportHtml = false;
+      this.temperatureItem.tooltip = tooltip;
+    }
+    if (!previous || previous.color !== result.color) this.temperatureItem.color = result.color ? new vscode.ThemeColor(result.color) : undefined;
+    if (!previous || previous.accessibility !== result.accessibility) this.temperatureItem.accessibilityInformation = { label: result.accessibility };
+    this.temperatureRendered = result;
+    if (!this.temperatureVisible) { this.temperatureItem.show(); this.temperatureVisible = true; }
+  }
+
+  showTemperature() {
+    const now = this.now(), clock = session(now, this.config.additionalClosedDates);
+    const result = marketTemperature(this.snapshot, this.state, clock, now);
+    this.temperatureOutput.clear();
+    this.temperatureOutput.appendLine(temperatureView(result, this.config.temperature).detail);
+    this.temperatureOutput.show();
   }
 
   async togglePause() {
@@ -184,6 +220,7 @@ class TurnoverController {
     const selected = await vscode.window.showQuickPick([
       { label: '$(refresh) 立即刷新', command: 'welove42.aShareTurnover.refresh' },
       { label: '$(arrow-swap) 切换比较口径', command: 'welove42.aShareTurnover.switchComparison' },
+      { label: '$(dashboard) 市场温度明细', command: 'welove42.aShareTurnover.showTemperature' },
       { label: this.state.paused ? '$(play) 恢复自动刷新' : '$(debug-pause) 暂停自动刷新', command: 'welove42.aShareTurnover.togglePause' },
       { label: '$(settings-gear) 插件设置', command: 'settings' },
       { label: '$(output) 查看请求日志', command: 'welove42.aShareTurnover.showLog' }
@@ -199,6 +236,8 @@ class TurnoverController {
     this.requestController?.abort();
     for (const listener of this.listeners) listener.dispose();
     this.item.dispose();
+    this.temperatureItem.dispose();
+    this.temperatureOutput.dispose();
     this.output.dispose();
   }
 }
@@ -221,6 +260,7 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.togglePause', () => controller.togglePause()),
     vscode.commands.registerCommand('welove42.aShareTurnover.switchComparison', () => controller.switchComparison()),
     vscode.commands.registerCommand('welove42.aShareTurnover.showLog', () => controller.output.show()),
+    vscode.commands.registerCommand('welove42.aShareTurnover.showTemperature', () => controller.showTemperature()),
     stocks, news, charts, globals, funds, commodities,
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),
@@ -262,6 +302,7 @@ function activate(context) {
   controller.start(); stocks.start(); news.start(); globals.start(); funds.start(); commodities.start();
   void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
   return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
+    getMarketTemperature: () => controller.temperatureResult ? { ...controller.temperatureResult } : undefined,
     getStockSearchState: () => stocks.activePicker ? { title: stocks.activePicker.title, query: stocks.activePicker.value, busy: stocks.activePicker.busy,
       candidates: stocks.activePicker.items.filter(item => item.symbols).map(item => ({ name: item.label, symbols: [...item.symbols] })) } : undefined,
     getStockQuote: symbol => { const q = stocks.quotes.get(symbol); return q ? { ...q } : undefined; },

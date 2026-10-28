@@ -54,6 +54,7 @@ class ChartController {
       if (existing.symbol !== symbol) {
         this.cancel(existing); this.panels.clear();
         existing.symbol = symbol; existing.mode = nextMode; existing.data = null; existing.ready = false; existing.pendingRefresh = false;
+        if (!isWebMode(nextMode)) existing.lastNativeMode = nextMode;
         existing.token = randomBytes(24).toString('hex'); existing.lastAttempt = -Infinity;
         this.panels.set(symbol, existing);
         existing.panel.title = `${this.name(symbol) || symbol} · 行情`;
@@ -67,6 +68,7 @@ class ChartController {
     const panel = vscode.window.createWebviewPanel('welove42.aShareTurnover.stockChart', `${this.name(symbol) || symbol} · 行情`, vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')] });
     const state = { symbol, panel, mode: availableMode(symbol, requestedMode || defaultMode), token: randomBytes(24).toString('hex'), ready: false, visible: panel.visible, generation: 0, lastAttempt: -Infinity, abort: null, inflight: null, data: null };
+    state.lastNativeMode = isWebMode(state.mode) ? 'intraday' : state.mode;
     this.panels.set(symbol, state);
     state.listeners = [panel.webview.onDidReceiveMessage(message => this.receive(state, message)),
       panel.onDidDispose(() => this.close(state)),
@@ -87,6 +89,7 @@ class ChartController {
   }
   changeMode(state, mode) {
     const next = availableMode(state.symbol, mode);
+    if (!isWebMode(next)) state.lastNativeMode = next;
     if (state.mode !== next) { this.cancel(state); state.mode = next; state.data = null; state.lastAttempt = -Infinity; }
     if (state.ready) this.send(state, { type: 'select-mode', mode: next });
   }
@@ -95,22 +98,19 @@ class ChartController {
     if (!state) return;
     const token = state.token;
     const items = [
-      { mode: 'intraday', label: '分时图（内置）', detail: '分钟价格、成交量及技术指标，无需加载东方财富网页。' },
-      ...MINUTE_MODES.map(mode => ({ mode, label: `${mode.slice(1)}分钟K线（内置）`, detail: '分钟开高低收、成交量、均线及技术指标。' })),
-      { mode: 'daily', label: '日K图（内置）', detail: '日K、均线、成交量及技术指标，支持60 / 120 / 180根。' },
-      { mode: 'weekly', label: '周K图（内置）', detail: '使用行情源周K，含均线、成交量及周线技术指标。' },
-      { mode: 'monthly', label: '月K图（内置）', detail: '使用行情源月K，含均线、成交量及月线技术指标。' },
+      ...(isWebMode(state.mode) ? [{ mode: state.lastNativeMode, label: '返回内置图表', detail: '恢复上次内置周期；分时、分钟K、日/周/月K均在图表内切换。' }] : []),
       { mode: 'eastmoney', label: '常规图表（东方财富）', detail: '网页支持更多周期；遇验证码可切换内置图表，或用右上角浏览器按钮打开。' },
       { mode: 'chips', label: '筹码盘口（东方财富）', detail: '买卖五档及“日K → 筹码分布”；遇验证码建议在浏览器打开并手动完成验证。' }
     ].filter(item => item.mode !== 'chips' || supportsChips(state.symbol))
       .map(item => ({ ...item, description: item.mode === state.mode ? '当前图表' : undefined }));
     const picked = await vscode.window.showQuickPick(items, {
-      title: `${this.name(state.symbol) || state.symbol} · 切换图表类型`,
-      placeHolder: supportsChips(state.symbol) ? '选择图表类型' : '当前品种不支持筹码盘口，可选择常规图表或插件内图表',
+      title: `${this.name(state.symbol) || state.symbol} · 切换图表来源`,
+      placeHolder: isWebMode(state.mode) ? '返回内置图表或选择网页模式'
+        : supportsChips(state.symbol) ? '周期请在图表内切换，这里选择网页图表' : '周期请在图表内切换；当前品种仅支持东方财富常规图表',
       matchOnDetail: true
     });
     // A picker opened for the previous stock must not change a newly opened stock.
-    if (picked && this.visibleState() === state && state.token === token) this.changeMode(state, picked.mode);
+    if (picked && items.some(item => item.mode === picked.mode) && this.visibleState() === state && state.token === token) this.changeMode(state, picked.mode);
   }
   async chooseIndicator() {
     const state = this.visibleState(); if (!state) return;
