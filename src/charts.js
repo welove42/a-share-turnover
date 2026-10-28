@@ -30,10 +30,12 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <body data-symbol="${escapeHtml(symbol)}" data-token="${token}" data-regular-url="${escapeHtml(regularUrl)}" data-chips-url="${escapeHtml(chipsUrl)}" data-mode="${escapeHtml(mode)}">
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
 <section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
-<div class="indicator-tools" role="group" aria-label="副图指标"><span class="tool-label">副图</span>${indicatorButtons}</div>
+<p id="meta"></p><p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 500" aria-hidden="true"></svg>
+<div id="indicator-controls" class="indicator-tools" role="group" aria-label="副图指标"><span class="tool-label">副图</span>${indicatorButtons}</div>
+<div id="indicator-chart"><svg id="indicator-svg" viewBox="0 0 1040 220" aria-hidden="true"></svg></div>
 <aside id="indicator-guide" aria-label="指标读图说明"><strong id="indicator-guide-title"></strong><p id="indicator-guide-body"></p><p id="indicator-guide-context"></p></aside>
-<p id="meta"></p><p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 700" aria-hidden="true"></svg><div id="chart-tooltip" hidden></div></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="average-detail"></p><p id="indicator-detail"></p>
-<p class="note" id="indicator-note"></p><p class="note">在图表上方切换周期与副图指标。分时黄色线为当日成交均价；K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
+<div id="chart-tooltip" hidden></div></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="average-detail"></p><p id="indicator-detail"></p>
+<p class="note" id="indicator-note"></p><p class="note">在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
 <script nonce="${nonce}" src="${escapeHtml(indicators)}"></script><script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
 }
 

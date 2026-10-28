@@ -52,6 +52,7 @@ test('编辑器切换网页图表合并快速选择，重复选择不重载，�
 
 const sampleBars = Array.from({ length: 240 }, (_, i) => ({ time: `2026-${String(1 + Math.floor(i / 28)).padStart(2, '0')}-${String(1 + i % 28).padStart(2, '0')}`, open: 10 + i * .01, close: 10 + i * .01 + Math.sin(i) * .2, high: 11 + i * .01, low: 9 + i * .01, volume: 100 + i }));
 const descendants = item => [item, ...item.children.flatMap(descendants)];
+const rendered = p => [...descendants(p.nodes.get('svg')), ...descendants(p.nodes.get('indicator-svg'))];
 
 test('页面副图按钮等待宿主确认再高亮，读图说明在无行情时也可用', () => {
   const p = page();
@@ -100,6 +101,33 @@ test('键盘从图表移到副图按钮并切换，保留日期定位和均线�
   p.nodes.get('plot').dispatch('blur'); assert.equal(p.nodes.get('chart-tooltip').hidden, true);
 });
 
+test('独立副图与主图同步定位，按钮和说明不改变日期，隐藏后仍能恢复', () => {
+  const p = page(); p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({ type: 'data', data: { symbol: 'sh600105', name: '测试股', source: '测试', mode: 'daily', date: '2026-10-28', bars: sampleBars } });
+  const plot = p.nodes.get('plot'), main = p.nodes.get('svg'), sub = p.nodes.get('indicator-svg');
+  p.nodes.get('indicator-chart').offsetTop = 400;
+  plot.dispatch('pointermove', { target: sub, clientX: 68, clientY: 450 });
+  const selected = p.nodes.get('detail').textContent;
+  assert.ok(selected.includes(sampleBars[60].time)); assert.equal(p.nodes.get('chart-tooltip').style.top, '432px');
+  const cross = svg => descendants(svg).find(n => n.getAttribute('class') === 'crosshair');
+  assert.equal(cross(main).getAttribute('x1'), cross(sub).getAttribute('x1'));
+  assert.equal(cross(sub).getAttribute('visibility'), 'visible');
+  plot.dispatch('pointermove', { target: p.indicatorButtons.rsi, clientX: 967 });
+  plot.dispatch('pointermove', { target: p.nodes.get('indicator-guide-body'), clientX: 967 });
+  plot.dispatch('keydown', { target: p.indicatorButtons.rsi, key: 'ArrowRight' });
+  assert.equal(p.nodes.get('detail').textContent, selected);
+  const mainGeometry = main.getAttribute('viewBox');
+  p.receive({ type: 'select-indicator', indicator: 'none' });
+  assert.equal(p.nodes.get('indicator-chart').hidden, true); assert.equal(main.getAttribute('viewBox'), mainGeometry);
+  assert.equal(p.nodes.get('chart-tooltip').style.top, '38px');
+  p.indicatorButtons.kdj.click(); assert.equal(p.messages.at(-1).indicator, 'kdj');
+  p.receive({ type: 'select-indicator', indicator: 'kdj' });
+  assert.equal(p.nodes.get('indicator-chart').hidden, false); assert.equal(p.nodes.get('detail').textContent, selected);
+  assert.ok(descendants(sub).some(n => n.getAttribute('class') === 'indicator-line'));
+  p.receive({ type: 'select-mode', mode: 'monthly' });
+  assert.equal(main.children.length, 0); assert.equal(sub.children.length, 0);
+});
+
 test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期保留选择', () => {
   const p = page();
   for (const mode of ['daily', 'weekly', 'monthly']) {
@@ -107,8 +135,8 @@ test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期
     p.receive({ type: 'data', data: { symbol: 'sh600105', name: '测试股', source: '测试', mode, date: '2026-10-28', adjustment: '前复权', bars: sampleBars } });
     assert.equal(p.nodes.get('range-label').hidden, false);
     assert.match(p.nodes.get('meta').textContent, new RegExp({ daily: '日K', weekly: '周K', monthly: '月K' }[mode]));
-    assert.ok(descendants(p.nodes.get('svg')).some(n => n.getAttribute('class') === 'indicator-bar'));
-    assert.doesNotMatch(JSON.stringify(descendants(p.nodes.get('svg')).map(n => n.getAttribute('points'))), /NaN|Infinity/);
+    assert.ok(descendants(p.nodes.get('indicator-svg')).some(n => n.getAttribute('class') === 'indicator-bar'));
+    assert.doesNotMatch(JSON.stringify(rendered(p).map(n => n.getAttribute('points'))), /NaN|Infinity/);
   }
   const messages = p.messages.length;
   p.receive({ type: 'select-indicator', indicator: 'rsi' });
@@ -120,7 +148,8 @@ test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期
   p.nodes.get('range').value = '60'; p.nodes.get('range').dispatch('change');
   assert.equal(p.nodes.get('indicator-detail').textContent, selected);
   p.receive({ type: 'select-indicator', indicator: 'none' });
-  assert.equal(p.nodes.get('indicator-detail').textContent, ''); assert.equal(p.nodes.get('svg').getAttribute('viewBox'), '0 0 1040 550');
+  assert.equal(p.nodes.get('indicator-detail').textContent, ''); assert.equal(p.nodes.get('indicator-chart').hidden, true);
+  assert.equal(p.nodes.get('indicator-svg').children[0].children.length, 0);
   assert.equal(p.messages.length, messages); assert.equal(p.writes.length, 0);
 });
 
@@ -134,7 +163,7 @@ test('日周月及所有分钟周期悬停同步MA、副图图例、详情卡，
     // With 180 visible bars, the first bar is absolute index 60.
     plot().dispatch('pointermove', { clientX: 68, clientY: 100 });
     const expected = bars.slice(56, 61).reduce((s, b) => s + b.close, 0) / 5;
-    const series = name => descendants(p.nodes.get('svg')).find(n => n.getAttribute('data-series') === name).textContent;
+    const series = name => rendered(p).find(n => n.getAttribute('data-series') === name).textContent;
     assert.equal(series('MA5'), `MA5 ${expected.toFixed(2)}`);
     assert.notEqual(p.nodes.get('average-detail').textContent, before);
     assert.match(p.nodes.get('chart-tooltip').textContent, new RegExp(bars[60].time));
@@ -183,7 +212,7 @@ test('短分时KDJ提示数据不足、RSI无无效数值，旧股票消息不�
   const p = page(); p.receive({ type: 'select-mode', mode: 'intraday' });
   p.receive({ type: 'data', data: { symbol: 'sh600105', mode: 'intraday', name: '测试股', source: '测试', date: '2026-10-28', previousClose: 10, bars: [{ ...sampleBars[0], time: '0930' }] } });
   p.receive({ type: 'select-indicator', indicator: 'kdj' });
-  assert.ok(descendants(p.nodes.get('svg')).some(n => /数据不足/.test(n.textContent)));
+  assert.ok(descendants(p.nodes.get('indicator-svg')).some(n => /数据不足/.test(n.textContent)));
   assert.match(p.nodes.get('indicator-note').textContent, /不代表完整1分钟K线/);
   p.receive({ type: 'select-indicator', indicator: 'rsi' });
   assert.match(p.nodes.get('indicator-detail').textContent, /RSI6 —/);

@@ -22,12 +22,12 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) #eastmoney { filter: 
 .period-tools button { font: inherit; padding: 4px 14px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; color: var(--vscode-foreground, #d9e1ee); background: transparent; }
 .period-tools button:hover { background: var(--vscode-toolbar-hoverBackground, #ffffff14); }
 .period-tools button[aria-pressed="true"] { color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0969a8); border-color: var(--vscode-contrastActiveBorder, transparent); }
-.indicator-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 8px 0; }
+.indicator-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; padding: 8px 12px; border-top: 1px solid var(--vscode-panel-border, #354053); }
 .tool-label { color: var(--vscode-descriptionForeground, #9caec5); margin-right: 6px; }
 .indicator-tools button { font: inherit; padding: 3px 12px; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 4px; cursor: pointer; color: var(--vscode-foreground, #d9e1ee); background: transparent; }
 .indicator-tools button:hover { background: var(--vscode-toolbar-hoverBackground, #ffffff14); }
 .indicator-tools button[aria-pressed="true"] { color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0969a8); border-color: var(--vscode-contrastActiveBorder, transparent); }
-#indicator-guide { padding: 8px 12px; border-left: 2px solid var(--vscode-focusBorder, #55b1ef); background: var(--vscode-textBlockQuote-background, #8080800d); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+#indicator-guide { margin: 0 12px 12px; padding: 8px 12px; border-left: 2px solid var(--vscode-focusBorder, #55b1ef); background: var(--vscode-textBlockQuote-background, #8080800d); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 #indicator-guide strong { font-weight: 600; }
 #indicator-guide p { margin: 3px 0 0; }
 #indicator-guide-context { color: var(--vscode-descriptionForeground, #9caec5); }
@@ -40,7 +40,9 @@ select { padding: 4px 8px; }
 #plot { position: relative; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 6px; overflow: hidden; background: var(--vscode-editor-background, #151c28); touch-action: pan-y; }
 #chart-tooltip { position: absolute; top: 38px; right: 12px; z-index: 1; pointer-events: none; max-width: calc(100% - 24px); padding: 9px 12px; border: 1px solid var(--vscode-editorHoverWidget-border, #59677c); border-radius: 5px; background: var(--vscode-editorHoverWidget-background, #202937); color: var(--vscode-editorHoverWidget-foreground, #d9e1ee); box-shadow: 0 3px 12px #0003; white-space: pre-wrap; font-size: 12px; line-height: 1.8; font-variant-numeric: tabular-nums; }
 body.vscode-light #chart-tooltip, body.vscode-high-contrast-light #chart-tooltip { background: var(--vscode-editorHoverWidget-background, #fff); color: var(--vscode-editorHoverWidget-foreground, #222); }
-svg { display: block; width: 100%; height: clamp(440px, 72vh, 760px); }
+svg { display: block; width: 100%; }
+#svg { height: clamp(300px, 48vh, 500px); }
+#indicator-svg { height: clamp(160px, 24vh, 260px); }
 svg text { fill: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; font-family: inherit; }
 svg text.ma5, svg text.series-0 { fill: var(--chart-series-0); } svg text.ma10, svg text.series-1 { fill: var(--chart-series-1); } svg text.ma20, svg text.series-2 { fill: var(--chart-series-2); }
 svg text.ma30 { fill: var(--chart-series-3); } svg text.ma60 { fill: var(--chart-series-4); }
@@ -51,4 +53,4 @@ svg text.indicator-title { fill: var(--vscode-foreground, #d9e1ee); font-weight:
 #detail { min-height: 24px; font-variant-numeric: tabular-nums; line-height: 1.8; margin: 10px 0 0; }
 #indicator-detail, #average-detail { min-height: 18px; margin: 3px 0; line-height: 1.8; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground, #9caec5); }
 .note { margin: 7px 0; }
-@media (max-width: 600px) { #local { padding: 10px; } .chart-tools { flex-wrap: wrap; } svg { min-height: 270px; } }
+@media (max-width: 600px) { #local { padding: 10px; } .chart-tools { flex-wrap: wrap; } }

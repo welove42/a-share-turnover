@@ -30,6 +30,7 @@
     none: ['副图已隐藏', '保留价格、均线与成交量；随时点击上方MACD、KDJ或RSI恢复副图。鼠标悬停仍可查看三种指标的数值。']
   };
   function updateIndicatorControls() {
+    $('indicator-chart').hidden = indicator === 'none';
     for (const button of indicatorButtons) button.setAttribute('aria-pressed', String(button.dataset.indicator === indicator));
     const [title, body] = guides[indicator];
     $('indicator-guide-title').textContent = title;
@@ -64,7 +65,7 @@
     } else {
       // Release the third-party document while the user is viewing native charts.
       cancelWebLoad(); $('eastmoney').removeAttribute('src');
-      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
+      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('indicator-svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
     }
     updateIndicatorControls();
     remember(); if (notify) send('mode-ready', { mode });
@@ -99,11 +100,14 @@
     volumeAverages = candles ? [5, 10].map((n, i) => ({ name: 'VMA' + n, color: `var(--chart-series-${i})`, values: movingAverage(all, n, 'volume') })) : [];
     legend = [];
     const withIndicator = Boolean(indicatorData);
-    const svg = $('svg');
-    const height = withIndicator ? Math.max(440, Math.min(900, Math.round(svg.clientHeight * 1040 / svg.clientWidth) || 700)) : 550;
-    const L = 68, R = 967, T = 40, B = withIndicator ? height * .46 : 380, V = withIndicator ? height * .53 : 430, VB = withIndicator ? height * .64 : 505;
-    const I = height * .72, IB = height - 45, bottom = withIndicator ? IB : VB;
+    const svg = $('svg'), indicatorSvg = $('indicator-svg');
+    // Each canvas uses the same horizontal coordinates and its own responsive height.
+    const height = Math.round(svg.clientHeight * 1040 / svg.clientWidth) || 500;
+    const indicatorHeight = Math.round(indicatorSvg.clientHeight * 1040 / indicatorSvg.clientWidth) || 220;
+    const L = 68, R = 967, T = 40, B = height * .64, V = height * .77, VB = height - 45;
+    const I = 35, IB = indicatorHeight - 40, bottom = VB;
     svg.setAttribute('viewBox', `0 0 1040 ${height}`);
+    indicatorSvg.setAttribute('viewBox', `0 0 1040 ${indicatorHeight}`);
     const width = R - L, minute = time => {
       const m = Number(time.slice(0, 2)) * 60 + Number(time.slice(2));
       return Math.max(0, Math.min(120, m - 570)) + Math.max(0, Math.min(120, m - 780));
@@ -118,8 +122,9 @@
     const pad = Math.max((max - min) * .08, max * .001, .001); min -= pad; max += pad;
     const y = value => B - (value - min) / (max - min) * (B - T);
     const maxVolume = Math.max(...bars.map(b => b.volume), ...volumeAverages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)), 1);
-    const fragment = document.createDocumentFragment();
-    const add = (tag, attrs, text) => { const e = element(tag, attrs, text); fragment.append(e); return e; };
+    const fragment = document.createDocumentFragment(), indicatorFragment = document.createDocumentFragment();
+    let target = fragment;
+    const add = (tag, attrs, text) => { const e = element(tag, attrs, text); target.append(e); return e; };
     const addLegend = (series, attrs, format = numberOrDash) => {
       const label = add('text', { ...attrs, 'data-series': series.name }, '');
       legend.push({ label, series, format }); return label;
@@ -171,6 +176,7 @@
     const ticks = mode === 'intraday' ? [[L, '09:30'], [L + width / 4, '10:30'], [L + width / 2, '11:30 / 13:00'], [L + width * .75, '14:00'], [R, '15:00']]
       : [...new Set([0, Math.floor((bars.length - 1) / 2), bars.length - 1])].map(i => [x(bars[i], i), /^m\d+$/.test(mode) ? bars[i].time.slice(5) : bars[i].time]);
     if (withIndicator) {
+      target = indicatorFragment;
       const lines = indicatorData.lines.map(s => ({ ...s, values: s.values.slice(start, start + bars.length) }));
       const histogram = indicatorData.histogram?.slice(start, start + bars.length);
       const values = lines.flatMap(s => s.values.filter(Number.isFinite)).concat((histogram || []).filter(Number.isFinite));
@@ -199,17 +205,20 @@
       });
       if (!values.length) add('text', { x: (L + R) / 2, y: (I + IB) / 2, 'text-anchor': 'middle' }, '数据不足，等待更多周期');
     }
+    const indicatorCross = withIndicator ? add('line', { x1: L, x2: L, y1: I, y2: IB, class: 'crosshair', visibility: 'hidden' }) : null;
+    target = fragment;
     ticks.forEach(([xx, text]) => add('text', { x: xx, y: bottom + 30, 'text-anchor': 'middle' }, text));
     const cross = add('line', { x1: L, x2: L, y1: T, y2: bottom, class: 'crosshair', visibility: 'hidden' });
     const marker = add('circle', { cx: L, cy: T, r: 3, fill: lineColor, visibility: 'hidden' });
     svg.replaceChildren(fragment);
+    indicatorSvg.replaceChildren(indicatorFragment);
     $('plot').setAttribute('aria-label', `${data.name} ${names[mode]}图，${bars[0].time} 至 ${bars.at(-1).time}，最新价格 ${price(bars.at(-1).close)}${withIndicator ? '，副图 ' + indicatorData.label : ''}。可用左右方向键查看数据。`);
     $('indicator-note').textContent = !withIndicator ? '' : mode === 'intraday'
       ? '指标按当日分钟采样价格计算并每日重置；KDJ使用采样价范围，不代表完整1分钟K线高低价。'
       : `指标按${names[mode]}全量已获取记录计算后截取显示范围；不同历史长度及初始化方式可能产生数值差异。`;
     const selected = hover?.active && (candles || hover.date === data.date) ? bars.findIndex(b => b.time === hover.bars[hover.index].time) : -1;
-    const side = hover?.side || 'right';
-    hover = { bars, x, y, cross, marker, L, R, start, index: bars.length - 1, date: data.date, active: false, side };
+    const side = hover?.side || 'right', panel = hover?.panel || 'main';
+    hover = { bars, x, y, cross, indicatorCross, marker, L, R, start, index: bars.length - 1, date: data.date, active: false, side, panel };
     if (selected >= 0) pointAt(selected);
     else { $('chart-tooltip').hidden = true; detail(bars.at(-1), all.length - 1); }
   }
@@ -246,14 +255,20 @@
     hover.active = true;
     const bar = hover.bars[hover.index], xx = hover.x(bar, hover.index);
     hover.cross.setAttribute('x1', xx); hover.cross.setAttribute('x2', xx); hover.cross.setAttribute('visibility', 'visible'); detail(bar, hover.start + hover.index);
+    if (hover.indicatorCross) { hover.indicatorCross.setAttribute('x1', xx); hover.indicatorCross.setAttribute('x2', xx); hover.indicatorCross.setAttribute('visibility', 'visible'); }
     hover.marker.setAttribute('cx', xx); hover.marker.setAttribute('cy', hover.y(bar.close)); hover.marker.setAttribute('visibility', 'visible');
     $('chart-tooltip').hidden = false;
+    $('chart-tooltip').style.top = hover.panel === 'indicator' && indicator !== 'none' ? `${$('indicator-chart').offsetTop + 32}px` : '38px';
     $('chart-tooltip').style.left = hover.side === 'left' ? '12px' : 'auto';
     $('chart-tooltip').style.right = hover.side === 'right' ? '12px' : 'auto';
   }
   $('plot').addEventListener('pointermove', event => {
     if (!hover) return;
-    const transform = $('svg').getScreenCTM(); if (!transform) return;
+    const fromIndicator = event.target === $('indicator-svg') || event.target.ownerSVGElement === $('indicator-svg');
+    // Buttons and reading notes are not part of the data hit area.
+    if (event.target !== $('plot') && !fromIndicator && event.target !== $('svg') && event.target.ownerSVGElement !== $('svg')) return;
+    hover.panel = fromIndicator ? 'indicator' : 'main';
+    const transform = $(fromIndicator ? 'indicator-svg' : 'svg').getScreenCTM(); if (!transform) return;
     const xx = new DOMPoint(event.clientX, event.clientY).matrixTransform(transform.inverse()).x;
     hover.side = xx > (hover.L + hover.R) / 2 ? 'left' : 'right';
     let best = 0;
@@ -268,6 +283,7 @@
   $('plot').addEventListener('pointerleave', resetSelection);
   $('plot').addEventListener('blur', event => { if (!indicatorButtons.includes(event.relatedTarget)) resetSelection(); });
   $('plot').addEventListener('keydown', event => {
+    if (indicatorButtons.includes(event.target)) return;
     if (event.key === 'Escape') { resetSelection(); return; }
     if (hover && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); pointAt(hover.index + (event.key === 'ArrowLeft' ? -1 : 1)); }
   });
