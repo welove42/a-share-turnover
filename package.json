@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -46,7 +46,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.6.2.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.6.3.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -346,6 +346,19 @@
             "跌幅从大到小"
           ],
           "description": "自选股列表排序。"
+        },
+        "aShareTurnover.charts.defaultMode": {
+          "type": "string",
+          "enum": ["intraday", "daily", "eastmoney", "chips"],
+          "default": "intraday",
+          "scope": "application",
+          "enumDescriptions": [
+            "内置分时图（推荐），直接绘图，不加载东方财富网页。",
+            "内置日K图，包含均线与成交量。",
+            "东方财富常规网页图表，可能要求验证码。",
+            "东方财富筹码盘口网页，可能要求验证码；不支持的品种使用内置分时。"
+          ],
+          "description": "新打开详情标签的默认图表。已有标签切换股票时保留当前类型；可用编辑器右上角切换图表。"
         },
         "aShareTurnover.news.enabled": {
           "type": "boolean",

@@ -11,10 +11,37 @@ function setup(load) {
     return c.receive(s, { action: 'mode-ready', mode, token: s.token });
   } };
 }
+
+test('首次详情默认内置分时，设置与显式类型可覆盖，HTML不预加载第三方网页', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); let s = h.c.panels.get('sh600105');
+    assert.equal(s.mode, 'intraday'); assert.doesNotMatch(s.panel.webview.html, /<iframe[^>]+\ssrc=/);
+    await h.mode(s, 'intraday'); assert.equal(h.calls(), 1);
+    s.panel.dispose(); h.values.set('aShareTurnover.charts.defaultMode', 'daily');
+    await h.c.open('600105'); s = h.c.panels.get('sh600105'); assert.equal(s.mode, 'daily');
+    s.panel.dispose(); await h.c.open('600105', 'chips'); assert.equal(h.c.panels.get('sh600105').mode, 'chips');
+  } finally { h.c.dispose(); }
+});
+
+test('快速切股再返回复用10秒内数据，缓存按股票和类型隔离，手动刷新限频', async () => {
+  const h = setup(); try {
+    await h.c.open('600105'); const s = h.c.panels.get('sh600105'); await h.mode(s, 'intraday');
+    await h.c.open('000001'); await h.mode(s, 'intraday'); assert.equal(h.calls(), 2);
+    await h.c.open('600105'); await h.mode(s, 'intraday'); assert.equal(h.calls(), 2);
+    assert.equal(s.data.symbol, 'sh600105');
+    await h.c.refreshActive(); assert.equal(h.calls(), 2);
+    h.setNow('2026-10-26T10:30:02+08:00'); await h.c.refreshActive(); assert.equal(h.calls(), 3);
+    await h.c.refreshActive(); assert.equal(h.calls(), 3);
+    await h.mode(s, 'daily'); assert.equal(h.calls(), 4); assert.equal(s.data.mode, 'daily');
+    await h.mode(s, 'intraday'); assert.equal(h.calls(), 4); assert.equal(s.data.mode, 'intraday');
+    h.setNow('2026-10-26T10:30:12+08:00'); h.c.tick(); await s.inflight; assert.equal(h.calls(), 5);
+  } finally { h.c.dispose(); }
+});
 test('同一个股复用图表标签，iframe模式不会每10秒重新加载网页', async () => {
   const h = setup(); try {
-    await h.c.open('600519'); const state = h.c.panels.get('sh600519'), html = state.panel.webview.html;
-    assert.match(html, /<iframe[^>]+https:\/\/quote\.eastmoney\.com\/basic\/full\.html\?mcid=1\.600519/); assert.match(html, /frame-src https:\/\/quote\.eastmoney\.com/);
+    await h.c.open('600519', 'eastmoney'); const state = h.c.panels.get('sh600519'), html = state.panel.webview.html;
+    assert.match(html, /data-regular-url="https:\/\/quote\.eastmoney\.com\/basic\/full\.html\?mcid=1\.600519/);
+    assert.doesNotMatch(html, /<iframe[^>]+\ssrc=/); assert.match(html, /frame-src https:\/\/quote\.eastmoney\.com/);
     await h.c.open({ symbol: 'sh600519' }); h.c.tick(); assert.equal(h.panels.length, 1); assert.equal(state.panel.revealCalls, 1); assert.equal(h.calls(), 0); assert.equal(state.panel.webview.html, html);
   } finally { h.c.dispose(); }
 });
@@ -31,13 +58,13 @@ test('不同个股复用同一标签，保留筹码盘口模式；同一个股�
     assert.equal(h.c.getState('sh600105'), undefined);
   } finally { h.c.dispose(); }
 });
-test('筹码模式切换指数或ETF时退回常规图表并禁用不支持的入口', async () => {
+test('筹码模式切换指数或ETF时退回内置分时并禁用不支持的入口', async () => {
   const h = setup(); try {
     await h.c.open('600105', 'chips');
     await h.c.open('sh000001'); const s = h.c.panels.get('sh000001');
-    assert.equal(s.mode, 'eastmoney'); assert.match(s.panel.webview.html, /data-chips-url=""/);
-    await h.c.open('sh510300', 'chips'); assert.equal(s.mode, 'eastmoney');
-    await h.c.open('bj920002', 'chips'); assert.equal(s.mode, 'eastmoney');
+    assert.equal(s.mode, 'intraday'); assert.match(s.panel.webview.html, /data-chips-url=""/);
+    await h.c.open('sh510300', 'chips'); assert.equal(s.mode, 'intraday');
+    await h.c.open('bj920002', 'chips'); assert.equal(s.mode, 'intraday');
     assert.equal(h.panels.length, 1);
   } finally { h.c.dispose(); }
 });
@@ -95,7 +122,7 @@ test('切换个股取消旧行情请求及旧页面消息，迟到结果不能�
 });
 test('iframe不能传入任意URL打开系统浏览器，消息令牌不匹配时忽略', async () => {
   const h = setup(); try {
-    await h.c.open('sh000001'); const s = h.c.panels.get('sh000001');
+    await h.c.open('sh000001', 'eastmoney'); const s = h.c.panels.get('sh000001');
     await h.c.receive(s, { action: 'external', token: 'wrong', url: 'https://evil.example' }); assert.equal(h.opened.length, 0);
     await h.c.receive(s, { action: 'external', token: s.token, url: 'https://evil.example' }); assert.deepEqual(h.opened, ['https://quote.eastmoney.com/basic/full.html?mcid=1.000001']);
     await h.c.open('600105', 'chips');
@@ -112,13 +139,13 @@ test('工具栏类型菜单仅列出支持的图表，保留当前选择，取�
     let items;
     h.api.window.showQuickPick = async list => { items = list; return list.find(item => item.mode === 'chips'); };
     await h.c.chooseMode(); assert.equal(s.mode, 'chips');
-    assert.deepEqual(items.map(item => item.mode), ['eastmoney', 'chips', 'intraday', 'daily']);
-    assert.equal(items.find(item => item.mode === 'eastmoney').description, '当前图表');
+    assert.deepEqual(items.map(item => item.mode), ['intraday', 'daily', 'eastmoney', 'chips']);
+    assert.equal(items.find(item => item.mode === 'intraday').description, '当前图表');
     assert.equal(s.panel.webview.messages.at(-1).type, 'select-mode');
     h.api.window.showQuickPick = async list => { items = list; return undefined; };
     await h.c.chooseMode(); assert.equal(s.mode, 'chips');
     await h.c.open('sh000001'); await h.c.chooseMode();
-    assert.equal(s.mode, 'eastmoney'); assert.equal(items.some(item => item.mode === 'chips'), false);
+    assert.equal(s.mode, 'intraday'); assert.equal(items.some(item => item.mode === 'chips'), false);
     assert.doesNotMatch(s.panel.webview.html, /<header|<nav|id="hint"|id="refresh"|id="external"/);
   } finally { h.c.dispose(); }
 });
@@ -127,7 +154,7 @@ test('类型菜单打开后切换个股或关闭详情，旧选择不影响新�
     await h.c.open('600105'); const s = h.c.panels.get('sh600105'); let finish;
     h.api.window.showQuickPick = () => new Promise(resolve => { finish = resolve; });
     const pending = h.c.chooseMode(); await h.c.open('000001');
-    finish({ mode: 'daily' }); await pending; assert.equal(s.mode, 'eastmoney');
+    finish({ mode: 'daily' }); await pending; assert.equal(s.mode, 'intraday');
     const closing = h.c.chooseMode(); s.panel.dispose();
     finish({ mode: 'chips' }); await closing; assert.equal(h.c.panels.size, 0);
   } finally { h.c.dispose(); }
@@ -143,6 +170,7 @@ test('右上角刷新和浏览器打开作用于当前详情股票；可见但�
     await h.c.openActiveExternal(); assert.match(h.opened.at(-1), /code=600105&market=1/);
     await h.c.open('000001', 'intraday'); await h.mode(s, 'intraday');
     const html = s.panel.webview.html;
+    h.setNow('2026-10-26T10:30:02+08:00');
     await h.c.refreshActive(); assert.equal(h.calls(), 2); assert.equal(s.panel.webview.html, html);
     await h.c.openActiveExternal(); assert.match(h.opened.at(-1), /sz000001/);
     s.panel.setVisible(false); const messages = s.panel.webview.messages.length, opened = h.opened.length;

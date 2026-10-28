@@ -2,30 +2,45 @@
 (() => {
   const vscode = acquireVsCodeApi();
   const $ = id => document.getElementById(id);
-  const { token, symbol, regularUrl, chipsUrl, mode: initialMode } = document.body.dataset;
+  const { token, symbol, regularUrl, chipsUrl } = document.body.dataset;
   const up = '#f05b68', down = '#26bd8c', lineColor = '#5bbcff';
   const modes = ['eastmoney', 'chips', 'intraday', 'daily'];
   const isWebMode = value => value === 'eastmoney' || value === 'chips';
   const webUrl = () => mode === 'chips' ? chipsUrl : regularUrl;
   const saved = vscode.getState() || {};
-  let mode = 'eastmoney', data = null, range = [60, 120, 180].includes(saved.range) ? saved.range : 180, hover = null;
+  let mode = 'intraday', data = null, range = [60, 120, 180].includes(saved.range) ? saved.range : 180, hover = null;
+  let webTimer = null, pendingUrl = '', lastWebLoad = -Infinity;
   const send = (action, extra = {}) => vscode.postMessage({ action, token, ...extra });
   const remember = () => vscode.setState({ mode, range });
   const precision = /^(sh5|sz1)/.test(symbol) ? 3 : 2;
   const price = value => Number(value).toFixed(precision);
   const volume = value => value >= 1e8 ? (value / 1e8).toFixed(2) + '亿手' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万手' : Number(value).toFixed(0) + '手';
   const clock = timestamp => timestamp ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)} ${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:${timestamp.slice(12, 14)}` : '';
+  function cancelWebLoad() { clearTimeout(webTimer); webTimer = null; pendingUrl = ''; }
+  function loadWeb(force = false) {
+    const url = webUrl(), frame = $('eastmoney');
+    if (!url || pendingUrl === url || (!force && frame.getAttribute('src') === url)) return;
+    if (force && frame.getAttribute('src') === url && Date.now() - lastWebLoad < 5000) return;
+    cancelWebLoad();
+    if (frame.getAttribute('src') !== url) frame.removeAttribute('src');
+    pendingUrl = url;
+    // Wait for a settled choice; the host may switch mode before the page is ready.
+    webTimer = setTimeout(() => {
+      webTimer = null; pendingUrl = '';
+      if (isWebMode(mode) && webUrl() === url) { frame.src = url; lastWebLoad = Date.now(); }
+    }, 400);
+  }
   function setMode(next, notify = true) {
     if (!modes.includes(next)) return;
-    if (next === 'chips' && !chipsUrl) next = 'eastmoney';
+    if (next === 'chips' && !chipsUrl) next = 'intraday';
     const changed = mode !== next;
     mode = next;
     $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('range-label').hidden = mode !== 'daily';
     if (isWebMode(mode)) {
-      if ($('eastmoney').getAttribute('src') !== webUrl()) $('eastmoney').src = webUrl();
+      loadWeb();
     } else {
       // Release the third-party document while the user is viewing native charts.
-      $('eastmoney').removeAttribute('src');
+      cancelWebLoad(); $('eastmoney').removeAttribute('src');
       if (changed) { data = null; hover = null; $('svg').replaceChildren(); $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格与成交量。'; }
     }
     remember(); if (notify) send('mode-ready', { mode });
@@ -130,7 +145,7 @@
     if (!message || message.token !== token) return;
     if (message.type === 'select-mode') { setMode(message.mode); return; }
     if (message.mode && message.mode !== mode) return;
-    if (message.type === 'refresh' && isWebMode(mode)) { $('eastmoney').src = webUrl(); return; }
+    if (message.type === 'refresh' && isWebMode(mode)) { loadWeb(true); return; }
     if (message.type === 'loading') { $('status').className = ''; $('status').textContent = message.preserve ? '正在刷新，图表保留上次成功数据…' : '正在获取行情数据…'; }
     if (message.type === 'error') { $('status').className = 'error'; $('status').textContent = `${message.message}${message.preserve ? '；保留上次成功数据，等待下次刷新。' : '。可重试或在浏览器打开。'}`; }
     if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
@@ -144,6 +159,7 @@
     }
   });
   // The host owns the selected symbol/mode; old Webview state only restores the range.
-  setMode(initialMode, false);
+  // No remote navigation until the host confirms its latest selection.
+  window.addEventListener('pagehide', cancelWebLoad);
   send('ready');
 })();
