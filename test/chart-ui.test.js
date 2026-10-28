@@ -24,15 +24,16 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
     regularUrl: 'https://quote.eastmoney.com/basic/full.html?mcid=1.600105',
     chipsUrl: chips ? 'https://quote.eastmoney.com/basic/h5chart-iframe.html?code=600105&market=1' : '' });
   const buttons = Object.fromEntries(['intraday', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'].map(period => [period, node(period, { period })]));
+  const indicatorButtons = Object.fromEntries(['macd', 'kdj', 'rsi', 'none'].map(indicator => [indicator, node('button-' + indicator, { indicator })]));
   const document = { body, getElementById: id => nodes.get(id) || node(id),
     createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
-    querySelectorAll: selector => selector === 'button[data-period]' ? Object.values(buttons) : [] };
+    querySelectorAll: selector => selector === 'button[data-period]' ? Object.values(buttons) : selector === 'button[data-indicator]' ? Object.values(indicatorButtons) : [] };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/chart.js'), 'utf8'), {
     document, marketIndicators: require('../media/indicators'), DOMPoint: class { constructor(x, y) { this.x = x; this.y = y; } matrixTransform() { return this; } }, window: { addEventListener: (event, fn) => { if (event === 'message') receivers.push(fn); } },
     Date: { now: () => now }, setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { at: now + ms, fn }); return id; }, clearTimeout: id => timers.delete(id),
     acquireVsCodeApi: () => ({ getState: () => saved, setState() {}, postMessage: message => messages.push(message) })
   });
-  return { nodes, buttons, messages, writes, advance, receive: message => receivers.forEach(fn => fn({ data: { token: 'test-token', ...message } })) };
+  return { nodes, buttons, indicatorButtons, messages, writes, advance, receive: message => receivers.forEach(fn => fn({ data: { token: 'test-token', ...message } })) };
 }
 
 test('编辑器切换网页图表合并快速选择，重复选择不重载，连续刷新限频', () => {
@@ -51,6 +52,53 @@ test('编辑器切换网页图表合并快速选择，重复选择不重载，�
 
 const sampleBars = Array.from({ length: 240 }, (_, i) => ({ time: `2026-${String(1 + Math.floor(i / 28)).padStart(2, '0')}-${String(1 + i % 28).padStart(2, '0')}`, open: 10 + i * .01, close: 10 + i * .01 + Math.sin(i) * .2, high: 11 + i * .01, low: 9 + i * .01, volume: 100 + i }));
 const descendants = item => [item, ...item.children.flatMap(descendants)];
+
+test('页面副图按钮等待宿主确认再高亮，读图说明在无行情时也可用', () => {
+  const p = page();
+  assert.equal(p.indicatorButtons.macd.getAttribute('aria-pressed'), 'true');
+  assert.match(p.nodes.get('indicator-guide-title').textContent, /MACD.*12,26,9/);
+  assert.match(p.nodes.get('indicator-guide-body').textContent, /2×.*金叉.*零轴/);
+  p.indicatorButtons.kdj.click();
+  assert.equal(p.messages.at(-1).action, 'indicator'); assert.equal(p.messages.at(-1).indicator, 'kdj');
+  assert.equal(p.messages.at(-1).token, 'test-token');
+  assert.equal(p.indicatorButtons.macd.getAttribute('aria-pressed'), 'true');
+  p.receive({ type: 'select-indicator', indicator: 'kdj' });
+  assert.equal(p.indicatorButtons.kdj.getAttribute('aria-pressed'), 'true');
+  assert.equal(p.indicatorButtons.macd.getAttribute('aria-pressed'), 'false');
+  assert.match(p.nodes.get('indicator-guide-body').textContent, /80.*20.*钝化/);
+  const count = p.messages.length; p.indicatorButtons.kdj.click(); assert.equal(p.messages.length, count);
+  for (const message of [{ indicator: 'invalid' }, { indicator: 'rsi', token: 'old-token' }]) p.receive({ type: 'select-indicator', ...message });
+  assert.equal(p.indicatorButtons.kdj.getAttribute('aria-pressed'), 'true');
+});
+
+test('副图读法随指标和周期同步，隐藏副图仍保留说明，网页模式不切换', () => {
+  const p = page(); p.receive({ type: 'select-indicator', indicator: 'rsi' });
+  assert.match(p.nodes.get('indicator-guide-body').textContent, /0–100.*RSI6.*RSI24.*20\/80/);
+  assert.match(p.nodes.get('indicator-guide-context').textContent, /当日分钟采样.*每日重置/);
+  for (const [mode, name] of [['m5', '5分钟K'], ['daily', '日K'], ['weekly', '周K'], ['monthly', '月K']]) {
+    p.receive({ type: 'select-mode', mode });
+    assert.ok(p.nodes.get('indicator-guide-context').textContent.includes(name));
+    assert.match(p.nodes.get('indicator-guide-context').textContent, /K线根数.*未收盘/);
+    assert.equal(p.indicatorButtons.rsi.getAttribute('aria-pressed'), 'true');
+  }
+  p.receive({ type: 'select-indicator', indicator: 'none' });
+  assert.equal(p.nodes.get('indicator-guide-context').textContent, '');
+  assert.match(p.nodes.get('indicator-guide-body').textContent, /恢复副图.*悬停/);
+  p.receive({ type: 'select-mode', mode: 'eastmoney' }); const count = p.messages.length;
+  p.indicatorButtons.macd.click(); assert.equal(p.messages.length, count);
+});
+
+test('键盘从图表移到副图按钮并切换，保留日期定位和均线数值', () => {
+  const p = page(); p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({ type: 'data', data: { symbol: 'sh600105', name: '测试股', source: '测试', mode: 'daily', date: '2026-10-28', bars: sampleBars } });
+  p.nodes.get('plot').dispatch('keydown', { key: 'ArrowLeft' });
+  const detail = p.nodes.get('detail').textContent, averages = p.nodes.get('average-detail').textContent;
+  p.nodes.get('plot').dispatch('blur', { relatedTarget: p.indicatorButtons.rsi });
+  p.indicatorButtons.rsi.click(); p.receive({ type: 'select-indicator', indicator: 'rsi' });
+  assert.equal(p.nodes.get('detail').textContent, detail); assert.equal(p.nodes.get('average-detail').textContent, averages);
+  assert.equal(p.nodes.get('chart-tooltip').hidden, false); assert.match(p.nodes.get('indicator-detail').textContent, /RSI/);
+  p.nodes.get('plot').dispatch('blur'); assert.equal(p.nodes.get('chart-tooltip').hidden, true);
+});
 
 test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期保留选择', () => {
   const p = page();

@@ -21,15 +21,19 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
   const nonce = randomBytes(18).toString('base64');
   const periods = [['intraday', '分时'], ...MINUTE_MODES.map(value => [value, `${value.slice(1)}分钟`]), ['daily', '日K'], ['weekly', '周K'], ['monthly', '月K']]
     .map(([value, label]) => `<button type="button" data-period="${value}" aria-pressed="${mode === value}">${label}</button>`).join('');
+  const indicatorButtons = [['macd', 'MACD'], ['kdj', 'KDJ'], ['rsi', 'RSI'], ['none', '隐藏']]
+    .map(([value, label]) => `<button type="button" data-indicator="${value}" aria-pressed="${value === 'macd'}" aria-controls="indicator-guide">${label}</button>`).join('');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https://quote.eastmoney.com; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; base-uri 'none'; form-action 'none';">
 <link rel="stylesheet" href="${escapeHtml(css)}"><title>${escapeHtml(symbol)} 行情图表</title></head>
 <body data-symbol="${escapeHtml(symbol)}" data-token="${token}" data-regular-url="${escapeHtml(regularUrl)}" data-chips-url="${escapeHtml(chipsUrl)}" data-mode="${escapeHtml(mode)}">
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
-<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div><p id="meta"></p>
-<p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 700" aria-hidden="true"></svg><div id="chart-tooltip" hidden></div></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="average-detail"></p><p id="indicator-detail"></p>
-<p class="note" id="indicator-note"></p><p class="note">图表上方切换周期，右上角切换副图指标。分时黄色线为当日成交均价；K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
+<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
+<div class="indicator-tools" role="group" aria-label="副图指标"><span class="tool-label">副图</span>${indicatorButtons}</div>
+<aside id="indicator-guide" aria-label="指标读图说明"><strong id="indicator-guide-title"></strong><p id="indicator-guide-body"></p><p id="indicator-guide-context"></p></aside>
+<p id="meta"></p><p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 700" aria-hidden="true"></svg><div id="chart-tooltip" hidden></div></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="average-detail"></p><p id="indicator-detail"></p>
+<p class="note" id="indicator-note"></p><p class="note">在图表上方切换周期与副图指标。分时黄色线为当日成交均价；K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
 <script nonce="${nonce}" src="${escapeHtml(indicators)}"></script><script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
 }
 
@@ -124,10 +128,14 @@ class ChartController {
       title: '切换内置副图指标', placeHolder: isWebMode(state.mode) ? '选择后切到内置分时图；网页指标由网站自身控制' : '指标按当前图表周期计算，切换不请求网络'
     });
     if (!picked || !INDICATORS.includes(picked.indicator) || this.visibleState() !== state || state.token !== token) return;
-    this.indicator = picked.indicator;
+    this.selectIndicator(state, picked.indicator);
+    if (isWebMode(state.mode)) this.changeMode(state, 'intraday');
+  }
+  selectIndicator(state, indicator) {
+    if (!INDICATORS.includes(indicator) || indicator === this.indicator) return;
+    this.indicator = indicator;
     void Promise.resolve(this.context.globalState.update('chartIndicator', this.indicator)).catch(() => {});
     if (state.ready) this.send(state, { type: 'select-indicator', indicator: this.indicator });
-    if (isWebMode(state.mode)) this.changeMode(state, 'intraday');
   }
   refreshActive() {
     const state = this.visibleState();
@@ -143,6 +151,10 @@ class ChartController {
   receive(state, message) {
     if (this.disposed || this.panels.get(state.symbol) !== state || !message || message.token !== state.token) return;
     if (message.action === 'external') return this.openExternal(state.symbol, state.mode);
+    if (message.action === 'indicator' && state.ready && !isWebMode(state.mode)) {
+      this.selectIndicator(state, message.indicator);
+      return;
+    }
     if (message.action === 'period' && state.ready && !isWebMode(state.mode)
       && ['intraday', ...MINUTE_MODES, 'daily', 'weekly', 'monthly'].includes(message.mode)) {
       if (message.mode !== state.mode) this.changeMode(state, message.mode);

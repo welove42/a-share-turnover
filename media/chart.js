@@ -10,6 +10,7 @@
   const webUrl = () => mode === 'chips' ? chipsUrl : regularUrl;
   const saved = vscode.getState() || {};
   const periodButtons = [...document.querySelectorAll('button[data-period]')];
+  const indicatorButtons = [...document.querySelectorAll('button[data-indicator]')];
   let mode = 'intraday', data = null, range = [60, 120, 180].includes(saved.range) ? saved.range : 180, hover = null;
   let webTimer = null, pendingUrl = '', lastWebLoad = -Infinity;
   let indicator = 'macd', indicatorData = null, metrics = {}, averages = [], volumeAverages = [], legend = [];
@@ -22,6 +23,21 @@
   const priceOrDash = value => Number.isFinite(value) ? price(value) : '—';
   const signed = (value, digits = 2) => Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value.toFixed(digits)}` : '—';
   const clock = timestamp => timestamp ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)} ${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:${timestamp.slice(12, 14)}` : '';
+  const guides = {
+    macd: ['MACD (12,26,9) · 看趋势与动能', 'DIF是快慢均线之差，DEA是DIF的平滑线；柱值为2×(DIF−DEA)。DIF上穿DEA称金叉，下穿称死叉；零轴上方通常偏强、下方偏弱。柱变长表示两线差扩大，缩短表示差收窄，需结合价格与成交量判断。'],
+    kdj: ['KDJ (9,3,3) · 看短线位置', 'K、D反映价格在近9个周期高低区间的位置，J放大两线差，可超出0–100。K、D高于80通常视为偏热、低于20偏冷；K上穿D称金叉，下穿称死叉。强趋势中会持续钝化，超买不等于马上下跌，超卖不等于马上反弹。'],
+    rsi: ['RSI (6,12,24) · 看涨跌强弱', 'RSI在0–100之间，越高表示近期上涨相对更强，越低表示下跌相对更强。RSI6较敏感，RSI24较平滑；本图20/80虚线用于观察较极端的强弱位置。强弱状态可能持续，不能只凭高低值判断反转。'],
+    none: ['副图已隐藏', '保留价格、均线与成交量；随时点击上方MACD、KDJ或RSI恢复副图。鼠标悬停仍可查看三种指标的数值。']
+  };
+  function updateIndicatorControls() {
+    for (const button of indicatorButtons) button.setAttribute('aria-pressed', String(button.dataset.indicator === indicator));
+    const [title, body] = guides[indicator];
+    $('indicator-guide-title').textContent = title;
+    $('indicator-guide-body').textContent = body;
+    $('indicator-guide-context').textContent = indicator === 'none' ? '' : (mode === 'intraday'
+      ? '分时：按当日分钟采样价计算，每日重置；KDJ使用采样价区间，与完整1分钟K线不同。'
+      : `当前${names[mode] || 'K线'}：参数按K线根数计算，使用已获取历史；最后一根未收盘时数值会变化。`) + ' 指标有滞后性，仅作辅助观察。';
+  }
   function cancelWebLoad() { clearTimeout(webTimer); webTimer = null; pendingUrl = ''; }
   function loadWeb(force = false) {
     const url = webUrl(), frame = $('eastmoney');
@@ -50,10 +66,14 @@
       cancelWebLoad(); $('eastmoney').removeAttribute('src');
       if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
     }
+    updateIndicatorControls();
     remember(); if (notify) send('mode-ready', { mode });
   }
   $('range').value = String(range);
   for (const button of periodButtons) button.addEventListener('click', () => send('period', { mode: button.dataset.period }));
+  for (const button of indicatorButtons) button.addEventListener('click', () => {
+    if (!isWebMode(mode) && button.dataset.indicator !== indicator) send('indicator', { indicator: button.dataset.indicator });
+  });
   $('range').addEventListener('change', () => { range = Number($('range').value); remember(); draw(); });
   const svgNS = 'http://www.w3.org/2000/svg';
   function element(tag, attrs, text) {
@@ -246,7 +266,7 @@
     draw();
   }
   $('plot').addEventListener('pointerleave', resetSelection);
-  $('plot').addEventListener('blur', resetSelection);
+  $('plot').addEventListener('blur', event => { if (!indicatorButtons.includes(event.relatedTarget)) resetSelection(); });
   $('plot').addEventListener('keydown', event => {
     if (event.key === 'Escape') { resetSelection(); return; }
     if (hover && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); pointAt(hover.index + (event.key === 'ArrowLeft' ? -1 : 1)); }
@@ -254,7 +274,7 @@
   window.addEventListener('message', event => {
     const message = event.data;
     if (!message || message.token !== token) return;
-    if (message.type === 'select-indicator' && ['macd', 'kdj', 'rsi', 'none'].includes(message.indicator)) { indicator = message.indicator; draw(); return; }
+    if (message.type === 'select-indicator' && ['macd', 'kdj', 'rsi', 'none'].includes(message.indicator)) { indicator = message.indicator; updateIndicatorControls(); draw(); return; }
     if (message.type === 'select-mode') { setMode(message.mode); return; }
     if (message.mode && message.mode !== mode) return;
     if (message.type === 'refresh' && isWebMode(mode)) { loadWeb(true); return; }
@@ -274,5 +294,6 @@
   // No remote navigation until the host confirms its latest selection.
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => draw()).observe($('plot'));
   window.addEventListener('pagehide', cancelWebLoad);
+  updateIndicatorControls();
   send('ready');
 })();

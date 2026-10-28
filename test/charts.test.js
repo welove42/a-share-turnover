@@ -199,7 +199,7 @@ test('快速切换类型后，迟到的页面确认不能恢复旧模式或请�
   } finally { h.c.dispose(); }
 });
 
-test('指标默认MACD，右上角切换不请求行情，跨股票及重开保留并拒绝迟到选择', async () => {
+test('指标默认MACD，兼容命令面板切换，跨股票及重开保留并拒绝迟到选择', async () => {
   const h = setup(); try {
     await h.c.open('600105', 'weekly'); const s = h.c.panels.get('sh600105'); await h.mode(s, 'weekly');
     assert.equal(h.c.getState('sh600105').indicator, 'macd');
@@ -214,6 +214,25 @@ test('指标默认MACD，右上角切换不请求行情，跨股票及重开保�
     finish({ indicator: 'kdj' }); await pending; assert.equal(h.c.indicator, 'rsi');
     s.panel.dispose(); await h.c.open('000001', 'monthly');
     assert.equal(h.c.getState('sz000001').indicator, 'rsi');
+  } finally { h.c.dispose(); }
+});
+
+test('页面切副图只更新指标并持久化，校验来源、就绪状态及白名单', async () => {
+  const h = setup(); try {
+    await h.c.open('600105', 'weekly'); const s = h.c.panels.get('sh600105'), token = s.token;
+    const choose = (indicator, extra = {}) => h.c.receive(s, { action: 'indicator', indicator, token, ...extra });
+    choose('rsi'); assert.equal(h.c.indicator, 'macd');
+    await h.mode(s, 'weekly'); const calls = h.calls(), html = s.panel.webview.html;
+    choose('kdj'); assert.equal(h.c.indicator, 'kdj'); assert.equal(h.store.get('chartIndicator'), 'kdj');
+    assert.equal(s.panel.webview.messages.at(-1).indicator, 'kdj');
+    const messages = s.panel.webview.messages.length;
+    choose('kdj'); choose('invalid'); choose('rsi', { token: 'old-token' });
+    assert.equal(s.panel.webview.messages.length, messages); assert.equal(h.c.indicator, 'kdj');
+    choose('none'); assert.equal(h.store.get('chartIndicator'), 'none');
+    assert.equal(s.mode, 'weekly'); assert.equal(h.calls(), calls); assert.equal(s.panel.webview.html, html);
+    await h.c.open('000001'); choose('rsi'); assert.equal(h.c.indicator, 'none');
+    await h.mode(s, 'chips');
+    h.c.receive(s, { action: 'indicator', indicator: 'rsi', token: s.token }); assert.equal(h.c.indicator, 'none');
   } finally { h.c.dispose(); }
 });
 
