@@ -6,6 +6,7 @@ const { quoteClock } = require('./view');
 const { StockSearch } = require('./stock-search');
 const { StockSettings } = require('./stock-settings');
 const { trendIcon } = require('./trend-icon');
+const WATCHLIST_MIME = 'application/vnd.code.tree.welove42.ashareturnover.watchlist';
 
 class WatchlistController {
   constructor(context, { provider = new StockProvider(), search = new StockSearch(), now = () => new Date(), log = () => {} } = {}) {
@@ -14,11 +15,16 @@ class WatchlistController {
     this.disposed = false; this.inflight = null; this.abort = null; this.lastAttempt = -Infinity; this.generation = 0;
     this.quotes = new Map(); this.errors = new Map(); this.signatures = new Map();
     this.group = { kind: 'group' }; this.elements = new Map();
+    this.settingsQueue = Promise.resolve(); this.dragIdentity = {};
     this.cached = true; this.paused = Boolean(context.globalState.get('stocksPaused', false));
     const stored = context.globalState.get('stockQuotes', []);
     if (Array.isArray(stored)) for (const q of stored) if (isQuote(q)) this.quotes.set(q.symbol, q);
     this.emitter = new vscode.EventEmitter(); this.onDidChangeTreeData = this.emitter.event;
-    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.watchlist', { treeDataProvider: this, showCollapseAll: true });
+    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.watchlist', { treeDataProvider: this, showCollapseAll: true, dragAndDropController: {
+      dragMimeTypes: [WATCHLIST_MIME], dropMimeTypes: [WATCHLIST_MIME],
+      handleDrag: (source, transfer, token) => this.handleDrag(source, transfer, token),
+      handleDrop: (target, transfer, token) => this.handleDrop(target, transfer, token)
+    } });
     this.status = vscode.window.createStatusBarItem('aShareTurnover.selectedStock', vscode.StatusBarAlignment.Right, 99);
     this.status.name = '上证指数 / 自选股'; this.status.command = 'welove42.aShareTurnover.stocks.selectStatus';
     this.statusVisible = false; this.statusRendered = {};
@@ -81,7 +87,7 @@ class WatchlistController {
   getTreeItem(element) {
     if (element.kind === 'group') {
       const item = new vscode.TreeItem(`A Stock (${this.config.symbols.length})`, vscode.TreeItemCollapsibleState.Expanded);
-      item.id = 'a-share-watchlist'; item.description = '涨跌幅 · 现价 · 名称'; return item;
+      item.id = 'a-share-watchlist'; item.description = '涨跌幅 · 现价 · 名称'; item.tooltip = '拖动个股到另一只个股可调整顺序；拖到本分组可移至末尾。'; return item;
     }
     const q = this.quotes.get(element.symbol), stale = this.stale(element.symbol);
     const label = q ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]` : `—   —   [${element.symbol}]`;
@@ -102,7 +108,7 @@ class WatchlistController {
     if (this.paused) tip.appendText('\n自动刷新已暂停。');
     if (this.stale(symbol)) tip.appendText('\n当前为缓存、非当日行情或行情未更新，请核对行情时间。');
     if (this.errors.has(symbol)) tip.appendText('\n' + this.errors.get(symbol));
-    tip.appendText('\n点击查看东方财富详细行情与分时 / 日K图；右键可删除自选或在底部显示。');
+    tip.appendText('\n拖动可调整顺序；点击查看详细图表，右键可删除自选或在底部显示。');
     return tip;
   }
   publish(structural = false) {
@@ -168,23 +174,70 @@ class WatchlistController {
   async add(input) {
     // View-title actions can pass the focused tree item instead of stock input.
     if (typeof input !== 'string' && !Array.isArray(input)) return this.searchAndAdd();
-    let symbols;
+    let additions;
     try {
-      try { symbols = normalizeSymbols([...this.config.symbols, ...normalizeSymbols(input)]); }
+      try { additions = normalizeSymbols(input); }
       catch (error) {
         if (typeof input !== 'string' || !input.trim() || /[,，;；]/.test(input)) throw error;
         return this.searchAndAdd(input);
       }
     }
     catch (e) { return vscode.window.showErrorMessage(e.message); }
-    await this.updateSetting('stocks.symbols', symbols);
+    return this.enqueueSettings(async () => {
+      let symbols;
+      try { symbols = normalizeSymbols([...this.config.symbols, ...additions]); }
+      catch (e) { return vscode.window.showErrorMessage(e.message); }
+      await this.writeSetting('stocks.symbols', symbols);
+    });
   }
-  async updateSetting(key, value) {
+  enqueueSettings(operation) {
+    const job = this.settingsQueue.then(operation);
+    this.settingsQueue = job.catch(() => {});
+    return job;
+  }
+  updateSetting(key, value) { return this.enqueueSettings(() => this.writeSetting(key, value)); }
+  async writeSetting(key, value) {
     this.writingSettings = (this.writingSettings || 0) + 1;
     try { await this.settings.set(key, value); } finally { this.writingSettings--; }
     if (this.disposed) return;
     this.generation++; this.abort?.abort(); this.config = this.readConfig(); this.publish(true);
     if (this.config.enabled && !this.paused) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && this.config.enabled && !this.paused) return this.refresh(); });
+  }
+  handleDrag(source, transfer, token) {
+    if (this.disposed || token.isCancellationRequested || !Array.isArray(source) || !source.length) return;
+    if (source.some(item => item?.kind !== 'stock' || !this.config.symbols.includes(item.symbol))) return;
+    transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, symbols: source.map(item => item.symbol) }));
+  }
+  handleDrop(target, transfer, token) {
+    const payload = transfer.get(WATCHLIST_MIME)?.value;
+    if (this.disposed || token.isCancellationRequested || payload?.owner !== this.dragIdentity || !Array.isArray(payload.symbols)) return;
+    return this.enqueueSettings(async () => {
+      if (this.disposed || token.isCancellationRequested || !this.config.enabled) return;
+      const visible = orderedSymbols(this.config.symbols, this.quotes, this.config.sortBy);
+      const moving = new Set(payload.symbols);
+      if (!moving.size || [...moving].some(symbol => !visible.includes(symbol))) return;
+      if (target && target.kind !== 'group' && (target.kind !== 'stock' || !visible.includes(target.symbol) || moving.has(target.symbol))) return;
+      const selected = visible.filter(symbol => moving.has(symbol));
+      const rest = visible.filter(symbol => !moving.has(symbol));
+      let at = rest.length;
+      if (target?.kind === 'stock') {
+        at = rest.indexOf(target.symbol);
+        // Dropping lower moves after the target; dropping higher moves before it.
+        if (visible.indexOf(selected[0]) < visible.indexOf(target.symbol)) at++;
+      }
+      const next = [...rest.slice(0, at), ...selected, ...rest.slice(at)];
+      if (next.every((symbol, index) => symbol === visible[index])) return;
+      this.writingSettings = (this.writingSettings || 0) + 1;
+      try {
+        await this.settings.set('stocks.symbols', next);
+        if (this.config.sortBy !== 'manual') await this.settings.set('stocks.sortBy', 'manual');
+      } catch (error) {
+        if (!this.disposed) void vscode.window.showErrorMessage(`无法保存自选股顺序：${error.message || '请重试'}`);
+      } finally {
+        this.writingSettings--;
+        if (!this.disposed) { this.config = this.readConfig(); this.publish(true); }
+      }
+    });
   }
   searchAndAdd(initial = '') {
     const picker = vscode.window.createQuickPick();
@@ -237,7 +290,7 @@ class WatchlistController {
     if (symbol === this.config.selected && symbol !== INDEX_SYMBOL) {
       await this.updateSetting('stocks.statusBarSymbol', INDEX_SYMBOL);
     }
-    await this.updateSetting('stocks.symbols', this.config.symbols.filter(s => s !== symbol));
+    await this.enqueueSettings(() => this.writeSetting('stocks.symbols', this.config.symbols.filter(s => s !== symbol)));
   }
   async selectStatus(element) {
     let symbol = typeof element === 'string' ? normalizeSymbol(element) : element?.symbol;
@@ -256,7 +309,7 @@ class WatchlistController {
   }
   async sort() {
     const chosen = await vscode.window.showQuickPick([
-      { label: '按添加顺序', mode: 'manual' }, { label: '涨幅从高到低', mode: 'percentDesc' }, { label: '跌幅从大到小', mode: 'percentAsc' }
+      { label: '手动顺序（可拖拽）', mode: 'manual' }, { label: '涨幅从高到低', mode: 'percentDesc' }, { label: '跌幅从大到小', mode: 'percentAsc' }
     ], { title: '自选股排序' });
     if (chosen) await this.updateSetting('stocks.sortBy', chosen.mode);
   }

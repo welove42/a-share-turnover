@@ -13,7 +13,7 @@ function harness(configuration = {}) {
   const changes = new EventEmitter(), values = new Map(Object.entries(configuration));
   const trees = new Map(), statuses = [], channels = [], opened = [], documents = new Map(), panels = [], pickers = [];
   const api = {
-    EventEmitter, MarkdownString, StatusBarAlignment: { Right: 2 }, ConfigurationTarget: { Global: 1 },
+    EventEmitter, MarkdownString, DataTransferItem: class { constructor(value) { this.value = value; } }, StatusBarAlignment: { Right: 2 }, ConfigurationTarget: { Global: 1 },
     ThemeColor: class { constructor(id) { this.id = id; } }, ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
     TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },

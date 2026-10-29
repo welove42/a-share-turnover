@@ -13,6 +13,83 @@ function setup(extra={},load) {
   const c=new WatchlistController(h.context,{now:()=>now,provider:{load:async(...args)=>{calls++;return load?load(...args):{quotes:new Map(args[0].map(s=>[s,quote(s,s==='sh000001'?'上证指数':'测试股')])),errors:new Map()};}}});
   return {...h,c,setNow:d=>{now=new Date(d);},calls:()=>calls};
 }
+function dragController(h) {
+  return h.trees.get('welove42.aShareTurnover.watchlist').dragAndDropController;
+}
+function drag(h, symbols) {
+  const controller = dragController(h), transfer = new Map();
+  controller.handleDrag(symbols.map(s => h.c.element(s)), transfer, { isCancellationRequested: false });
+  return transfer;
+}
+
+test('拖动向上向下或分组末尾排序，刷新与重启保留顺序且不额外请求行情', async () => {
+  const h = setup({'aShareTurnover.stocks.symbols':['sh600519','sz000001','sz300750','sh510300']});
+  try {
+    await h.c.refresh(); const before = h.calls(), controller = dragController(h), token = { isCancellationRequested: false };
+    await controller.handleDrop(h.c.element('sz000001'), drag(h, ['sh510300']), token);
+    assert.deepEqual(h.c.config.symbols, ['sh600519','sh510300','sz000001','sz300750']);
+    await controller.handleDrop(h.c.element('sz300750'), drag(h, ['sh600519']), token);
+    assert.deepEqual(h.c.config.symbols, ['sh510300','sz000001','sz300750','sh600519']);
+    await controller.handleDrop(h.c.group, drag(h, ['sz000001']), token);
+    assert.deepEqual(h.c.getChildren(h.c.group).map(e => e.symbol), ['sh510300','sz300750','sh600519','sz000001']);
+    assert.equal(h.calls(), before); await h.c.refresh();
+    assert.deepEqual(h.c.getChildren(h.c.group).map(e => e.symbol), ['sh510300','sz300750','sh600519','sz000001']);
+    const { WatchlistController } = h.load('../src/watchlist'); const restored = new WatchlistController(h.context);
+    try { assert.deepEqual(restored.config.symbols, h.c.config.symbols); } finally { restored.dispose(); }
+  } finally { h.c.dispose(); }
+});
+
+test('按涨幅排序时拖动以当前显示顺序为基础并切回手动排序', async () => {
+  const h = setup({'aShareTurnover.stocks.symbols':['sh600519','sz000001','sz300750'],'aShareTurnover.stocks.sortBy':'percentDesc'});
+  try {
+    h.c.quotes.set('sh600519', quote('sh600519','茅台','10','1'));
+    h.c.quotes.set('sz000001', quote('sz000001','平安','10','3'));
+    h.c.quotes.set('sz300750', quote('sz300750','宁德','10','2'));
+    assert.deepEqual(h.c.getChildren(h.c.group).map(e => e.symbol), ['sz000001','sz300750','sh600519']);
+    await dragController(h).handleDrop(h.c.element('sz000001'), drag(h, ['sh600519']), { isCancellationRequested: false });
+    assert.deepEqual(h.c.config.symbols, ['sh600519','sz000001','sz300750']); assert.equal(h.c.config.sortBy, 'manual');
+    h.c.quotes.set('sz000001', quote('sz000001','平安','10','-9')); h.c.publish(false);
+    assert.deepEqual(h.c.getChildren(h.c.group).map(e => e.symbol), ['sh600519','sz000001','sz300750']);
+    assert.equal(h.values.get('aShareTurnover.stocks.sortBy'), 'manual');
+  } finally { h.c.dispose(); }
+});
+
+test('设置不可写时拖拽顺序使用持久存储；错误来源、取消和无效目标不修改', async () => {
+  const h = setup({'aShareTurnover.stocks.symbols':['sh600519','sz000001','sz300750']}); h.c.paused = true;
+  try {
+    const original = h.api.workspace.getConfiguration;
+    h.api.workspace.getConfiguration = (...args) => ({ ...original(...args), update: async () => { throw new Error('只读'); } });
+    const d = dragController(h), valid = drag(h, ['sz300750']), token = { isCancellationRequested: false };
+    await d.handleDrop(h.c.element('sh600519'), valid, { isCancellationRequested: true });
+    await d.handleDrop(h.c.element('sh600519'), new Map(), token);
+    await d.handleDrop(h.c.element('sh600519'), new Map([[d.dropMimeTypes[0], new h.api.DataTransferItem({ owner: {}, symbols:['sz300750'] })]]), token);
+    await d.handleDrop({ kind:'stock',symbol:'sh999999' }, valid, token);
+    await d.handleDrop(h.c.element('sz300750'), valid, token);
+    assert.deepEqual(h.c.config.symbols, ['sh600519','sz000001','sz300750']);
+    const group = new Map(); d.handleDrag([h.c.group], group, token); assert.equal(group.size, 0);
+    await d.handleDrop(h.c.element('sh600519'), valid, token);
+    assert.deepEqual(h.store.get('stockSettingsFallback')['stocks.symbols'], ['sz300750','sh600519','sz000001']);
+    const { WatchlistController } = h.load('../src/watchlist'); const restored = new WatchlistController(h.context);
+    try { assert.deepEqual(restored.config.symbols, ['sz300750','sh600519','sz000001']); } finally { restored.dispose(); }
+  } finally { h.c.dispose(); }
+});
+
+test('连续拖拽顺序按操作依次保存，途中添加的股票不会被旧拖拽覆盖', async () => {
+  const h = setup({'aShareTurnover.stocks.symbols':['sh600519','sz000001','sz300750']}); h.c.paused = true;
+  try {
+    const original = h.c.settings.set.bind(h.c.settings); let release, entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    h.c.settings.set = async (key, value) => { if (!release) { await new Promise(resolve => { release = resolve; entered(); }); } return original(key, value); };
+    const token = { isCancellationRequested: false }, d = dragController(h);
+    const one = d.handleDrop(h.c.element('sh600519'), drag(h, ['sz300750']), token); await started;
+    const two = d.handleDrop(h.c.element('sz000001'), drag(h, ['sz300750']), token);
+    const added = h.c.add('sh510300');
+    release(); await Promise.all([one,two,added]);
+    assert.deepEqual(h.c.config.symbols, ['sh600519','sz000001','sz300750','sh510300']);
+    await d.handleDrop(h.c.group, drag(h, ['sh600519']), token);
+    assert.deepEqual(h.c.config.symbols, ['sz000001','sz300750','sh510300','sh600519']);
+  } finally { h.c.dispose(); }
+});
 test('没有自选时仍获取上证指数并在底部显示',async()=>{
   const h=setup();try{await h.c.refresh();assert.match(h.c.status.text,/上证指数.*11.30.*\+0.89%/);assert.equal(h.c.getChildren().length,0);}finally{h.c.dispose();}
 });
