@@ -28,7 +28,7 @@ class WatchlistController {
     const stored = context.globalState.get('stockQuotes', []);
     if (Array.isArray(stored)) for (const q of stored) if (isQuote(q)) this.quotes.set(q.symbol, q);
     this.emitter = new vscode.EventEmitter(); this.onDidChangeTreeData = this.emitter.event;
-    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.watchlist', { treeDataProvider: this, showCollapseAll: true, dragAndDropController: {
+    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.marketWatch', { treeDataProvider: this, showCollapseAll: true, dragAndDropController: {
       dragMimeTypes: [WATCHLIST_MIME], dropMimeTypes: [WATCHLIST_MIME],
       handleDrag: (source, transfer, token) => this.handleDrag(source, transfer, token),
       handleDrop: (target, transfer, token) => this.handleDrop(target, transfer, token)

@@ -14,7 +14,7 @@ function setup(extra={},load) {
   return {...h,c,setNow:d=>{now=new Date(d);},calls:()=>calls};
 }
 function dragController(h) {
-  return h.trees.get('welove42.aShareTurnover.watchlist').dragAndDropController;
+  return h.trees.get('welove42.aShareTurnover.marketWatch').dragAndDropController;
 }
 function drag(h, symbols) {
   const controller = dragController(h), transfer = new Map();
@@ -175,7 +175,7 @@ test('选中个股后点击标题栏加号会打开搜索，确认名称候选�
 });
 for(const [label,input] of [
   ['分组行',{kind:'group'}],
-  ['视图上下文',{$treeViewId:'welove42.aShareTurnover.watchlist',$focusedTreeItem:true,$selectedTreeItems:true}],
+  ['视图上下文',{$treeViewId:'welove42.aShareTurnover.marketWatch',$focusedTreeItem:true,$selectedTreeItems:true}],
   ['空上下文',null]
 ])test(`加号收到${label}时打开搜索，取消不改变自选`,async()=>{
   const h=setup({'aShareTurnover.stocks.symbols':['sh600105']});h.c.paused=true;

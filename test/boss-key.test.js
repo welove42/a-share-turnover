@@ -59,12 +59,11 @@ test('隐藏期间跨过的提醒阶段不在恢复时补发',()=>{
 test('老板键的入口使用中性名称，隐藏时展示调试引导而非行情提示',()=>{
   const p=require('../package.json'), key=p.contributes.keybindings.find(k=>k.command==='welove42.aShareTurnover.toggleHidden');
   assert.equal(key.key,'ctrl+shift+;');
-  assert.equal(p.contributes.viewsContainers.activitybar[0].title,'运行和调试');
-  assert.equal(p.contributes.views.welove42Market[0].when,undefined);
-  assert.ok(p.contributes.views.welove42Market.slice(1).every(v=>v.when?.includes('aShareTurnover.visible')));
+  assert.equal(p.contributes.viewsContainers.activitybar[0].title,'工作台');
+  assert.ok(p.contributes.views.welove42Workspace.slice(0,4).every(v=>v.when?.includes('aShareTurnover.visible')));
   assert.ok(p.contributes.viewsWelcome.every(v=>v.when?.includes('aShareTurnover.visible')));
-  const disguise=p.contributes.viewsWelcome.find(v=>v.when==='!aShareTurnover.visible');
-  assert.match(disguise.contents,/运行和调试/); assert.doesNotMatch(disguise.contents,/股票|行情|新闻|基金|成交/);
+  const disguise=p.contributes.views.welove42Workspace.find(v=>v.id==='welove42.aShareTurnover.debugCover');
+  assert.equal(disguise.type,'webview'); assert.equal(disguise.when,'!aShareTurnover.visible');
   assert.ok(p.contributes.menus['view/title'].filter(v=>v.when.includes('view == welove42.aShareTurnover.')).every(v=>v.when.startsWith('aShareTurnover.visible &&')));
 });
 test('隐藏时四个栏目清除标题中的行情信息、描述和错误，恢复后回到原名称',()=>{
@@ -105,7 +104,8 @@ test('以隐藏状态启动扩展时不显示状态栏或触发行情命令，�
   h.context.subscriptions=[];
   const {activate}=h.load('../src/extension'); activate(h.context);
   assert.ok(h.statuses.length>=6); assert.ok(h.statuses.every(s=>!s.visible));
-  const provider=h.trees.get('welove42.aShareTurnover.watchlist').treeDataProvider;
+  const provider=h.trees.get('welove42.aShareTurnover.marketWatch').treeDataProvider;
+  assert.ok(h.webviewViews.has('welove42.aShareTurnover.debugCover'));
   assert.deepEqual(provider.getChildren().map(item=>provider.getTreeItem(item).label),['运行和调试可帮助你发现和修复问题。','运行和调试','创建调试配置']);
   await new Promise(setImmediate);
   assert.ok(contexts.some(c=>c[0]==='setContext' && c[1]==='aShareTurnover.visible' && c[2]===false));

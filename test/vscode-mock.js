@@ -11,7 +11,7 @@ function harness(configuration = {}) {
     appendText(value) { this.value += value; return this; }
   }
   const changes = new EventEmitter(), values = new Map(Object.entries(configuration));
-  const trees = new Map(), statuses = [], channels = [], opened = [], documents = new Map(), panels = [], pickers = [];
+  const trees = new Map(), webviewViews = new Map(), statuses = [], channels = [], opened = [], documents = new Map(), panels = [], pickers = [];
   const api = {
     EventEmitter, MarkdownString, CancellationTokenSource: class { constructor() { const e = new EventEmitter(); this.token = { isCancellationRequested: false, onCancellationRequested: e.event }; this.events = e; } cancel() { this.token.isCancellationRequested = true; this.events.fire(); } dispose() { this.events.dispose(); } }, DataTransferItem: class { constructor(value) { this.value = value; } }, StatusBarAlignment: { Right: 2 }, ConfigurationTarget: { Global: 1 },
     ThemeColor: class { constructor(id) { this.id = id; } }, ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
@@ -20,6 +20,7 @@ function harness(configuration = {}) {
     Uri: { from: value => value, parse: value => ({ toString: () => value }), joinPath: (uri, ...parts) => [uri?.toString() || 'file:///extension', ...parts].join('/') },
     ViewColumn: { Active: -1 }, env: { openExternal: async uri => { opened.push(uri.toString()); return true; } },
     window: {
+      registerWebviewViewProvider: (id, provider) => { webviewViews.set(id, provider); return { dispose() { webviewViews.delete(id); } }; },
       createWebviewPanel: (type, title, column, options) => {
         const dispose = new EventEmitter(), change = new EventEmitter(), receive = new EventEmitter();
         const panel = { type, title, column, options, visible: true, disposed: false, revealCalls: 0,
@@ -73,6 +74,6 @@ function harness(configuration = {}) {
   const store = new Map(), secrets = new Map();
   const context = { extensionUri: 'file:///extension', globalState: { get: (key, fallback) => store.has(key) ? store.get(key) : fallback, update: async (key, value) => { store.set(key, value); } },
     secrets: { get: async key => secrets.get(key), store: async (key, value) => { secrets.set(key, value); }, delete: async key => { secrets.delete(key); } } };
-  return { api, context, load, values, trees, statuses, channels, opened, documents, store, secrets, panels, pickers };
+  return { api, context, load, values, trees, webviewViews, statuses, channels, opened, documents, store, secrets, panels, pickers };
 }
 module.exports = { harness };

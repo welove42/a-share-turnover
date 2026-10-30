@@ -25,7 +25,7 @@ test('空列表显示三个同级分组，支持添加、删除和组内拖拽',
  const h=harness(); const {WatchlistController}=h.load('../src/watchlist'); const c=new WatchlistController(h.context,{provider:{load:async()=>({quotes:new Map(),errors:new Map()})}});c.paused=true;
  try {const groups=c.getChildren(); assert.equal(groups.length,3);assert.match(c.getTreeItem(groups[1]).label,/港股 \(0\)/);assert.match(c.getTreeItem(groups[2]).label,/美股 \(0\)/);
   await c.overseas.mutate('hk',()=>['700','09988']);await c.overseas.mutate('us',()=>['AAPL','TSLA']);assert.deepEqual(c.getChildren(groups[1]).map(e=>e.symbol),['hk00700','hk09988']);
-  const transfer=new Map(), d=h.trees.get('welove42.aShareTurnover.watchlist').dragAndDropController, token={isCancellationRequested:false};
+  const transfer=new Map(), d=h.trees.get('welove42.aShareTurnover.marketWatch').dragAndDropController, token={isCancellationRequested:false};
   d.handleDrag([c.overseas.element('usTSLA')],transfer,token);await d.handleDrop(c.overseas.element('usAAPL'),transfer,token);assert.deepEqual(c.overseas.symbols.us,['usTSLA','usAAPL']);
   await d.handleDrop(groups[1],transfer,token);assert.deepEqual(c.overseas.symbols.us,['usTSLA','usAAPL']);
   await c.overseas.remove(c.overseas.element('hk00700')); assert.deepEqual(c.overseas.symbols.hk,['hk09988']);

@@ -19,6 +19,7 @@ const { TemperatureChartController } = require('./temperature-chart');
 const { SectorsController } = require('./sectors');
 const { ReminderController } = require('./reminders');
 const { BossKey } = require('./boss-key');
+const { DebugCoverProvider } = require('./debug-cover');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -304,6 +305,7 @@ function activate(context) {
   const bind = (command, callback) => vscode.commands.registerCommand(command, (...args) => bossKey.hidden ? undefined : callback(...args));
   context.subscriptions.push(controller,
     bossKey, vscode.commands.registerCommand('welove42.aShareTurnover.toggleHidden', () => bossKey.toggle()),
+    vscode.window.registerWebviewViewProvider('welove42.aShareTurnover.debugCover', new DebugCoverProvider(() => bossKey.hidden)),
     bind('welove42.aShareTurnover.refresh', () => controller.refresh(true)),
     bind('welove42.aShareTurnover.showMenu', () => controller.showMenu()),
     bind('welove42.aShareTurnover.togglePause', () => controller.togglePause()),

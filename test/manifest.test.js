@@ -11,9 +11,9 @@ test('新版命令和视图使用发布者专属ID，避免旧版local-market-to
   for(const command of commands)assert.ok(command.startsWith('welove42.aShareTurnover.'),command);
   const known=new Set(commands);
   for(const menu of Object.values(manifest.contributes.menus).flat())assert.ok(known.has(menu.command),menu.command);
-  assert.equal(manifest.contributes.viewsContainers.activitybar[0].id,'welove42Market');
-  assert.equal(manifest.contributes.views.welove42Market[0].id,'welove42.aShareTurnover.watchlist');
-  assert.deepEqual(manifest.contributes.views.welove42Market.map(view=>view.id),['welove42.aShareTurnover.watchlist','welove42.aShareTurnover.globalIndices','welove42.aShareTurnover.funds','welove42.aShareTurnover.commodities']);
+  assert.equal(manifest.contributes.viewsContainers.activitybar[0].id,'welove42Workspace');
+  assert.equal(manifest.contributes.views.welove42Workspace[0].id,'welove42.aShareTurnover.marketWatch');
+  assert.deepEqual(manifest.contributes.views.welove42Workspace.map(view=>view.id),['welove42.aShareTurnover.marketWatch','welove42.aShareTurnover.globalIndices','welove42.aShareTurnover.funds','welove42.aShareTurnover.commodities','welove42.aShareTurnover.debugCover']);
   assert.ok(manifest.contributes.configuration.properties['aShareTurnover.stocks.symbols']);
   for(const welcome of manifest.contributes.viewsWelcome)assert.doesNotMatch(welcome.contents,/command:aShareTurnover\./);
 });
