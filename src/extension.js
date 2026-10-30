@@ -305,7 +305,7 @@ function activate(context) {
   const bind = (command, callback) => vscode.commands.registerCommand(command, (...args) => bossKey.hidden ? undefined : callback(...args));
   context.subscriptions.push(controller,
     bossKey, vscode.commands.registerCommand('welove42.aShareTurnover.toggleHidden', () => bossKey.toggle()),
-    vscode.window.registerWebviewViewProvider('welove42.aShareTurnover.debugCover', new DebugCoverProvider(() => bossKey.hidden)),
+    vscode.window.registerWebviewViewProvider('welove42.aShareTurnover.debugCover', new DebugCoverProvider()),
     bind('welove42.aShareTurnover.refresh', () => controller.refresh(true)),
     bind('welove42.aShareTurnover.showMenu', () => controller.showMenu()),
     bind('welove42.aShareTurnover.togglePause', () => controller.togglePause()),

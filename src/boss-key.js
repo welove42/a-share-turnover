@@ -17,7 +17,7 @@ class BossKey {
   }
   setViewsVisible(visible) {
     // Serialize updates: a slow earlier toggle must not overwrite the final state.
-    this.contextWrite=this.contextWrite.catch(()=>{}).then(()=>vscode.commands.executeCommand('setContext','aShareTurnover.visible',visible));
+    this.contextWrite=this.contextWrite.catch(()=>{}).then(()=>vscode.commands.executeCommand('setContext','aShareTurnover.hidden',!visible));
     return this.contextWrite;
   }
   apply(hidden, since) {

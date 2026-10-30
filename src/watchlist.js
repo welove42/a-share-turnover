@@ -12,8 +12,8 @@ const { normalizeOverseas } = require('./overseas-symbols');
 const WATCHLIST_MIME = 'application/vnd.code.tree.welove42.ashareturnover.watchlist';
 const DEBUG_ITEMS = [
   { kind: 'debugPlaceholder', id: 'intro', label: '运行和调试可帮助你发现和修复问题。' },
-  { kind: 'debugPlaceholder', id: 'start', label: '运行和调试', icon: 'debug-start', command: 'workbench.action.debug.start' },
-  { kind: 'debugPlaceholder', id: 'configure', label: '创建调试配置', icon: 'gear', command: 'workbench.action.debug.configure' }
+  { kind: 'debugPlaceholder', id: 'start', label: '运行和调试', icon: 'debug-start' },
+  { kind: 'debugPlaceholder', id: 'configure', label: '创建调试配置', icon: 'gear' }
 ];
 
 class WatchlistController {
@@ -116,7 +116,6 @@ class WatchlistController {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
       item.id = `debug-placeholder:${element.id}`;
       if (element.icon) item.iconPath = new vscode.ThemeIcon(element.icon);
-      if (element.command) item.command = { command: element.command, title: element.label };
       return item;
     }
     if (this.hidden) return new vscode.TreeItem('', vscode.TreeItemCollapsibleState.None);

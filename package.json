@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.19.5",
+  "version": "1.19.6",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.19.5.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.19.6.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -654,7 +654,7 @@
         {
           "id": "welove42Workspace",
           "title": "工作台",
-          "icon": "media/development.svg"
+          "icon": "media/market.svg"
         }
       ]
     },
@@ -664,32 +664,32 @@
           "id": "welove42.aShareTurnover.marketWatch",
           "name": "自选股（名称 / 代码）",
           "contextualTitle": "工作台",
-          "when": "aShareTurnover.visible"
+          "when": "!aShareTurnover.hidden"
         },
         {
           "id": "welove42.aShareTurnover.globalIndices",
           "name": "全球指数",
           "contextualTitle": "STOCK 全球指数",
-          "when": "aShareTurnover.visible && config.aShareTurnover.globalIndices.enabled"
+          "when": "!aShareTurnover.hidden && config.aShareTurnover.globalIndices.enabled"
         },
         {
           "id": "welove42.aShareTurnover.funds",
           "name": "基金",
           "contextualTitle": "STOCK 基金",
-          "when": "aShareTurnover.visible && config.aShareTurnover.funds.enabled"
+          "when": "!aShareTurnover.hidden && config.aShareTurnover.funds.enabled"
         },
         {
           "id": "welove42.aShareTurnover.commodities",
           "name": "全球商品",
           "contextualTitle": "STOCK 全球商品",
-          "when": "aShareTurnover.visible && config.aShareTurnover.commodities.enabled"
+          "when": "!aShareTurnover.hidden && config.aShareTurnover.commodities.enabled"
         },
         {
           "type": "webview",
           "id": "welove42.aShareTurnover.debugCover",
           "name": "运行和调试",
           "contextualTitle": "工作台",
-          "when": "!aShareTurnover.visible"
+          "when": "aShareTurnover.hidden"
         }
       ]
     },
@@ -697,89 +697,89 @@
       {
         "view": "welove42.aShareTurnover.marketWatch",
         "contents": "输入中文名、拼音或股票代码搜索添加自选股。\n[搜索并添加自选股](command:welove42.aShareTurnover.stocks.add)\n点击个股查看东方财富详细行情及分时 / 日K图。\n[财经新闻（底部输出面板）](command:welove42.aShareTurnover.news.show)\n底部默认显示上证指数，点击可切换。",
-        "when": "aShareTurnover.visible && config.aShareTurnover.stocks.enabled"
+        "when": "!aShareTurnover.hidden && config.aShareTurnover.stocks.enabled"
       },
       {
         "view": "welove42.aShareTurnover.marketWatch",
         "contents": "自选行情已禁用，请在用户设置中开启 aShareTurnover.stocks.enabled。",
-        "when": "aShareTurnover.visible && !config.aShareTurnover.stocks.enabled"
+        "when": "!aShareTurnover.hidden && !config.aShareTurnover.stocks.enabled"
       },
       {
         "view": "welove42.aShareTurnover.funds",
         "contents": "添加基金查看已公布净值和涨跌幅。\n[按名称或代码添加基金](command:welove42.aShareTurnover.funds.add)\n行末铅笔可设置份额和成本，计算个人持仓收益。\n基金净值通常按日公布，持仓数据只保存在本机。",
-        "when": "aShareTurnover.visible && config.aShareTurnover.funds.enabled"
+        "when": "!aShareTurnover.hidden && config.aShareTurnover.funds.enabled"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "welove42.aShareTurnover.stocks.add",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.marketWatch)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.marketWatch)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.stocks.refresh",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.marketWatch)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.marketWatch)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.stocks.sort",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.marketWatch)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.marketWatch)",
           "group": "navigation@2"
         },
         {
           "command": "welove42.aShareTurnover.stocks.togglePause",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.marketWatch)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.marketWatch)",
           "group": "navigation@3"
         },
         {
           "command": "welove42.aShareTurnover.news.show",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.marketWatch)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.marketWatch)",
           "group": "news@0"
         },
         {
           "command": "welove42.aShareTurnover.globalIndices.add",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.globalIndices)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.globalIndices)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.globalIndices.refresh",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.globalIndices)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.globalIndices)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.globalIndices.togglePause",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.globalIndices)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.globalIndices)",
           "group": "navigation@2"
         },
         {
           "command": "welove42.aShareTurnover.funds.add",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.funds)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.funds)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.funds.refresh",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.funds)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.funds)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.funds.togglePause",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.funds)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.funds)",
           "group": "navigation@2"
         },
         {
           "command": "welove42.aShareTurnover.commodities.add",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.commodities)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.commodities)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.commodities.refresh",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.commodities)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.commodities)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.commodities.togglePause",
-          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.commodities)",
+          "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.commodities)",
           "group": "navigation@2"
         }
       ],
