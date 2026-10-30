@@ -116,7 +116,7 @@ code --install-extension welove42.a-share-turnover
 
 上面的示例分别设置了：
 
-| 设置项 | 示例内容 |
+| 设置项（省略 `aShareTurnover.` 前缀） | 示例内容 |
 | --- | --- |
 | `stocks.symbols` | A 股自选：贵州茅台、平安银行 |
 | `stocks.hkSymbols` | 港股自选：腾讯控股 |
