@@ -1,6 +1,6 @@
 # A股行情：使用手册
 
-本手册对应 **1.19.1**：在 VS Code 中查看沪深成交额、自选股、技术图表、市场温度、基金、全球指数和商品，以及财经快讯与大事日历。最新变化和历史版本见 [更新记录](../CHANGELOG.md)，面向扩展市场的介绍见 [展示文案](../README.marketplace.md)。
+本手册对应 **1.19.2**：在 VS Code 中查看沪深成交额、自选股、技术图表、市场温度、基金、全球指数和商品，以及财经快讯与大事日历。最新变化和历史版本见 [更新记录](../CHANGELOG.md)，面向扩展市场的介绍见 [展示文案](../README.marketplace.md)。
 
 ## 老板键：一键隐藏行情
 
@@ -305,13 +305,13 @@ K线请求240根历史，先用全部已获取记录计算，再截取60/120/180
 
 1. 打开 VS Code 的扩展面板（`Ctrl+Shift+X`）。
 2. 点击右上角 `…` → **从 VSIX 安装… / Install from VSIX…**。
-3. 选择当前版本的 VSIX（例如 `a-share-turnover-1.19.1.vsix`），安装后按提示重新加载窗口。已安装旧版时直接覆盖升级。
+3. 选择当前版本的 VSIX（例如 `a-share-turnover-1.19.2.vsix`），安装后按提示重新加载窗口。已安装旧版时直接覆盖升级。
 4. 底部右侧出现「成交量」。首次启动会获取行情；休市时也可手动刷新。
 
 也可以在终端执行：
 
 ```powershell
-code --install-extension "完整路径\a-share-turnover-1.19.1.vsix"
+code --install-extension "完整路径\a-share-turnover-1.19.2.vsix"
 ```
 
 要求：桌面版 VS Code **1.85 或以上**，可访问腾讯行情域名 `web.ifzq.gtimg.cn`、`ifzq.gtimg.cn`、`qt.gtimg.cn`、`smartbox.gtimg.cn` 及所选新闻来源；内嵌网页需要访问 `quote.eastmoney.com` 及网站自身依赖域名。运行时没有第三方 npm 依赖。不支持 vscode.dev 的纯浏览器扩展宿主。通过 `extensionKind: ui` 在本机运行，Remote / WSL 的请求也从本机发出。

@@ -15,7 +15,7 @@ test('老板键隐藏所有模块，只关闭插件新闻标签并保留原暂�
   const b=new BossKey(h.context,f.parts); await b.toggle();
   assert.equal(b.hidden,true); assert.ok(Object.values(f.parts).every(o=>o.hidden));
   assert.ok(f.calls.some(c=>c[0]==='setContext'&&c[1]==='aShareTurnover.visible'&&c[2]===false));
-  assert.ok(f.calls.some(c=>c[0]==='workbench.view.explorer'));
+  assert.ok(!f.calls.some(c=>c[0]==='workbench.view.explorer'));
   assert.deepEqual(f.calls.find(c=>c[0]==='closeTabs')[1],[f.newsTab]);
   assert.equal(h.store.get('bossKeyHidden'),true);
   await b.toggle(); assert.equal(b.hidden,false); assert.ok(Object.values(f.parts).every(o=>!o.hidden && o.paused));
@@ -58,15 +58,15 @@ test('声明的默认快捷键及四个侧栏均受隐藏上下文控制',()=>{
   assert.ok(p.contributes.views.welove42Market.every(v=>v.when?.includes('aShareTurnover.visible')));
   assert.ok(p.contributes.viewsWelcome.every(v=>v.when?.includes('aShareTurnover.visible')));
 });
-test('隐藏时切离侧栏，重新打开旧版缓存视图也立即切回资源管理器',async()=>{
+test('隐藏和恢复只更新视图上下文，不拦截点击或强行切换侧栏',async()=>{
   const h=harness(), f=fixture(h), {BossKey}=h.load('../src/boss-key');
   f.parts.stocks.tree.visible=false;
   const b=new BossKey(h.context,f.parts); await b.toggle();
-  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,1);
+  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,0);
   f.parts.stocks.tree.events.fire({visible:true});
-  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,2);
+  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,0);
   await b.toggle(); f.parts.stocks.tree.events.fire({visible:true});
-  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,2); b.dispose();
+  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,0); b.dispose();
 });
 test('以隐藏状态启动扩展时不显示状态栏或触发行情命令，恢复保留暂停设置',async()=>{
   const h=harness(), commands=new Map(), contexts=[];
@@ -77,6 +77,7 @@ test('以隐藏状态启动扩展时不显示状态栏或触发行情命令，�
   h.context.subscriptions=[];
   const {activate}=h.load('../src/extension'); activate(h.context);
   assert.ok(h.statuses.length>=6); assert.ok(h.statuses.every(s=>!s.visible));
+  await new Promise(setImmediate);
   assert.ok(contexts.some(c=>c[0]==='setContext' && c[1]==='aShareTurnover.visible' && c[2]===false));
   assert.equal(commands.get('welove42.aShareTurnover.stocks.refresh')(),undefined);
   await commands.get('welove42.aShareTurnover.toggleHidden')();
