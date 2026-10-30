@@ -4,8 +4,9 @@
   const $ = id => document.getElementById(id);
   const { token, symbol, regularUrl, chipsUrl } = document.body.dataset;
   const up = 'var(--chart-up, #f05b68)', down = 'var(--chart-down, #26bd8c)', lineColor = 'var(--chart-series-2, #5bbcff)';
-  const modes = ['eastmoney', 'chips', 'intraday', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'];
-  const names = { intraday: '分时', m1: '1分钟K', m5: '5分钟K', m15: '15分钟K', m30: '30分钟K', m60: '60分钟K', daily: '日K', weekly: '周K', monthly: '月K' };
+  const modes = ['eastmoney', 'chips', 'intraday', 'intraday5', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'];
+  const names = { intraday: '分时', intraday5: '5日分时', m1: '1分钟K', m5: '5分钟K', m15: '15分钟K', m30: '30分钟K', m60: '60分钟K', daily: '日K', weekly: '周K', monthly: '月K' };
+  const isIntraday = value => value === 'intraday' || value === 'intraday5';
   const isWebMode = value => value === 'eastmoney' || value === 'chips';
   const webUrl = () => mode === 'chips' ? chipsUrl : regularUrl;
   const saved = vscode.getState() || {};
@@ -35,7 +36,7 @@
     const [title, body] = guides[indicator];
     $('indicator-guide-title').textContent = title;
     $('indicator-guide-body').textContent = body;
-    $('indicator-guide-context').textContent = indicator === 'none' ? '' : (mode === 'intraday'
+    $('indicator-guide-context').textContent = indicator === 'none' ? '' : (isIntraday(mode)
       ? '分时：按当日分钟采样价计算，每日重置；KDJ使用采样价区间，与完整1分钟K线不同。'
       : `当前${names[mode] || 'K线'}：参数按K线根数计算，使用已获取历史；最后一根未收盘时数值会变化。`) + ' 指标有滞后性，仅作辅助观察。';
   }
@@ -59,7 +60,7 @@
     const changed = mode !== next;
     mode = next;
     for (const button of periodButtons) button.setAttribute('aria-pressed', String(button.dataset.period === mode));
-    $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('range-label').hidden = mode === 'intraday' || isWebMode(mode);
+    $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('range-label').hidden = isIntraday(mode) || isWebMode(mode);
     if (isWebMode(mode)) {
       loadWeb();
     } else {
@@ -85,7 +86,7 @@
   }
   function draw() {
     if (!data || data.mode !== mode) return;
-    const all = data.bars, candles = mode !== 'intraday';
+    const all = data.bars, candles = !isIntraday(mode), fiveDay = mode === 'intraday5';
     let start = candles ? Math.max(0, all.length - range) : 0;
     if (candles && hover?.active) {
       const selectedIndex = all.findIndex(b => b.time === hover.bars[hover.index].time);
@@ -93,7 +94,14 @@
     }
     const bars = candles ? all.slice(start, start + range) : all;
     const { calculate, movingAverage } = globalThis.marketIndicators;
-    metrics = Object.fromEntries(['macd', 'kdj', 'rsi'].map(name => [name, calculate(all, name)]));
+    const compute = name => {
+      if (!fiveDay) return calculate(all, name);
+      const days = data.dates.map((_, i) => calculate(all.filter(bar => bar.dayIndex === i), name));
+      const first = days[0];
+      return { ...first, lines:first.lines.map((line,i)=>({ ...line, values:days.flatMap(day=>day.lines[i].values) })),
+        ...(first.histogram ? { histogram:days.flatMap(day=>day.histogram) } : {}) };
+    };
+    metrics = Object.fromEntries(['macd', 'kdj', 'rsi'].map(name => [name, compute(name)]));
     indicatorData = metrics[indicator] || null;
     averages = candles ? [5, 10, 20, 30, 60].map((n, i) => ({ name: 'MA' + n, color: `var(--chart-series-${i})`, values: movingAverage(all, n) }))
       : [{ name: '均价', color: 'var(--chart-series-0)', values: all.map(b => b.averagePrice ?? null) }];
@@ -112,7 +120,9 @@
       const m = Number(time.slice(0, 2)) * 60 + Number(time.slice(2));
       return Math.max(0, Math.min(120, m - 570)) + Math.max(0, Math.min(120, m - 780));
     };
-    const x = (bar, i) => candles ? L + (i + .5) * width / bars.length : L + minute(bar.time) / 240 * width;
+    const barMinute = bar => minute(fiveDay ? bar.time.slice(-5).replace(':','') : bar.time);
+    const x = (bar, i) => candles ? L + (i + .5) * width / bars.length : fiveDay
+      ? L + (bar.dayIndex + .02 + .96 * barMinute(bar) / 240) * width / data.dates.length : L + barMinute(bar) / 240 * width;
     let min = Math.min(...bars.map(b => b.low), ...averages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)));
     let max = Math.max(...bars.map(b => b.high), ...averages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)));
     if (mode === 'intraday' && data.previousClose) {
@@ -139,6 +149,7 @@
       };
       bars.forEach((bar, i) => {
         const value = series.values[start + i];
+        if (fiveDay && i && (bar.dayIndex !== bars[i-1].dayIndex || barMinute(bar) - barMinute(bars[i-1]) > 1)) flush();
         if (Number.isFinite(value)) points.push(`${x(bar, i)},${yForValue(value)}`); else flush();
       });
       flush();
@@ -151,13 +162,17 @@
     add('line', { x1: L, x2: R, y1: VB, y2: VB, class: 'grid' });
     add('text', { x: L, y: V - 12 }, `成交量 · 手  上限 ${volume(maxVolume)}`);
     if (mode === 'intraday' && data.previousClose) add('line', { x1: L, x2: R, y1: y(data.previousClose), y2: y(data.previousClose), class: 'baseline' });
-    if (mode === 'intraday') {
-      add('polyline', { points: bars.map((b, i) => `${x(b, i)},${y(b.close)}`).join(' '), fill: 'none', stroke: lineColor, 'stroke-width': 1.8 });
-      if (bars.length === 1) add('circle', { cx: x(bars[0], 0), cy: y(bars[0].close), r: 3, fill: lineColor });
+    if (isIntraday(mode)) {
+      if (fiveDay) drawSeries({color:lineColor,values:all.map(b=>b.close)}, y, 'intraday-price');
+      else {
+        add('polyline', { points: bars.map((b, i) => `${x(b, i)},${y(b.close)}`).join(' '), fill: 'none', stroke: lineColor, 'stroke-width': 1.8 });
+        if (bars.length === 1) add('circle', { cx: x(bars[0], 0), cy: y(bars[0].close), r: 3, fill: lineColor });
+      }
     }
-    const barWidth = Math.max(1, Math.min(12, width / (candles ? bars.length : 241) * .65));
+    const barWidth = Math.max(1, Math.min(12, width / (candles ? bars.length : fiveDay ? data.dates.length * 241 : 241) * .65));
     bars.forEach((bar, i) => {
-      const xx = x(bar, i), color = bar.close >= (candles ? bar.open : data.previousClose || bars[Math.max(0, i - 1)].close) ? up : down;
+      const baseline = candles ? bar.open : fiveDay ? (i && bars[i-1].dayIndex === bar.dayIndex ? bars[i-1].close : bar.previousClose) : data.previousClose || bars[Math.max(0, i - 1)].close;
+      const xx = x(bar, i), color = baseline == null ? 'var(--vscode-descriptionForeground)' : bar.close >= baseline ? up : down;
       if (candles) {
         add('line', { x1: xx, x2: xx, y1: y(bar.high), y2: y(bar.low), stroke: color, 'stroke-width': 1 });
         add('rect', { x: xx - barWidth / 2, y: Math.min(y(bar.open), y(bar.close)), width: barWidth, height: Math.max(1, Math.abs(y(bar.open) - y(bar.close))), fill: color });
@@ -173,7 +188,7 @@
       drawSeries(a, value => VB - value / maxVolume * (VB - V), 'volume-average');
       addLegend(a, { x: L + 310 + index * 260, y: V - 12, class: 'series-' + index }, value => Number.isFinite(value) ? volume(value) : '—');
     });
-    const ticks = mode === 'intraday' ? [[L, '09:30'], [L + width / 4, '10:30'], [L + width / 2, '11:30 / 13:00'], [L + width * .75, '14:00'], [R, '15:00']]
+    const ticks = fiveDay ? data.dates.map((date,i)=>[L+(i+.5)*width/data.dates.length,date.slice(5)]) : mode === 'intraday' ? [[L, '09:30'], [L + width / 4, '10:30'], [L + width / 2, '11:30 / 13:00'], [L + width * .75, '14:00'], [R, '15:00']]
       : [...new Set([0, Math.floor((bars.length - 1) / 2), bars.length - 1])].map(i => [x(bars[i], i), /^m\d+$/.test(mode) ? bars[i].time.slice(5) : bars[i].time]);
     if (withIndicator) {
       target = indicatorFragment;
@@ -198,7 +213,8 @@
         if (value === 0) return;
         add('rect', { x: x(bars[i], i) - barWidth / 2, y: Math.min(iy(0), iy(value)), width: barWidth, height: Math.abs(iy(0) - iy(value)), fill: value >= 0 ? up : down, class: 'indicator-bar' });
       });
-      lines.forEach(s => {
+      if (fiveDay) indicatorData.lines.forEach(s => drawSeries(s, iy, 'indicator-line'));
+      else lines.forEach(s => {
         const points = s.values.map((value, i) => Number.isFinite(value) ? `${x(bars[i], i)},${iy(value)}` : null).filter(Boolean);
         if (points.length === 1) { const [cx, cy] = points[0].split(','); add('circle', { cx, cy, r: 2, fill: s.color }); }
         else if (points.length) add('polyline', { points: points.join(' '), fill: 'none', stroke: s.color, 'stroke-width': 1.5, class: 'indicator-line' });
@@ -207,16 +223,17 @@
     }
     const indicatorCross = withIndicator ? add('line', { x1: L, x2: L, y1: I, y2: IB, class: 'crosshair', visibility: 'hidden' }) : null;
     target = fragment;
+    if (fiveDay) for (let i=1;i<data.dates.length;i++) add('line', { x1:L+i*width/data.dates.length, x2:L+i*width/data.dates.length, y1:T, y2:bottom, class:'grid' });
     ticks.forEach(([xx, text]) => add('text', { x: xx, y: bottom + 30, 'text-anchor': 'middle' }, text));
     const cross = add('line', { x1: L, x2: L, y1: T, y2: bottom, class: 'crosshair', visibility: 'hidden' });
     const marker = add('circle', { cx: L, cy: T, r: 3, fill: lineColor, visibility: 'hidden' });
     svg.replaceChildren(fragment);
     indicatorSvg.replaceChildren(indicatorFragment);
     $('plot').setAttribute('aria-label', `${data.name} ${names[mode]}图，${bars[0].time} 至 ${bars.at(-1).time}，最新价格 ${price(bars.at(-1).close)}${withIndicator ? '，副图 ' + indicatorData.label : ''}。可用左右方向键查看数据。`);
-    $('indicator-note').textContent = !withIndicator ? '' : mode === 'intraday'
+    $('indicator-note').textContent = !withIndicator ? '' : isIntraday(mode)
       ? '指标按当日分钟采样价格计算并每日重置；KDJ使用采样价范围，不代表完整1分钟K线高低价。'
       : `指标按${names[mode]}全量已获取记录计算后截取显示范围；不同历史长度及初始化方式可能产生数值差异。`;
-    const selected = hover?.active && (candles || hover.date === data.date) ? bars.findIndex(b => b.time === hover.bars[hover.index].time) : -1;
+    const selected = hover?.active && (candles || fiveDay || hover.date === data.date) ? bars.findIndex(b => b.time === hover.bars[hover.index].time) : -1;
     const side = hover?.side || 'right', panel = hover?.panel || 'main';
     hover = { bars, x, y, cross, indicatorCross, marker, L, R, start, index: bars.length - 1, date: data.date, active: false, side, panel };
     if (selected >= 0) pointAt(selected);
@@ -225,7 +242,7 @@
   const numberOrDash = value => Number.isFinite(value) ? value.toFixed(4) : '—';
   function detail(bar, index) {
     const time = mode === 'intraday' ? `${data.date} ${bar.time.slice(0, 2)}:${bar.time.slice(2)}` : bar.time;
-    const previous = mode === 'intraday' ? data.previousClose : data.bars[index - 1]?.close;
+    const previous = mode === 'intraday' ? data.previousClose : mode === 'intraday5' ? bar.previousClose : data.bars[index - 1]?.close;
     // Historical/weekly/monthly bars must use their preceding bar, not today's quote.
     const delta = Number.isFinite(previous) && previous > 0 ? bar.close - previous : null;
     const change = delta === null ? null : delta / previous * 100;
@@ -235,12 +252,12 @@
     const volumeValues = volumeAverages.map(a => `${a.name} ${Number.isFinite(a.values[index]) ? volume(a.values[index]) : '—'}`);
     const indicatorText = item => `${item.label}　${item.lines.map(s => `${s.name} ${numberOrDash(s.values[index])}`).join('　')}${item.histogram ? '　柱 ' + numberOrDash(item.histogram[index]) : ''}`;
     for (const { label, series, format } of legend) label.textContent = `${series.name} ${format(series.values[index])}`;
-    $('detail').textContent = mode !== 'intraday'
+    $('detail').textContent = !isIntraday(mode)
       ? `${time}　开 ${price(bar.open)}　高 ${price(bar.high)}　低 ${price(bar.low)}　收 ${price(bar.close)}　${changes}　振幅 ${signed(amplitude)}%　成交量 ${volume(bar.volume)}`
       : `${time}　价格 ${price(bar.close)}　${changes}　均价 ${priceOrDash(bar.averagePrice)}　该分钟成交量 ${volume(bar.volume)}　该分钟成交额 ${amount(bar.amount)}　累计成交额 ${amount(bar.cumulativeAmount)}`;
     $('average-detail').textContent = [...mainAverages, ...volumeValues].join('　');
     $('indicator-detail').textContent = !indicatorData ? '' : indicatorText(indicatorData);
-    const rows = mode === 'intraday'
+    const rows = isIntraday(mode)
       ? [time, `价格 ${price(bar.close)}　均价 ${priceOrDash(bar.averagePrice)}`, changes,
         `分钟量 ${volume(bar.volume)}　累计量 ${Number.isFinite(bar.cumulativeVolume) ? volume(bar.cumulativeVolume) : '—'}`,
         `分钟额 ${amount(bar.amount)}　累计额 ${amount(bar.cumulativeAmount)}`]
@@ -299,10 +316,10 @@
     if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
       data = message.data;
       $('status').className = ''; $('status').textContent = '';
-      $('meta').textContent = `${data.source} · ${names[mode]} · ${mode !== 'intraday' ? data.adjustment : '分钟采样'} · 数据日期 ${data.date}${data.timestamp ? ` · 报价时间 ${clock(data.timestamp)}` : ''}（北京）`;
+      $('meta').textContent = `${data.source} · ${names[mode]} · ${isIntraday(mode) ? '分钟采样' : data.adjustment} · ${mode === 'intraday5' ? `交易日 ${data.dates.length} 天 · ` : ''}数据日期 ${data.date}${data.timestamp ? ` · 报价时间 ${clock(data.timestamp)}` : ''}（北京）`;
       const last = data.bars.at(-1).close, delta = data.previousClose ? (last / data.previousClose - 1) * 100 : null;
-      $('quote').textContent = `${data.name} · ${symbol}　${price(last)}${delta === null || mode !== 'intraday' ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;
-      $('quote').style.color = delta === null || mode !== 'intraday' ? '' : delta >= 0 ? up : down;
+      $('quote').textContent = `${data.name} · ${symbol}　${price(last)}${delta === null || !isIntraday(mode) ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;
+      $('quote').style.color = delta === null || !isIntraday(mode) ? '' : delta >= 0 ? up : down;
       draw();
     }
   });

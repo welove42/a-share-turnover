@@ -252,3 +252,10 @@ test('页面切周期同步宿主并取消旧请求，重复点击不重载，�
     await h.c.open('000001'); h.c.receive(s, { action: 'period', mode: 'monthly', token }); assert.equal(s.mode, 'intraday');
   } finally { h.c.dispose(); }
 });
+
+test('五日分时按钮在图表内，切换后按10秒刷新并复用详情标签', async()=>{
+ const h=setup();try{await h.c.open('600105');const s=h.c.panels.get('sh600105');assert.match(s.panel.webview.html,/data-period="intraday5"[^>]*>5日分时/);
+ await h.mode(s,'intraday');h.c.receive(s,{action:'period',mode:'intraday5',token:s.token});assert.equal(s.mode,'intraday5');await h.c.receive(s,{action:'mode-ready',mode:'intraday5',token:s.token});assert.equal(s.data.mode,'intraday5');assert.equal(h.calls(),2);
+ h.setNow('2026-10-26T10:30:10+08:00');h.c.tick();await s.inflight;assert.equal(h.calls(),3);await h.c.open('000001');assert.equal(h.panels.length,1);assert.equal(s.mode,'intraday5');
+ }finally{h.c.dispose();}
+});

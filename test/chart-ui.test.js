@@ -23,7 +23,7 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
   body = node('body', { symbol: 'sh600105', token: 'test-token', mode,
     regularUrl: 'https://quote.eastmoney.com/basic/full.html?mcid=1.600105',
     chipsUrl: chips ? 'https://quote.eastmoney.com/basic/h5chart-iframe.html?code=600105&market=1' : '' });
-  const buttons = Object.fromEntries(['intraday', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'].map(period => [period, node(period, { period })]));
+  const buttons = Object.fromEntries(['intraday', 'intraday5', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'].map(period => [period, node(period, { period })]));
   const indicatorButtons = Object.fromEntries(['macd', 'kdj', 'rsi', 'none'].map(indicator => [indicator, node('button-' + indicator, { indicator })]));
   const document = { body, getElementById: id => nodes.get(id) || node(id),
     createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
@@ -265,4 +265,15 @@ test('页面周期按钮向宿主发消息，确认后高亮；点击冒泡不�
   p.receive({ type: 'select-mode', mode: 'intraday' }); assert.equal(p.buttons.intraday.getAttribute('aria-pressed'), 'true');
   p.receive({ type: 'select-mode', mode: 'daily' }); assert.equal(p.buttons.daily.getAttribute('aria-pressed'), 'true');
   assert.equal(p.writes.length, 0);
+});
+
+test('五日分时在页面切换，按交易日分段、悬停日期和每日重置指标', () => {
+  const p=page();p.buttons.intraday5.click();assert.equal(p.messages.at(-1).mode,'intraday5');
+  p.receive({type:'select-mode',mode:'intraday5'});assert.equal(p.buttons.intraday5.getAttribute('aria-pressed'),'true');assert.equal(p.nodes.get('range-label').hidden,true);
+  const dates=['2026-10-29','2026-10-30'];const bars=dates.flatMap((date,dayIndex)=>[0,1,2].map(i=>({time:`${date} 09:3${i}`,date,dayIndex,previousClose:dayIndex?11:null,open:10+dayIndex+i,close:10+dayIndex+i,high:10+dayIndex+i,low:10+dayIndex+i,volume:100,cumulativeVolume:100*(i+1),amount:100000,cumulativeAmount:100000*(i+1),averagePrice:10+dayIndex})));
+  const data={symbol:'sh600105',mode:'intraday5',name:'测试股',source:'测试',date:dates[1],dates,previousClose:11,bars};p.receive({type:'data',data});
+  assert.match(p.nodes.get('meta').textContent,/5日分时.*交易日 2 天/);assert.equal(descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='intraday-price').length,2);
+  p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});assert.match(p.nodes.get('chart-tooltip').textContent,/2026-10-29 09:30[\s\S]*均价 10.00/);assert.match(p.nodes.get('detail').textContent,/涨跌 —/);
+  p.nodes.get('plot').dispatch('pointermove',{clientX:527,clientY:100});assert.match(p.nodes.get('chart-tooltip').textContent,/2026-10-30 09:30[\s\S]*均价 11.00/);assert.match(p.nodes.get('indicator-detail').textContent,/DIF 0.0000/);
+  p.receive({type:'data',data});assert.match(p.nodes.get('detail').textContent,/2026-10-30 09:30/);
 });

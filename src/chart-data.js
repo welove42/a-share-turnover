@@ -102,11 +102,35 @@ function parseChart(payload, input, mode) {
   if (!bars.length) throw new Error('暂无有效成交数据（可能尚未开盘、停牌或行情源暂不支持）');
   return { symbol, mode, ...meta, date, adjustment, bars: bars.slice(-300), source: '腾讯行情' };
 }
+function parseFiveDayChart(payload, input) {
+  const symbol = normalizeSymbol(input), source = payload?.code === 0 && payload.data?.[symbol];
+  if (!source || !Array.isArray(source.data) || !source.data.length) throw new Error('缺少五日分时数据');
+  const days = source.data.map(day => ({ ...day, date: normalizeDate(day.date) })).sort((a,b)=>a.date.localeCompare(b.date));
+  if (new Set(days.map(day=>day.date)).size !== days.length) throw new Error('五日分时日期重复');
+  const recent = days.slice(-5), meta = metadata(source, symbol), bars = [], dates = [];
+  for (const day of recent) {
+    if (!Array.isArray(day.data)) throw new Error('五日分时数据格式异常');
+    if (!day.data.length) continue;
+    const rawDate = day.date.replaceAll('-', '');
+    const parsed = parseChart({ code:0, data:{ [symbol]: { data:{date:rawDate,data:day.data}, qt:source.qt } } },symbol,'intraday');
+    const dayIndex = dates.length; dates.push(day.date);
+    const previousClose = day.date === recent.at(-1).date && meta.timestamp.slice(0,8) === rawDate ? meta.previousClose : null;
+    for (const bar of parsed.bars) bars.push({ ...bar, date:day.date, time:`${day.date} ${bar.time.slice(0,2)}:${bar.time.slice(2)}`, dayIndex, previousClose });
+  }
+  if (!bars.length) throw new Error('暂无有效五日分时数据');
+  return { symbol, mode:'intraday5', ...meta, previousClose: bars.at(-1).previousClose, date:dates.at(-1), dates, adjustment:'不复权', bars, source:'腾讯行情' };
+}
 class ChartProvider {
   constructor(request = requestJson) { this.request = request; this.minuteFeed = new MinuteFeed(request); }
   async load(input, mode, signal) {
     const symbol = normalizeSymbol(input);
-    if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode) && !MINUTES.includes(mode)) throw new Error('图表类型无效');
+    if (mode !== 'intraday' && mode !== 'intraday5' && !Object.hasOwn(PERIODS, mode) && !MINUTES.includes(mode)) throw new Error('图表类型无效');
+    if (mode === 'intraday5') {
+      const { payload, backup } = await this.minuteFeed.loadHistory(symbol, signal);
+      const data = parseFiveDayChart(payload, symbol);
+      if (backup) data.source = '腾讯行情（五日分时备用）';
+      return data;
+    }
     if (mode === 'intraday') {
       const { payload, backup } = await this.minuteFeed.load(symbol, signal);
       const data = parseChart(payload, symbol, mode);
@@ -118,4 +142,4 @@ class ChartProvider {
     return parseChart(await this.request(url, signal), symbol, mode);
   }
 }
-module.exports = { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, ChartProvider };
+module.exports = { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, parseFiveDayChart, ChartProvider };

@@ -11,21 +11,28 @@ class MinuteFeed {
     this.request = request; this.now = now; this.failures = new Map();
   }
   async load(input, signal) {
+    return this.loadPath(input, signal, 'minute');
+  }
+  async loadHistory(input, signal) {
+    return this.loadPath(input, signal, 'day');
+  }
+  async loadPath(input, signal, path) {
     const symbol = normalizeSymbol(input), errors = [];
     for (const [index, host] of HOSTS.entries()) {
       if (signal?.aborted) throw new Error('行情请求已取消');
-      const failure = this.failures.get(host);
+      const key = `${path}:${host}`;
+      const failure = this.failures.get(key);
       if (failure && this.now() < failure.until) { errors.push(failure.message); continue; }
       try {
-        const payload = await this.request(`https://${host}/appstock/app/minute/query?code=${symbol}`, signal);
+        const payload = await this.request(`https://${host}/appstock/app/${path}/query?code=${symbol}`, signal);
         if (signal?.aborted) throw new Error('行情请求已取消');
-        this.failures.delete(host);
+        this.failures.delete(key);
         return { payload, backup: index > 0 };
       } catch (error) {
         if (signal?.aborted || error.name === 'AbortError' || error.code === 'ABORT_ERR') throw error;
         const waf = error.statusCode === 501 || /HTTP 501\b/.test(error.message || '');
         const message = error.message || '网络连接失败';
-        this.failures.set(host, { until: this.now() + (waf ? WAF_COOLDOWN : FAILURE_COOLDOWN), message });
+        this.failures.set(key, { until: this.now() + (waf ? WAF_COOLDOWN : FAILURE_COOLDOWN), message });
         errors.push(message);
       }
     }

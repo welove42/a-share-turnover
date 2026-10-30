@@ -1,8 +1,24 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, ChartProvider } = require('../src/chart-data');
+const { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, parseFiveDayChart, ChartProvider } = require('../src/chart-data');
 const symbol = 'sh600519';
 const wrap = data => ({ code: 0, data: { [symbol]: data } });
+
+test('五日分时按日期升序保留全部分钟、每天重新计算成交量和均价', () => {
+  const q=Array(35).fill(''); q[1]='测试股';q[4]='9.5';q[30]='20261030110000';
+  const days=Array.from({length:5},(_,i)=>({date:`202610${30-i}`,data:Array.from({length:100},(_,j)=>`${String(9+Math.floor((30+j)/60)).padStart(2,'0')}${String((30+j)%60).padStart(2,'0')} 10 ${100+j} ${(100+j)*1000}`)}));
+  const parsed=parseFiveDayChart(wrap({data:days,qt:{[symbol]:q}}),symbol);
+  assert.equal(parsed.bars.length,500);assert.equal(parsed.dates[0],'2026-10-26');assert.equal(parsed.dates[4],'2026-10-30');
+  assert.equal(parsed.bars[0].volume,100);assert.equal(parsed.bars[100].volume,100);assert.equal(parsed.bars[101].volume,1);assert.equal(parsed.bars[100].averagePrice,10);
+  assert.equal(parsed.bars[0].previousClose,null);assert.equal(parsed.bars.at(-1).previousClose,9.5);assert.equal(parsed.bars.at(-1).date,'2026-10-30');
+  assert.throws(()=>parseFiveDayChart(wrap({data:[days[0],days[0]]}),symbol),/日期重复/);
+});
+test('五日分时主域名失败时使用备用域名，不与单日分时冷却混淆', async () => {
+  const calls=[],day={date:'20261030',data:['0930 10 100 100000']};
+  const p=new ChartProvider(async url=>{calls.push(url);if(url.includes('web.ifzq'))throw new Error('断连');return wrap({data:[day]});});
+  const result=await p.load(symbol,'intraday5');assert.equal(result.bars.length,1);assert.match(result.source,/备用/);
+  assert.equal(calls.length,2);assert.ok(calls.every(url=>url.includes('/day/query?code=sh600519')));
+});
 
 test('股票及ETF分时成交均价按累计成交额元除以累计手数乘100，缺额不伪造均价', () => {
   for (const symbol of ['sh600105', 'sh510300', 'sz159915', 'bj920002']) {

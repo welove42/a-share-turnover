@@ -6,7 +6,7 @@ const { POLL_MS, session } = require('./market');
 const { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } = require('./chart-data');
 
 const MINUTE_MODES = ['m1', 'm5', 'm15', 'm30', 'm60'];
-const MODES = ['eastmoney', 'chips', 'intraday', ...MINUTE_MODES, 'daily', 'weekly', 'monthly'];
+const MODES = ['eastmoney', 'chips', 'intraday', 'intraday5', ...MINUTE_MODES, 'daily', 'weekly', 'monthly'];
 const INDICATORS = ['macd', 'kdj', 'rsi', 'none'];
 const isWebMode = mode => mode === 'eastmoney' || mode === 'chips';
 const availableMode = (symbol, mode) => MODES.includes(mode) && (mode !== 'chips' || supportsChips(symbol)) ? mode : 'intraday';
@@ -19,7 +19,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
   mode = availableMode(symbol, mode);
   const regularUrl = eastmoneyChartUrl(symbol), chipsUrl = supportsChips(symbol) ? eastmoneyChartUrl(symbol, 'chips') : '';
   const nonce = randomBytes(18).toString('base64');
-  const periods = [['intraday', '分时'], ...MINUTE_MODES.map(value => [value, `${value.slice(1)}分钟`]), ['daily', '日K'], ['weekly', '周K'], ['monthly', '月K']]
+  const periods = [['intraday', '分时'], ['intraday5', '5日分时'], ...MINUTE_MODES.map(value => [value, `${value.slice(1)}分钟`]), ['daily', '日K'], ['weekly', '周K'], ['monthly', '月K']]
     .map(([value, label]) => `<button type="button" data-period="${value}" aria-pressed="${mode === value}">${label}</button>`).join('');
   const indicatorButtons = [['macd', 'MACD'], ['kdj', 'KDJ'], ['rsi', 'RSI'], ['none', '隐藏']]
     .map(([value, label]) => `<button type="button" data-indicator="${value}" aria-pressed="${value === 'macd'}" aria-controls="indicator-guide">${label}</button>`).join('');
@@ -35,7 +35,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <div id="indicator-chart"><svg id="indicator-svg" viewBox="0 0 1040 220" aria-hidden="true"></svg></div>
 <aside id="indicator-guide" aria-label="指标读图说明"><strong id="indicator-guide-title"></strong><p id="indicator-guide-body"></p><p id="indicator-guide-context"></p></aside>
 <div id="chart-tooltip" hidden></div></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="average-detail"></p><p id="indicator-detail"></p>
-<p class="note" id="indicator-note"></p><p class="note">在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
+<p class="note" id="indicator-note"></p><p class="note">在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；5日分时按交易日分区，均价与副图指标每日重置，历史日期缺少昨收时涨跌幅显示为空。K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
 <script nonce="${nonce}" src="${escapeHtml(indicators)}"></script><script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
 }
 
@@ -158,7 +158,7 @@ class ChartController {
       return;
     }
     if (message.action === 'period' && state.ready && !isWebMode(state.mode)
-      && ['intraday', ...MINUTE_MODES, 'daily', 'weekly', 'monthly'].includes(message.mode)) {
+      && ['intraday', 'intraday5', ...MINUTE_MODES, 'daily', 'weekly', 'monthly'].includes(message.mode)) {
       if (message.mode !== state.mode) this.changeMode(state, message.mode);
       return;
     }
