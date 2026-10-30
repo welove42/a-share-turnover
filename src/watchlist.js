@@ -135,6 +135,13 @@ class WatchlistController {
   }
   publish(structural = false) {
     if (this.disposed) return;
+    this.tree.title = this.hidden ? '运行和调试' : '自选股（名称 / 代码）';
+    if (this.hidden) {
+      this.tree.description = undefined; this.tree.message = undefined;
+      if (structural) this.emitter.fire(undefined);
+      this.renderStatus();
+      return;
+    }
     const clock = this.clock();
     const hasOverseas = this.overseas && (this.overseas.symbols.hk.length || this.overseas.symbols.us.length);
     const description = !this.config.enabled ? '已禁用' : this.paused ? '已暂停' : `${hasOverseas ? 'A股 ' : ''}${PHASE_LABELS[clock.phase]} · ${clock.polling ? '10秒刷新' : '自动刷新已停止'}${hasOverseas ? '；港美股按各自时段刷新' : ''}`;

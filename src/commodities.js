@@ -58,6 +58,8 @@ class CommoditiesController {
   }
   publish(structural = false) {
     if (this.disposed) return;
+    this.tree.title = this.hidden ? '断点' : '全球商品';
+    if (this.hidden) { this.tree.description = undefined; this.tree.message = undefined; if (structural) this.emitter.fire(undefined); return; }
     const description = !this.enabled ? '已禁用' : this.paused ? '已暂停 · CFD' : !this.codes.length ? '点击＋添加商品' : this.tree.visible ? '10秒刷新 · 新浪CFD' : '展开后10秒刷新 · CFD';
     if (this.tree.description !== description) this.tree.description = description;
     const failures = this.codes.filter(code => this.errors.has(code)).length;

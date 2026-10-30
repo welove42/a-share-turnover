@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.19.2",
+  "version": "1.19.3",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.19.2.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.19.3.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -357,17 +357,51 @@
           "description": "额外休市日期（YYYY-MM-DD），用于补充未来年份或临时休市。内置 2026 年交易所节假日。周末始终休市，不跟随调休补班。"
         },
         "aShareTurnover.reminders.enabled": {
-          "type": "boolean", "default": true, "scope": "application",
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
           "description": "在状态栏显示最近的财经大事，点击查看完整日历。"
         },
         "aShareTurnover.reminders.notifications": {
-          "type": "boolean", "default": true, "scope": "application",
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
           "description": "在事件前 24 小时及 30 分钟内显示一次提醒；VS Code 未运行时不会发送。"
         },
         "aShareTurnover.reminders.categories": {
-          "type": "array", "scope": "application", "uniqueItems": true,
-          "default": ["fed", "delivery", "cnHoliday", "hkHoliday", "usHoliday", "nonfarm", "cpi"],
-          "items": { "type": "string", "enum": ["fed", "delivery", "cnHoliday", "hkHoliday", "usHoliday", "nonfarm", "cpi"], "enumDescriptions": ["美联储议息", "A股股指期货交割", "A股节假日", "港股节假日及半日市", "美股节假日及提前收盘", "美国非农", "美国 CPI"] },
+          "type": "array",
+          "scope": "application",
+          "uniqueItems": true,
+          "default": [
+            "fed",
+            "delivery",
+            "cnHoliday",
+            "hkHoliday",
+            "usHoliday",
+            "nonfarm",
+            "cpi"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "fed",
+              "delivery",
+              "cnHoliday",
+              "hkHoliday",
+              "usHoliday",
+              "nonfarm",
+              "cpi"
+            ],
+            "enumDescriptions": [
+              "美联储议息",
+              "A股股指期货交割",
+              "A股节假日",
+              "港股节假日及半日市",
+              "美股节假日及提前收盘",
+              "美国非农",
+              "美国 CPI"
+            ]
+          },
           "description": "选择需要显示和提醒的大事类型，删除数组中的类型即可关闭。"
         },
         "aShareTurnover.stocks.enabled": {
@@ -394,13 +428,25 @@
           "description": "底部显示的代码，默认上证指数；其他代码须已加入自选。点击底部行情可切换，删除已选个股后自动回到上证指数。"
         },
         "aShareTurnover.stocks.hkSymbols": {
-          "type": "array", "default": [], "scope": "application", "maxItems": 100, "uniqueItems": true,
-          "items": { "type": "string" },
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
           "description": "港股自选代码，例如 hk00700；也可使用港股分组旁的＋按名称或代码添加。"
         },
         "aShareTurnover.stocks.usSymbols": {
-          "type": "array", "default": [], "scope": "application", "maxItems": 100, "uniqueItems": true,
-          "items": { "type": "string" },
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
           "description": "美股自选代码，例如 usAAPL；也可使用美股分组旁的＋按名称或代码添加。"
         },
         "aShareTurnover.stocks.sortBy": {
@@ -607,8 +653,8 @@
       "activitybar": [
         {
           "id": "welove42Market",
-          "title": "STOCK · A股行情",
-          "icon": "media/market.svg"
+          "title": "运行和调试",
+          "icon": "media/development.svg"
         }
       ]
     },
@@ -617,8 +663,7 @@
         {
           "id": "welove42.aShareTurnover.watchlist",
           "name": "自选股（名称 / 代码）",
-          "contextualTitle": "STOCK 自选股",
-          "when": "aShareTurnover.visible"
+          "contextualTitle": "运行和调试"
         },
         {
           "id": "welove42.aShareTurnover.globalIndices",
@@ -655,78 +700,83 @@
         "view": "welove42.aShareTurnover.funds",
         "contents": "添加基金查看已公布净值和涨跌幅。\n[按名称或代码添加基金](command:welove42.aShareTurnover.funds.add)\n行末铅笔可设置份额和成本，计算个人持仓收益。\n基金净值通常按日公布，持仓数据只保存在本机。",
         "when": "aShareTurnover.visible && config.aShareTurnover.funds.enabled"
+      },
+      {
+        "view": "welove42.aShareTurnover.watchlist",
+        "contents": "运行和调试可以帮助你发现和修复代码中的问题。\n[运行和调试](command:workbench.action.debug.start)\n若要配置调试器，请创建 launch.json 文件。\n[创建调试配置](command:workbench.action.debug.configure)",
+        "when": "!aShareTurnover.visible"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "welove42.aShareTurnover.stocks.add",
-          "when": "view == welove42.aShareTurnover.watchlist",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.watchlist)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.stocks.refresh",
-          "when": "view == welove42.aShareTurnover.watchlist",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.watchlist)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.stocks.sort",
-          "when": "view == welove42.aShareTurnover.watchlist",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.watchlist)",
           "group": "navigation@2"
         },
         {
           "command": "welove42.aShareTurnover.stocks.togglePause",
-          "when": "view == welove42.aShareTurnover.watchlist",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.watchlist)",
           "group": "navigation@3"
         },
         {
           "command": "welove42.aShareTurnover.news.show",
-          "when": "view == welove42.aShareTurnover.watchlist",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.watchlist)",
           "group": "news@0"
         },
         {
           "command": "welove42.aShareTurnover.globalIndices.add",
-          "when": "view == welove42.aShareTurnover.globalIndices",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.globalIndices)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.globalIndices.refresh",
-          "when": "view == welove42.aShareTurnover.globalIndices",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.globalIndices)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.globalIndices.togglePause",
-          "when": "view == welove42.aShareTurnover.globalIndices",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.globalIndices)",
           "group": "navigation@2"
         },
         {
           "command": "welove42.aShareTurnover.funds.add",
-          "when": "view == welove42.aShareTurnover.funds",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.funds)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.funds.refresh",
-          "when": "view == welove42.aShareTurnover.funds",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.funds)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.funds.togglePause",
-          "when": "view == welove42.aShareTurnover.funds",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.funds)",
           "group": "navigation@2"
         },
         {
           "command": "welove42.aShareTurnover.commodities.add",
-          "when": "view == welove42.aShareTurnover.commodities",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.commodities)",
           "group": "navigation@0"
         },
         {
           "command": "welove42.aShareTurnover.commodities.refresh",
-          "when": "view == welove42.aShareTurnover.commodities",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.commodities)",
           "group": "navigation@1"
         },
         {
           "command": "welove42.aShareTurnover.commodities.togglePause",
-          "when": "view == welove42.aShareTurnover.commodities",
+          "when": "aShareTurnover.visible && (view == welove42.aShareTurnover.commodities)",
           "group": "navigation@2"
         }
       ],

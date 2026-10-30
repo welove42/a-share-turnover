@@ -52,11 +52,25 @@ test('隐藏期间跨过的提醒阶段不在恢复时补发',()=>{
   c.setHidden(true); c.setHidden(false,Date.parse('2026-11-05T12:00:00Z')); c.notifyDue();
   assert.equal(messages.length,0); c.dispose();
 });
-test('声明的默认快捷键及四个侧栏均受隐藏上下文控制',()=>{
+test('老板键的入口使用中性名称，隐藏时展示调试引导而非行情提示',()=>{
   const p=require('../package.json'), key=p.contributes.keybindings.find(k=>k.command==='welove42.aShareTurnover.toggleHidden');
   assert.equal(key.key,'ctrl+shift+;');
-  assert.ok(p.contributes.views.welove42Market.every(v=>v.when?.includes('aShareTurnover.visible')));
+  assert.equal(p.contributes.viewsContainers.activitybar[0].title,'运行和调试');
+  assert.equal(p.contributes.views.welove42Market[0].when,undefined);
+  assert.ok(p.contributes.views.welove42Market.slice(1).every(v=>v.when?.includes('aShareTurnover.visible')));
   assert.ok(p.contributes.viewsWelcome.every(v=>v.when?.includes('aShareTurnover.visible')));
+  const disguise=p.contributes.viewsWelcome.find(v=>v.when==='!aShareTurnover.visible');
+  assert.match(disguise.contents,/运行和调试/); assert.doesNotMatch(disguise.contents,/股票|行情|新闻|基金|成交/);
+  assert.ok(p.contributes.menus['view/title'].filter(v=>v.when.includes('view == welove42.aShareTurnover.')).every(v=>v.when.startsWith('aShareTurnover.visible &&')));
+});
+test('隐藏时四个栏目清除标题中的行情信息、描述和错误，恢复后回到原名称',()=>{
+  const h=harness(), classes=[['../src/watchlist','WatchlistController','运行和调试','自选股（名称 / 代码）'],['../src/global-indices','GlobalIndicesController','监视','全球指数'],['../src/funds','FundsController','调用堆栈','基金'],['../src/commodities','CommoditiesController','断点','全球商品']];
+  for(const [path,name,hiddenTitle,normalTitle] of classes){
+    const C=h.load(path)[name], controller=new C(h.context); controller.paused=true;
+    controller.tree.message='行情错误'; controller.tree.description='股票行情'; controller.setHidden(true);
+    assert.equal(controller.tree.title,hiddenTitle); assert.equal(controller.tree.message,undefined); assert.equal(controller.tree.description,undefined); assert.deepEqual(controller.getChildren(),[]);
+    controller.setHidden(false); assert.equal(controller.tree.title,normalTitle); controller.dispose();
+  }
 });
 test('隐藏和恢复只更新视图上下文，不拦截点击或强行切换侧栏',async()=>{
   const h=harness(), f=fixture(h), {BossKey}=h.load('../src/boss-key');

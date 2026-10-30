@@ -78,6 +78,8 @@ class FundsController {
   }
   publish(structural = false) {
     if (this.disposed) return;
+    this.tree.title = this.hidden ? '调用堆栈' : '基金';
+    if (this.hidden) { this.tree.description = undefined; this.tree.message = undefined; if (structural) this.emitter.fire(undefined); return; }
     const description = !this.enabled ? '已禁用' : this.paused ? '已暂停' : !this.symbols.length ? '点击＋添加基金' : this.tree.visible ? '已公布净值 · 60秒检查' : '展开后检查净值';
     if (this.tree.description !== description) this.tree.description = description;
     const failed = this.symbols.filter(code => this.errors.has(code)).length;

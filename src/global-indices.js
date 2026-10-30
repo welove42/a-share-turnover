@@ -90,6 +90,8 @@ class GlobalIndicesController {
   }
   publish(structural = false) {
     if (this.disposed) return;
+    this.tree.title = this.hidden ? '监视' : '全球指数';
+    if (this.hidden) { this.tree.description = undefined; this.tree.message = undefined; if (structural) this.emitter.fire(undefined); return; }
     const description = !this.enabled ? '已禁用' : this.paused ? '已暂停' : !this.selectedIds.length ? '点击＋添加指数' : this.tree.visible ? this.pollDelay > POLL_MS ? `每${this.pollDelay / 1000}秒重试 · 多源行情` : '10秒刷新 · 多源行情' : '展开后10秒刷新';
     if (this.tree.description !== description) this.tree.description = description;
     const failures = this.selectedIds.filter(id => this.errors.has(id)).length;
