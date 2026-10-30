@@ -1,0 +1,44 @@
+'use strict';
+const test = require('node:test'), assert = require('node:assert/strict');
+const { harness } = require('./vscode-mock');
+const now = new Date('2026-10-30T10:30:30+08:00');
+function data(timestamp = Math.floor(now.getTime() / 1000)) {
+  return { rc: 0, data: { diff: Array.from({ length: 10 }, (_, i) => ({ f12: `BK${1000+i}`, f14: `板块${i}`, f3: 10-i, f124: timestamp })) } };
+}
+test('东方财富板块排名验证字段、按涨跌幅降序，损坏或不足十项不冒充完整榜单', async () => {
+  const h = harness(), { parseSectors, SectorProvider } = h.load('../src/sectors');
+  assert.equal(parseSectors(data(), 'industry', now.getTime())[0].name, '板块0');
+  const bad = data(); bad.data.diff[0].f3 = '-'; assert.throws(() => parseSectors(bad, 'industry', now.getTime()), /不足十项/);
+  let requested; const p = new SectorProvider(async url => { requested = url; return data(); });
+  await p.load('concept', undefined, now.getTime()); const query = new URL(requested).searchParams;
+  assert.equal(query.get('fs'), 'm:90+t:3+f:!50'); assert.equal(query.get('fid'), 'f3'); assert.equal(query.get('pz'), '10');
+});
+test('主接口断连时使用备用域名，冷却期间避免反复请求失败域名', async () => {
+  const h = harness(), { SectorProvider } = h.load('../src/sectors'); const hosts = [];
+  const p = new SectorProvider(async url => { const host = new URL(url).hostname; hosts.push(host); if (host === 'push2.eastmoney.com') throw new Error('断连'); return data(); });
+  await p.load('industry', undefined, now.getTime()); await p.load('industry', undefined, now.getTime() + 10000);
+  assert.deepEqual(hosts, ['push2.eastmoney.com', '82.push2.eastmoney.com', '82.push2.eastmoney.com']);
+});
+test('状态栏显示第一名与完整前十，刷新不重建相同悬停，失败保留并标注', async () => {
+  const h = harness(), { SectorsController, parseSectors } = h.load('../src/sectors'); let failure = false, calls = 0, time = now;
+  const c = new SectorsController(h.context, { now: () => time, provider: { load: async () => { calls++; if (failure) throw new Error('断网'); return parseSectors(data(), 'industry', time.getTime()); } } });
+  try {
+    await c.refresh(); assert.match(c.item.text, /板块 板块0 \+10.00%/); assert.match(c.item.tooltip.value, /行业板块.*前十/);
+    assert.match(c.item.tooltip.value, /10\. 板块9 \+1.00%/); const writes = c.item.writes.tooltip;
+    await c.refresh(); assert.equal(c.item.writes.tooltip, writes);
+    failure = true; await c.refresh(); assert.match(c.item.text, /未更新/); assert.match(c.item.tooltip.value, /断网/);
+    assert.match(c.item.tooltip.value, /板块9/); time = new Date('2026-10-31T10:30:30+08:00'); c.render(); assert.match(c.item.tooltip.value, /2026-10-30/);
+    assert.equal(calls, 3);
+  } finally { c.dispose(); }
+});
+test('交易时段限频，午休停止；禁用和切换类型取消旧请求并忽略迟到数据', async () => {
+  const h = harness(), { SectorsController, parseSectors } = h.load('../src/sectors'); let time = now, calls = 0, finish;
+  const c = new SectorsController(h.context, { now: () => time, provider: { load: async () => { calls++; if (calls === 2) return new Promise(resolve => { finish = resolve; }); return parseSectors(data(), 'industry', time.getTime()); } } });
+  try {
+    await c.refresh(); time = new Date(now.getTime() + 9000); c.tick(); assert.equal(calls, 1);
+    time = new Date(now.getTime() + 10000); c.tick(); assert.equal(calls, 2);
+    await h.api.workspace.getConfiguration('aShareTurnover').update('sectors.enabled', false);
+    finish(parseSectors(data(), 'industry', time.getTime())); await c.inflight; assert.equal(c.item.visible, false);
+    time = new Date('2026-10-30T12:00:00+08:00'); c.enabled = true; c.tick(); assert.equal(calls, 2);
+  } finally { c.dispose(); }
+});
