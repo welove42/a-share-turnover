@@ -20,6 +20,15 @@ test('概念板块双域名断连后使用独立备用榜，恢复后回归东�
   assert.throws(() => parseSinaConcept(sinaPage().replace('+11.00%', '+99.00%'), now.getTime()), /顺序无效/);
   const abort = new AbortController(); abort.abort(); await assert.rejects(p.load('concept', abort.signal, now.getTime()+60000), /取消/); assert.equal(pages, 2);
 });
+test('概念榜优先使用带原始行情时间的第三节点，三个节点都失败才使用新浪', async () => {
+  const h = harness(), { SectorProvider } = h.load('../src/sectors'); const hosts = []; let pages = 0, thirdFails = false;
+  const p = new SectorProvider(async url => { const host = new URL(url).hostname; hosts.push(host); if (host !== 'push2his.eastmoney.com' || thirdFails) throw new Error('socket hang up'); return data(); }, async () => { pages++; return sinaPage(); });
+  const rows = await p.load('concept', undefined, now.getTime());
+  assert.deepEqual(hosts, ['push2.eastmoney.com', '82.push2.eastmoney.com', 'push2his.eastmoney.com']);
+  assert.equal(rows[0].timestamp, Math.floor(now.getTime()/1000)); assert.equal(rows[0].source, undefined); assert.equal(pages, 0);
+  thirdFails = true; const fallback = await p.load('concept', undefined, now.getTime()+31000);
+  assert.equal(fallback[0].source, 'sina'); assert.equal(pages, 1);
+});
 test('备用榜明确说明时间与口径，缓存恢复及切回主源不混淆时间', async () => {
   const h = harness({'aShareTurnover.sectors.category':'concept'}), { SectorsController, parseSectors, parseSinaConcept } = h.load('../src/sectors');
   let useSina = true; const provider = { load: async () => useSina ? parseSinaConcept(sinaPage(), now.getTime()) : parseSectors(data(Math.floor(now.getTime()/1000)-60), 'concept', now.getTime()) };

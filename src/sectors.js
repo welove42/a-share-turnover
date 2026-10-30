@@ -49,7 +49,9 @@ class SectorProvider {
     const entry = CATEGORIES[category]; if (!entry) throw new Error('未知板块类型');
     const params = new URLSearchParams({ pn: '1', pz: '10', po: '1', fid: 'f3', fs: entry.fs, fields: 'f12,f14,f3,f124', fltt: '2' });
     let lastError;
-    const hosts = ['push2.eastmoney.com', '82.push2.eastmoney.com'];
+    // push2his also serves the ranking with the original f124 quote timestamp.
+    // It is still an Eastmoney node, so the independent Sina fallback remains last.
+    const hosts = ['push2.eastmoney.com', '82.push2.eastmoney.com', ...(category === 'concept' ? ['push2his.eastmoney.com'] : [])];
     const available = hosts.filter(host => (this.cooldowns.get(host) || 0) <= now);
     for (const host of available) {
       if (signal?.aborted) throw new Error('请求已取消');
