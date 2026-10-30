@@ -42,3 +42,27 @@ test('交易时段限频，午休停止；禁用和切换类型取消旧请求�
     time = new Date('2026-10-30T12:00:00+08:00'); c.enabled = true; c.tick(); assert.equal(calls, 2);
   } finally { c.dispose(); }
 });
+test('午休首次失败后自动重试，概念类型成功后保存且可从状态栏手动重试', async () => {
+  const h = harness({'aShareTurnover.sectors.category':'concept'}), { SectorsController, parseSectors } = h.load('../src/sectors');
+  let time = new Date('2026-10-30T12:00:00+08:00'), fail = true, calls = 0, reset = 0;
+  const provider = { resetCooldowns() { reset++; }, load: async category => { calls++; if (fail) throw new Error('socket hang up'); return parseSectors(data(Math.floor(now.getTime()/1000)), category, time.getTime()); } };
+  const c = new SectorsController(h.context, { now: () => time, provider });
+  try {
+    await c.refresh(); assert.equal(c.item.text, '板块 获取失败'); assert.match(c.item.tooltip.value, /socket hang up/);
+    time = new Date(time.getTime()+59000); c.tick(); assert.equal(calls,1);
+    fail = false; time = new Date(time.getTime()+1000); c.tick(); await c.inflight;
+    assert.equal(calls,2); assert.match(c.item.tooltip.value,/概念板块/); assert.equal(h.store.get('sectorRankings').concept.rows.length,10);
+    await c.retry(); assert.equal(reset,1); assert.equal(calls,3); assert.equal(c.item.command, 'welove42.aShareTurnover.sectors.refresh');
+  } finally { c.dispose(); }
+});
+test('切换行业与概念时分别恢复对应缓存，不将行业排名冒充概念', async () => {
+  const h = harness(), { SectorsController, parseSectors } = h.load('../src/sectors'); let time = now;
+  const c = new SectorsController(h.context, { now: () => time, provider: { load: async category => parseSectors(data(), category, time.getTime()) } });
+  try {
+    await c.refresh(); await h.api.workspace.getConfiguration('aShareTurnover').update('sectors.category','concept');
+    await new Promise(resolve=>setImmediate(resolve)); await c.inflight;
+    assert.ok(h.store.get('sectorRankings').industry); assert.ok(h.store.get('sectorRankings').concept);
+    await h.api.workspace.getConfiguration('aShareTurnover').update('sectors.category','industry');
+    assert.match(c.item.tooltip.value,/行业板块/); assert.equal(c.rows.length,10);
+  } finally { c.dispose(); }
+});

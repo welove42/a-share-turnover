@@ -292,6 +292,7 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.showTemperature', () => controller.showTemperature()),
     vscode.commands.registerCommand('welove42.aShareTurnover.showTemperatureDetails', () => controller.showTemperatureDetails()),
     vscode.commands.registerCommand('welove42.aShareTurnover.temperature.refresh', () => controller.refresh(true)),
+    vscode.commands.registerCommand('welove42.aShareTurnover.sectors.refresh', () => sectors.retry()),
     stocks, news, charts, globals, funds, commodities, sectors,
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),

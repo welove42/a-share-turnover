@@ -19,6 +19,7 @@ function parseSectors(payload, category, now = Date.now()) {
 }
 class SectorProvider {
   constructor(request = requestJson) { this.request = request; this.cooldowns = new Map(); }
+  resetCooldowns() { this.cooldowns.clear(); }
   async load(category, signal, now = Date.now()) {
     const entry = CATEGORIES[category]; if (!entry) throw new Error('未知板块类型');
     const params = new URLSearchParams({ pn: '1', pz: '10', po: '1', fid: 'f3', fs: entry.fs, fields: 'f12,f14,f3,f124', fltt: '2' });
@@ -42,14 +43,15 @@ class SectorProvider {
 class SectorsController {
   constructor(context, { provider = new SectorProvider(), now = () => new Date() } = {}) {
     this.context = context; this.provider = provider; this.now = now; this.disposed = false; this.inflight = null; this.abort = null;
-    this.lastAttempt = -Infinity; this.generation = 0; this.error = ''; this.rendered = {}; this.visible = false;
+    this.lastAttempt = -Infinity; this.generation = 0; this.error = ''; this.retryCount = 0; this.rendered = {}; this.visible = false;
     this.item = vscode.window.createStatusBarItem('aShareTurnover.sectors', vscode.StatusBarAlignment.Right, 98);
     this.item.name = 'A股领涨板块'; this.readConfig(); this.restore();
+    this.item.command = 'welove42.aShareTurnover.sectors.refresh';
     this.listener = vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('aShareTurnover.sectors') && !event.affectsConfiguration('aShareTurnover.additionalClosedDates')) return;
       const old = this.category, enabled = this.enabled; this.readConfig();
       if (old !== this.category || !this.enabled) { this.generation++; this.abort?.abort(); }
-      if (old !== this.category) { this.rows = null; this.error = ''; this.restore(); }
+      if (old !== this.category) { this.rows = null; this.error = ''; this.retryCount = 0; this.provider.resetCooldowns?.(); this.restore(); }
       this.render();
       if (this.enabled && (!enabled || old !== this.category)) void (this.inflight || Promise.resolve()).then(() => this.refresh());
     });
@@ -60,7 +62,7 @@ class SectorsController {
     this.closedDates = c.get('additionalClosedDates', []);
   }
   restore() {
-    const cached = this.context.globalState.get('sectorRanking', null);
+    const cached = this.context.globalState.get('sectorRankings', {})[this.category] || this.context.globalState.get('sectorRanking', null);
     if (cached?.category !== this.category || !Array.isArray(cached.rows)) return;
     try { this.rows = parseSectors({ rc: 0, data: { diff: cached.rows.map(r => ({ f12: r.code, f14: r.name, f3: r.percent, f124: r.timestamp })) } }, this.category, this.now().getTime()); } catch { /* ignore invalid cache */ }
   }
@@ -68,7 +70,15 @@ class SectorsController {
   tick() {
     if (this.disposed || !this.enabled) return;
     this.render();
-    if (!this.inflight && stockSession(this.now(), this.closedDates).polling && this.now().getTime() - this.lastAttempt >= POLL_MS) void this.refresh();
+    const trading = stockSession(this.now(), this.closedDates).polling;
+    const due = trading ? this.now().getTime() - this.lastAttempt >= POLL_MS
+      : this.error && this.retryCount < 5 && this.now().getTime() - this.lastAttempt >= 60000;
+    if (!this.inflight && due) void this.refresh();
+  }
+  retry() {
+    if (this.disposed || !this.enabled) return Promise.resolve();
+    this.retryCount = 0; this.provider.resetCooldowns?.();
+    return (this.inflight || Promise.resolve()).then(() => this.refresh());
   }
   refresh() {
     if (this.disposed || !this.enabled) return Promise.resolve();
@@ -81,9 +91,10 @@ class SectorsController {
         if (abort.signal.aborted || this.disposed || generation !== this.generation) return;
         const newest = Math.max(...rows.map(r => r.timestamp));
         if (this.rows && newest < Math.max(...this.rows.map(r => r.timestamp))) throw new Error('行情时间早于上次结果');
-        this.rows = rows; this.error = '';
-        await this.context.globalState.update('sectorRanking', { category, rows }).catch(() => {});
-      } catch (error) { if (!abort.signal.aborted && !this.disposed && generation === this.generation) this.error = error.message || '获取失败'; }
+        this.rows = rows; this.error = ''; this.retryCount = 0;
+        const saved = this.context.globalState.get('sectorRankings', {});
+        await this.context.globalState.update('sectorRankings', { ...saved, [category]: { category, rows } }).catch(() => {});
+      } catch (error) { if (!abort.signal.aborted && !this.disposed && generation === this.generation) { this.error = error.message || '获取失败'; this.retryCount++; } }
       finally { this.inflight = null; this.abort = null; if (!this.disposed) this.render(); }
     })();
     return this.inflight;
@@ -94,10 +105,11 @@ class SectorsController {
     const oldest = rows && Math.min(...rows.map(r => r.timestamp)), stamp = oldest ? shanghaiClock(new Date(oldest * 1000)) : null;
     const stale = Boolean(this.error || !stamp || stamp.date !== clock.date || (clock.polling && this.now().getTime() - oldest * 1000 > 120000));
     const format = p => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
-    const text = first ? `板块 ${first.name} ${format(first.percent)}${stale ? ' · 未更新' : ''}` : '板块 待获取';
+    const text = first ? `板块 ${first.name} ${format(first.percent)}${stale ? ' · 未更新' : ''}` : this.error ? '板块 获取失败' : '板块 待获取';
     const tip = new vscode.MarkdownString(); tip.isTrusted = false;
     tip.appendText(`东方财富${CATEGORIES[this.category].name}板块 · 涨跌幅前十\n${stamp ? `行情时间：${stamp.date} ${stamp.time}（北京，最早报价）` : '尚无可用行情'}${stale && first ? '\n当前为历史或未更新行情' : ''}${this.error ? `\n获取失败：${this.error}` : ''}\n\n`);
     if (rows) rows.forEach((r, i) => tip.appendText(`${i + 1}. ${r.name} ${format(r.percent)}\n`));
+    tip.appendText('\n点击状态栏重新获取。');
     if (text !== this.rendered.text) this.item.text = text;
     if (tip.value !== this.rendered.tooltip) this.item.tooltip = tip;
     this.rendered = { text, tooltip: tip.value };

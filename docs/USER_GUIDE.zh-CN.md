@@ -8,7 +8,7 @@
 
 ## 领涨板块
 
-状态栏显示东方财富当日涨跌幅最高的行业板块，悬停查看前十、行情时间及未更新原因。交易日集合竞价和交易期间每10秒刷新，午休及休市不轮询；请求失败自动切换东方财富备用域名，失败域名30秒后重试；两域名均失败时保留上次结果并标注未更新。设置 `aShareTurnover.sectors.category` 可切换行业 / 概念板块，`aShareTurnover.sectors.enabled` 可关闭。排行基于数据源的板块涨跌幅，可能延迟或出现同涨幅板块，非投资建议。
+状态栏显示东方财富当日涨跌幅最高的行业板块，悬停查看前十、行情时间及未更新原因。交易日集合竞价和交易期间每10秒刷新，午休及休市不轮询；请求失败自动切换东方财富备用域名，失败域名30秒后重试；两域名均失败时保留对应分类上次结果并标注未更新；非交易时段首次失败后最多每分钟重试至累计5次，点击状态栏可手动重试。设置 `aShareTurnover.sectors.category` 可切换行业 / 概念板块，`aShareTurnover.sectors.enabled` 可关闭。排行基于数据源的板块涨跌幅，可能延迟或出现同涨幅板块，非投资建议。
 
 ## 自选股侧栏
 
@@ -239,13 +239,13 @@ K线请求240根历史，先用全部已获取记录计算，再截取60/120/180
 
 1. 打开 VS Code 的扩展面板（`Ctrl+Shift+X`）。
 2. 点击右上角 `…` → **从 VSIX 安装… / Install from VSIX…**。
-3. 选择 `a-share-turnover-1.14.0.vsix`，安装后按提示重新加载窗口。已安装旧版时直接覆盖升级。
+3. 选择 `a-share-turnover-1.14.1.vsix`，安装后按提示重新加载窗口。已安装旧版时直接覆盖升级。
 4. 底部右侧出现「成交量」。首次启动会获取行情；休市时也可手动刷新。
 
 也可以在终端执行：
 
 ```powershell
-code --install-extension "完整路径\a-share-turnover-1.14.0.vsix"
+code --install-extension "完整路径\a-share-turnover-1.14.1.vsix"
 ```
 
 要求：桌面版 VS Code **1.85 或以上**，可访问腾讯行情域名 `web.ifzq.gtimg.cn`、`ifzq.gtimg.cn`、`qt.gtimg.cn`、`smartbox.gtimg.cn` 及所选新闻来源；内嵌网页需要访问 `quote.eastmoney.com` 及网站自身依赖域名。运行时没有第三方 npm 依赖。不支持 vscode.dev 的纯浏览器扩展宿主。通过 `extensionKind: ui` 在本机运行，Remote / WSL 的请求也从本机发出。
