@@ -6,6 +6,7 @@ const { quoteClock } = require('./view');
 const { StockSearch } = require('./stock-search');
 const { StockSettings } = require('./stock-settings');
 const { trendIcon } = require('./trend-icon');
+const { OverseasWatchlist } = require('./overseas-watchlist');
 const WATCHLIST_MIME = 'application/vnd.code.tree.welove42.ashareturnover.watchlist';
 
 class WatchlistController {
@@ -29,13 +30,19 @@ class WatchlistController {
     this.status.name = '上证指数 / 自选股'; this.status.command = 'welove42.aShareTurnover.stocks.selectStatus';
     this.statusVisible = false; this.statusRendered = {};
     this.config = this.readConfig();
+    this.overseas = new OverseasWatchlist(this);
     this.phaseKey = '';
     this.listener = vscode.workspace.onDidChangeConfiguration(event => {
       if (this.writingSettings) return;
       if (!event.affectsConfiguration('aShareTurnover.stocks') && !event.affectsConfiguration('aShareTurnover.additionalClosedDates')) return;
       const previous = this.config;
       this.config = this.readConfig();
-      const structural = previous.enabled !== this.config.enabled || JSON.stringify(previous.symbols) !== JSON.stringify(this.config.symbols) || previous.sortBy !== this.config.sortBy;
+      const overseasChanged = this.syncOverseas();
+      if (previous.enabled !== this.config.enabled) {
+        if (!this.config.enabled) for (const abort of Object.values(this.overseas.abort)) abort?.abort();
+        else if (!this.paused) void Promise.all(Object.values(this.overseas.inflight)).then(() => this.overseas.refreshAll());
+      }
+      const structural = overseasChanged || previous.enabled !== this.config.enabled || JSON.stringify(previous.symbols) !== JSON.stringify(this.config.symbols) || previous.sortBy !== this.config.sortBy;
       const reload = previous.enabled !== this.config.enabled || structural || previous.selected !== this.config.selected;
       if (reload) { this.generation++; this.abort?.abort(); }
       this.publish(structural);
@@ -58,6 +65,16 @@ class WatchlistController {
     const c = this.clock(); this.phaseKey = c.date + c.phase;
     this.publish(true); this.timer = setInterval(() => void this.tick(), 1000);
     if (this.config.enabled && !this.paused) void this.refresh();
+    if (this.config.enabled && !this.paused) void this.overseas.refreshAll();
+  }
+  syncOverseas() {
+    const previous = JSON.stringify(this.overseas.symbols); this.overseas.read();
+    if (previous !== JSON.stringify(this.overseas.symbols)) {
+      const running = Object.values(this.overseas.inflight); this.overseas.changed();
+      void Promise.all(running).then(() => { if (!this.disposed && !this.paused && this.config.enabled) return this.overseas.refreshAll(); });
+      return true;
+    }
+    return false;
   }
   clock() { return stockSession(this.now(), this.config.closedDates); }
   tick() {
@@ -65,6 +82,7 @@ class WatchlistController {
     const clock = this.clock(), key = clock.date + clock.phase;
     const boundary = key !== this.phaseKey; this.phaseKey = key;
     this.publish(false);
+    if (this.config.enabled) this.overseas.tick(!this.paused);
     if (this.config.enabled && !this.paused && !this.inflight
       && ((clock.polling && this.now().getTime() - this.lastAttempt >= POLL_MS) || boundary)) return this.refresh();
   }
@@ -75,7 +93,8 @@ class WatchlistController {
   }
   getChildren(element) {
     if (!this.config.enabled) return [];
-    if (!element) return this.config.symbols.length ? [this.group] : [];
+    if (!element) return [this.group, ...this.overseas.getGroups()];
+    if (element.kind === 'overseasGroup') return this.overseas.getChildren(element);
     if (element.kind !== 'group') return [];
     return orderedSymbols(this.config.symbols, this.quotes, this.config.sortBy).map(symbol => this.element(symbol));
   }
@@ -83,8 +102,9 @@ class WatchlistController {
     if (!this.elements.has(symbol)) this.elements.set(symbol, { kind: 'stock', symbol });
     return this.elements.get(symbol);
   }
-  getParent(element) { return element.kind === 'stock' ? this.group : undefined; }
+  getParent(element) { return element.kind === 'stock' ? this.group : element.kind === 'overseasStock' ? this.overseas.groups[element.market] : undefined; }
   getTreeItem(element) {
+    if (element.kind === 'overseasGroup' || element.kind === 'overseasStock') return this.overseas.getTreeItem(element);
     if (element.kind === 'group') {
       const item = new vscode.TreeItem(`A Stock (${this.config.symbols.length})`, vscode.TreeItemCollapsibleState.Expanded);
       item.id = 'a-share-watchlist'; item.description = '涨跌幅 · 现价 · 名称'; item.tooltip = '拖动个股到另一只个股可调整顺序；拖到本分组可移至末尾。'; return item;
@@ -114,7 +134,8 @@ class WatchlistController {
   publish(structural = false) {
     if (this.disposed) return;
     const clock = this.clock();
-    const description = !this.config.enabled ? '已禁用' : this.paused ? '已暂停' : `${PHASE_LABELS[clock.phase]} · ${clock.polling ? '10秒刷新' : '自动刷新已停止'}`;
+    const hasOverseas = this.overseas && (this.overseas.symbols.hk.length || this.overseas.symbols.us.length);
+    const description = !this.config.enabled ? '已禁用' : this.paused ? '已暂停' : `${hasOverseas ? 'A股 ' : ''}${PHASE_LABELS[clock.phase]} · ${clock.polling ? '10秒刷新' : '自动刷新已停止'}${hasOverseas ? '；港美股按各自时段刷新' : ''}`;
     if (this.tree.description !== description) this.tree.description = description;
     const failing = this.config.symbols.filter(s => this.errors.has(s)).length;
     const message = this.config.error || (failing ? `${failing} 个代码获取失败，已保留上次行情，可悬停查看原因。` : undefined);
@@ -173,6 +194,7 @@ class WatchlistController {
   }
   async add(input) {
     // View-title actions can pass the focused tree item instead of stock input.
+    if (input?.kind === 'overseasGroup' || input?.kind === 'overseasStock') return this.overseas.add(input);
     if (typeof input !== 'string' && !Array.isArray(input)) return this.searchAndAdd();
     let additions;
     try {
@@ -200,17 +222,21 @@ class WatchlistController {
     this.writingSettings = (this.writingSettings || 0) + 1;
     try { await this.settings.set(key, value); } finally { this.writingSettings--; }
     if (this.disposed) return;
-    this.generation++; this.abort?.abort(); this.config = this.readConfig(); this.publish(true);
+    this.generation++; this.abort?.abort(); this.config = this.readConfig(); this.syncOverseas(); this.publish(true);
     if (this.config.enabled && !this.paused) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && this.config.enabled && !this.paused) return this.refresh(); });
   }
   handleDrag(source, transfer, token) {
     if (this.disposed || token.isCancellationRequested || !Array.isArray(source) || !source.length) return;
+    if (source.every(item => item?.kind === 'overseasStock' && item.market === source[0].market && this.overseas.symbols[item.market]?.includes(item.symbol))) {
+      transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, market:source[0].market, symbols:source.map(item => item.symbol) })); return;
+    }
     if (source.some(item => item?.kind !== 'stock' || !this.config.symbols.includes(item.symbol))) return;
     transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, symbols: source.map(item => item.symbol) }));
   }
   handleDrop(target, transfer, token) {
     const payload = transfer.get(WATCHLIST_MIME)?.value;
     if (this.disposed || token.isCancellationRequested || payload?.owner !== this.dragIdentity || !Array.isArray(payload.symbols)) return;
+    if (payload.market) return this.overseas.reorder(payload, target, token);
     return this.enqueueSettings(async () => {
       if (this.disposed || token.isCancellationRequested || !this.config.enabled) return;
       const visible = orderedSymbols(this.config.symbols, this.quotes, this.config.sortBy);
@@ -314,14 +340,15 @@ class WatchlistController {
     if (chosen) await this.updateSetting('stocks.sortBy', chosen.mode);
   }
   async togglePause() {
-    this.paused = !this.paused; if (this.paused) this.abort?.abort();
+    this.paused = !this.paused; if (this.paused) { this.abort?.abort(); for (const abort of Object.values(this.overseas.abort)) abort?.abort(); }
     await this.context.globalState.update('stocksPaused', this.paused);
     this.publish(false);
-    if (!this.paused) { if (this.inflight) await this.inflight; return this.refresh(); }
+    this.overseas.publishAll();
+    if (!this.paused) { if (this.inflight) await this.inflight; await Promise.all(Object.values(this.overseas.inflight)); return Promise.all([this.refresh(), this.overseas.refreshAll()]); }
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer); this.abort?.abort();
-    this.activePicker?.hide();
+    this.activePicker?.hide(); this.overseas.dispose();
     this.listener.dispose(); this.tree.dispose(); this.status.dispose(); this.emitter.dispose();
   }
 }

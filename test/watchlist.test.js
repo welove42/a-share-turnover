@@ -91,7 +91,7 @@ test('连续拖拽顺序按操作依次保存，途中添加的股票不会被�
   } finally { h.c.dispose(); }
 });
 test('没有自选时仍获取上证指数并在底部显示',async()=>{
-  const h=setup();try{await h.c.refresh();assert.match(h.c.status.text,/上证指数.*11.30.*\+0.89%/);assert.equal(h.c.getChildren().length,0);}finally{h.c.dispose();}
+  const h=setup();try{await h.c.refresh();assert.match(h.c.status.text,/上证指数.*11.30.*\+0.89%/);assert.equal(h.c.getChildren().length,3);}finally{h.c.dispose();}
 });
 test('通过股票代码批量添加且保存，选择底部个股，删除后恢复上证指数',async()=>{
   const h=setup();try{
