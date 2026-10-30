@@ -25,7 +25,7 @@
 
 支持沪深股票、ETF，以及行情源支持的北交所股票。六位代码自动识别市场；也支持 `sh600519`、`sz000001`、`bj920002`、`600519.SH` 等写法。**`000001` 默认指平安银行；上证指数必须写 `sh000001`。** 自选最多 100 个，重复代码自动去重，不预置任何个股。
 
-也可以直接在用户 `settings.json` 中通过代码管理：
+也可以通过代码管理 A 股自选：按 `Ctrl+Shift+P`，搜索并选择 **Preferences: Open User Settings (JSON)**，打开用户设置文件。下面是一个示例：
 
 ```json
 {
@@ -42,6 +42,8 @@
 ```
 
 股票代码必须加引号，避免前导零被丢弃。`sortBy` 可选 `manual`、`percentDesc`、`percentAsc`。添加、删除和选择底部代码都会保存到用户设置，重启后保留。若旧版本清单未注册设置、设置文件不可写等原因导致保存失败，会改用插件持久存储，操作仍然生效；下次成功写入设置后恢复正常。设置页面手动编辑名单时应填写股票代码，名称搜索通过添加入口进行。
+
+示例中 `stocks.symbols` 是 A 股自选列表；`sh600519` 是贵州茅台，`sz000001` 是平安银行。`stocks.statusBarSymbol` 决定底部显示的代码，`sh000001` 是上证指数。`stocks.sortBy` 控制排序，`manual` 表示手动排序。上面的代码是完整示例：如果文件中已有其他设置，请只把需要的设置项合并到原有 `{ }` 内，设置项之间用逗号分隔。
 
 ### 港股与美股
 
@@ -258,11 +260,21 @@ K线请求240根历史，先用全部已获取记录计算，再截取60/120/180
 {
   "aShareTurnover.reminders.enabled": true,
   "aShareTurnover.reminders.notifications": true,
-  "aShareTurnover.reminders.categories": ["fed", "delivery", "cnHoliday", "hkHoliday", "usHoliday", "nonfarm", "cpi"]
+  "aShareTurnover.reminders.categories": [
+    "fed",
+    "delivery",
+    "cnHoliday",
+    "hkHoliday",
+    "usHoliday",
+    "nonfarm",
+    "cpi"
+  ]
 }
 ```
 
-从 `categories` 删除某项会同时隐藏并关闭该类型的提醒；设置 `notifications` 为 `false` 可保留状态栏和日历但关闭弹窗，设置 `enabled` 为 `false` 则关闭整个功能。
+上面的示例开启了全部七类提醒。`enabled` 控制整个大事功能，`notifications` 控制弹窗，`categories` 是要关注的类型；`true` 表示开启，`false` 表示关闭。例如，`categories` 只保留 `"fed"` 和 `"cpi"` 时，就只提醒美联储议息和美国 CPI。
+
+不想编辑代码也可以按 `Ctrl+,` 打开设置，搜索 `aShareTurnover.reminders.categories`，在列表中删除不需要的类型。搜索 `aShareTurnover.reminders.notifications` 并取消勾选，可保留状态栏和日历但关闭弹窗；搜索 `aShareTurnover.reminders.enabled` 并取消勾选，可关闭整个大事功能。
 
 议息、非农、CPI 和美股提前收盘从 [Finance Calendar](https://www.financecalendar.com/) 获取；A 股、港股、美股休市和港股半日市从 [Markets Open](https://marketsopen.today/) 获取。扩展也尝试美联储和美国劳工统计局官方日历。Markets Open 数据按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 使用，界面保留来源和数据版本。在线日历每日尝试更新；网络失败、数据格式异常或年份未覆盖时，分别使用上次成功缓存或内置官方公告快照，显示来源和获取时间。
 

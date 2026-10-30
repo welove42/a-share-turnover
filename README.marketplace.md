@@ -94,30 +94,56 @@ A股行情为 VS Code 提供紧凑的状态栏、可折叠的行情列表和独�
 code --install-extension welove42.a-share-turnover
 ```
 
-偏好通过代码管理自选？在用户 `settings.json` 中填写：
+### 用代码管理自选（可选）
+
+平时直接点击自选股旁的 **＋** 搜索添加即可，不需要写代码。如果想批量管理，也可以在 VS Code 的用户 `settings.json` 中设置。例如：
 
 ```json
 {
-  "aShareTurnover.stocks.symbols": ["sh600519", "sz000001", "sh510300"],
-  "aShareTurnover.stocks.hkSymbols": ["hk00700"],
-  "aShareTurnover.stocks.usSymbols": ["usAAPL"],
+  "aShareTurnover.stocks.symbols": [
+    "sh600519",
+    "sz000001"
+  ],
+  "aShareTurnover.stocks.hkSymbols": [
+    "hk00700"
+  ],
+  "aShareTurnover.stocks.usSymbols": [
+    "usAAPL"
+  ],
   "aShareTurnover.stocks.statusBarSymbol": "sh000001"
 }
 ```
 
-*代码仅作配置示例。`000001` 默认代表平安银行；上证指数请使用 `sh000001`。*
+上面的示例分别设置了：
 
-只关注部分大事？在用户设置中选择需要的类型（默认全部启用）：
+| 设置项 | 示例内容 |
+| --- | --- |
+| `stocks.symbols` | A 股自选：贵州茅台、平安银行 |
+| `stocks.hkSymbols` | 港股自选：腾讯控股 |
+| `stocks.usSymbols` | 美股自选：苹果 |
+| `stocks.statusBarSymbol` | 底部显示上证指数 |
 
-```json
-{
-  "aShareTurnover.reminders.enabled": true,
-  "aShareTurnover.reminders.notifications": true,
-  "aShareTurnover.reminders.categories": ["fed", "delivery", "cnHoliday", "hkHoliday", "usHoliday", "nonfarm", "cpi"]
-}
-```
+打开配置文件的方法：按 `Ctrl+Shift+P`，搜索并选择 **Preferences: Open User Settings (JSON)**。如果文件已有其他设置，请将需要的设置项合并到原有的花括号 `{ }` 内，不要覆盖其他内容；各设置项之间用逗号分隔。
 
-从数组删除某项即可关闭对应类型；设为 `[]` 则不显示任何类型。`notifications` 设为 `false` 可保留日历并关闭弹窗。[查看类型说明及数据覆盖](docs/USER_GUIDE.zh-CN.md#财经大事提醒)。
+股票代码请保留引号和前缀。`sz000001` 是平安银行；`sh000001` 是上证指数。
+
+### 选择要提醒的财经大事
+
+默认提醒以下七类事件：
+
+| 设置中的名称 | 代表什么 |
+| --- | --- |
+| `fed` | 美联储议息 |
+| `delivery` | A 股股指期货交割 |
+| `cnHoliday` | A 股休市 |
+| `hkHoliday` | 港股休市和半日市 |
+| `usHoliday` | 美股休市和提前收盘 |
+| `nonfarm` | 美国非农数据 |
+| `cpi` | 美国 CPI 数据 |
+
+按 `Ctrl+,` 打开 VS Code 设置，在搜索框输入 `aShareTurnover.reminders.categories`，删除不想关注的类型即可。例如，只保留 `fed` 和 `cpi`，就只提醒美联储议息和美国 CPI。
+
+如果只想关闭弹窗、保留日历，在设置中搜索 `aShareTurnover.reminders.notifications` 并取消勾选。[查看完整说明及数据覆盖](docs/USER_GUIDE.zh-CN.md#财经大事提醒)。
 
 ## 使用口径与运行要求
 
