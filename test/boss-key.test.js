@@ -39,7 +39,11 @@ test('隐藏时股票请求和自选结果不能重新显示，恢复前暂停�
   const h=harness(); const {WatchlistController}=h.load('../src/watchlist'); let requests=0;
   const stocks=new WatchlistController(h.context,{provider:{load:async()=>{requests++;return {quotes:new Map(),errors:new Map()};}}});
   stocks.paused=true; stocks.publish(true); assert.equal(stocks.status.visible,true);
-  stocks.setHidden(true); assert.equal(stocks.status.visible,false); assert.deepEqual(stocks.getChildren(),[]);
+  stocks.setHidden(true); assert.equal(stocks.status.visible,false);
+  const placeholders=stocks.getChildren().map(item=>stocks.getTreeItem(item));
+  assert.deepEqual(placeholders.map(item=>item.label),['运行和调试可帮助你发现和修复问题。','运行和调试','创建调试配置']);
+  assert.deepEqual(placeholders.slice(1).map(item=>item.command.command),['workbench.action.debug.start','workbench.action.debug.configure']);
+  assert.doesNotMatch(JSON.stringify(placeholders),/股票|行情|新闻|基金|成交/);
   await stocks.refresh(); await stocks.overseas.refreshAll(true); assert.equal(requests,0);
   stocks.setHidden(false); await Promise.resolve(); assert.equal(stocks.paused,true); assert.equal(requests,0); assert.equal(stocks.status.visible,true);
   stocks.dispose();
@@ -68,9 +72,19 @@ test('隐藏时四个栏目清除标题中的行情信息、描述和错误，�
   for(const [path,name,hiddenTitle,normalTitle] of classes){
     const C=h.load(path)[name], controller=new C(h.context); controller.paused=true;
     controller.tree.message='行情错误'; controller.tree.description='股票行情'; controller.setHidden(true);
-    assert.equal(controller.tree.title,hiddenTitle); assert.equal(controller.tree.message,undefined); assert.equal(controller.tree.description,undefined); assert.deepEqual(controller.getChildren(),[]);
+    assert.equal(controller.tree.title,hiddenTitle); assert.equal(controller.tree.message,undefined); assert.equal(controller.tree.description,undefined);
+    if (name==='WatchlistController') assert.ok(controller.getChildren().every(item=>item.kind==='debugPlaceholder'));
+    else assert.deepEqual(controller.getChildren(),[]);
     controller.setHidden(false); assert.equal(controller.tree.title,normalTitle); controller.dispose();
   }
+});
+test('自选禁用时，隐藏视图仍提供调试入口，旧股票节点不会泄露行情',()=>{
+  const h=harness({'aShareTurnover.stocks.enabled':false}), {WatchlistController}=h.load('../src/watchlist');
+  const stocks=new WatchlistController(h.context); stocks.paused=true; stocks.setHidden(true);
+  assert.equal(stocks.getChildren().length,3);
+  assert.equal(stocks.getTreeItem({kind:'stock',symbol:'sh600519'}).label,'');
+  assert.equal(stocks.tree.showCollapseAll,false); stocks.setHidden(false);
+  assert.deepEqual(stocks.getChildren(),[]); assert.equal(stocks.tree.showCollapseAll,true); stocks.dispose();
 });
 test('隐藏和恢复只更新视图上下文，不拦截点击或强行切换侧栏',async()=>{
   const h=harness(), f=fixture(h), {BossKey}=h.load('../src/boss-key');
@@ -91,6 +105,8 @@ test('以隐藏状态启动扩展时不显示状态栏或触发行情命令，�
   h.context.subscriptions=[];
   const {activate}=h.load('../src/extension'); activate(h.context);
   assert.ok(h.statuses.length>=6); assert.ok(h.statuses.every(s=>!s.visible));
+  const provider=h.trees.get('welove42.aShareTurnover.watchlist').treeDataProvider;
+  assert.deepEqual(provider.getChildren().map(item=>provider.getTreeItem(item).label),['运行和调试可帮助你发现和修复问题。','运行和调试','创建调试配置']);
   await new Promise(setImmediate);
   assert.ok(contexts.some(c=>c[0]==='setContext' && c[1]==='aShareTurnover.visible' && c[2]===false));
   assert.equal(commands.get('welove42.aShareTurnover.stocks.refresh')(),undefined);

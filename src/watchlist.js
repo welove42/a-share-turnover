@@ -10,6 +10,11 @@ const { trendIcon } = require('./trend-icon');
 const { OverseasWatchlist } = require('./overseas-watchlist');
 const { normalizeOverseas } = require('./overseas-symbols');
 const WATCHLIST_MIME = 'application/vnd.code.tree.welove42.ashareturnover.watchlist';
+const DEBUG_ITEMS = [
+  { kind: 'debugPlaceholder', id: 'intro', label: '运行和调试可帮助你发现和修复问题。' },
+  { kind: 'debugPlaceholder', id: 'start', label: '运行和调试', icon: 'debug-start', command: 'workbench.action.debug.start' },
+  { kind: 'debugPlaceholder', id: 'configure', label: '创建调试配置', icon: 'gear', command: 'workbench.action.debug.configure' }
+];
 
 class WatchlistController {
   constructor(context, { provider = new StockProvider(), search = new StockSearch(), now = () => new Date(), log = () => {} } = {}) {
@@ -94,7 +99,8 @@ class WatchlistController {
     return clock.polling && stockTradingMinute(clock.minute) - stockTradingMinute(timeToMinute(q.timestamp.slice(8, 12))) > 2;
   }
   getChildren(element) {
-    if (!this.config.enabled || this.hidden) return [];
+    if (this.hidden) return element ? [] : DEBUG_ITEMS;
+    if (!this.config.enabled) return [];
     if (!element) return [this.group, ...this.overseas.getGroups()];
     if (element.kind === 'overseasGroup') return this.overseas.getChildren(element);
     if (element.kind !== 'group') return [];
@@ -106,6 +112,14 @@ class WatchlistController {
   }
   getParent(element) { return element.kind === 'stock' ? this.group : element.kind === 'overseasStock' ? this.overseas.groups[element.market] : undefined; }
   getTreeItem(element) {
+    if (element.kind === 'debugPlaceholder') {
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+      item.id = `debug-placeholder:${element.id}`;
+      if (element.icon) item.iconPath = new vscode.ThemeIcon(element.icon);
+      if (element.command) item.command = { command: element.command, title: element.label };
+      return item;
+    }
+    if (this.hidden) return new vscode.TreeItem('', vscode.TreeItemCollapsibleState.None);
     if (element.kind === 'overseasGroup' || element.kind === 'overseasStock') return this.overseas.getTreeItem(element);
     if (element.kind === 'group') {
       const item = new vscode.TreeItem(`A Stock (${this.config.symbols.length})`, vscode.TreeItemCollapsibleState.Expanded);
@@ -136,6 +150,7 @@ class WatchlistController {
   publish(structural = false) {
     if (this.disposed) return;
     this.tree.title = this.hidden ? '运行和调试' : '自选股（名称 / 代码）';
+    this.tree.showCollapseAll = !this.hidden;
     if (this.hidden) {
       this.tree.description = undefined; this.tree.message = undefined;
       if (structural) this.emitter.fire(undefined);
