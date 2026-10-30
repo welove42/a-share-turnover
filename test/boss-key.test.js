@@ -6,7 +6,7 @@ function fixture(h) {
   const calls=[], newsTab={input:{uri:{scheme:'a-share-news'}}}, userTab={input:{uri:{scheme:'file'}}};
   h.api.commands={executeCommand:async (...args)=>{calls.push(args);}};
   h.api.window.tabGroups={all:[{tabs:[newsTab,userTab]}],close:async (tabs,preserveFocus)=>{calls.push(['closeTabs',tabs,preserveFocus]);}};
-  const obj=(tree=false)=>({hidden:false,paused:true,tree:{visible:tree},setHidden(value,since){this.hidden=value;this.since=since;calls.push(['hidden',value]);}});
+  const obj=(visible=false)=>{ const events=new h.api.EventEmitter(); return {hidden:false,paused:true,tree:{visible,onDidChangeVisibility:events.event,events},setHidden(value,since){this.hidden=value;this.since=since;calls.push(['hidden',value]);}}; };
   const parts={controller:obj(),stocks:obj(true),news:obj(),charts:obj(),globals:obj(),funds:obj(),commodities:obj(),sectors:obj(),reminders:obj()};
   return {parts,calls,newsTab,userTab};
 }
@@ -56,6 +56,17 @@ test('声明的默认快捷键及四个侧栏均受隐藏上下文控制',()=>{
   const p=require('../package.json'), key=p.contributes.keybindings.find(k=>k.command==='welove42.aShareTurnover.toggleHidden');
   assert.equal(key.key,'ctrl+shift+;');
   assert.ok(p.contributes.views.welove42Market.every(v=>v.when?.includes('aShareTurnover.visible')));
+  assert.ok(p.contributes.viewsWelcome.every(v=>v.when?.includes('aShareTurnover.visible')));
+});
+test('隐藏时切离侧栏，重新打开旧版缓存视图也立即切回资源管理器',async()=>{
+  const h=harness(), f=fixture(h), {BossKey}=h.load('../src/boss-key');
+  f.parts.stocks.tree.visible=false;
+  const b=new BossKey(h.context,f.parts); await b.toggle();
+  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,1);
+  f.parts.stocks.tree.events.fire({visible:true});
+  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,2);
+  await b.toggle(); f.parts.stocks.tree.events.fire({visible:true});
+  assert.equal(f.calls.filter(c=>c[0]==='workbench.view.explorer').length,2); b.dispose();
 });
 test('以隐藏状态启动扩展时不显示状态栏或触发行情命令，恢复保留暂停设置',async()=>{
   const h=harness(), commands=new Map(), contexts=[];

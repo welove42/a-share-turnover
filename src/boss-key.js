@@ -10,18 +10,26 @@ class BossKey {
     const saved=context.globalState.get('bossKeyHiddenSince');
     this.since=Number.isFinite(saved) ? saved : Date.now();
     this.write=Promise.resolve();
+    this.trees=[this.stocks.tree,this.globals.tree,this.funds.tree,this.commodities.tree];
+    // A window that has cached an older view contribution can still expose a view.
+    this.listeners=this.trees.map(tree=>tree.onDidChangeVisibility(event=>{
+      if (this.hidden && event.visible) this.showExplorer();
+    }));
     privateUI.setHidden(this.hidden);
     if (this.hidden) this.apply(true);
     else void vscode.commands.executeCommand('setContext','aShareTurnover.visible',true);
   }
-  apply(hidden, since) {
-    const wasVisible=[this.stocks.tree,this.globals.tree,this.funds.tree,this.commodities.tree].some(tree=>tree.visible);
+  showExplorer() {
+    void Promise.resolve(vscode.commands.executeCommand('workbench.view.explorer')).catch(()=>{});
+  }
+  apply(hidden, since, fromToggle=false) {
+    const wasVisible=this.trees.some(tree=>tree.visible);
     privateUI.setHidden(hidden);
     for (const item of [this.controller,this.stocks,this.news,this.charts,this.globals,this.funds,this.commodities,this.sectors]) item.setHidden(hidden);
     this.reminders.setHidden(hidden,since);
     void vscode.commands.executeCommand('setContext','aShareTurnover.visible',!hidden);
     if (hidden) {
-      if (wasVisible) void vscode.commands.executeCommand('workbench.view.explorer');
+      if (wasVisible || fromToggle) this.showExplorer();
       // Close only the extension's own virtual news documents, not user files.
       const groups=vscode.window.tabGroups;
       const tabs=groups?.all.flatMap(group=>group.tabs.filter(tab=>tab.input?.uri?.scheme==='a-share-news')) || [];
@@ -31,7 +39,7 @@ class BossKey {
   toggle() {
     const next=!this.hidden, since=next ? Date.now() : this.since;
     this.hidden=next; if(next) this.since=since;
-    this.apply(next,since);
+    this.apply(next,since,true);
     // Serialize rapid toggles so an earlier write cannot overwrite the final state.
     this.write=this.write.catch(()=>{}).then(async()=>{
       await this.context.globalState.update('bossKeyHiddenSince',next ? since : undefined);
@@ -39,6 +47,6 @@ class BossKey {
     });
     return this.write;
   }
-  dispose() { privateUI.setHidden(false); }
+  dispose() { for (const listener of this.listeners) listener.dispose(); privateUI.setHidden(false); }
 }
 module.exports = { BossKey };

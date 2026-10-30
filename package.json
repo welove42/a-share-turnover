@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.19.0",
+  "version": "1.19.1",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.19.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.19.1.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -644,17 +644,17 @@
       {
         "view": "welove42.aShareTurnover.watchlist",
         "contents": "输入中文名、拼音或股票代码搜索添加自选股。\n[搜索并添加自选股](command:welove42.aShareTurnover.stocks.add)\n点击个股查看东方财富详细行情及分时 / 日K图。\n[财经新闻（底部输出面板）](command:welove42.aShareTurnover.news.show)\n底部默认显示上证指数，点击可切换。",
-        "when": "config.aShareTurnover.stocks.enabled"
+        "when": "aShareTurnover.visible && config.aShareTurnover.stocks.enabled"
       },
       {
         "view": "welove42.aShareTurnover.watchlist",
         "contents": "自选行情已禁用，请在用户设置中开启 aShareTurnover.stocks.enabled。",
-        "when": "!config.aShareTurnover.stocks.enabled"
+        "when": "aShareTurnover.visible && !config.aShareTurnover.stocks.enabled"
       },
       {
         "view": "welove42.aShareTurnover.funds",
         "contents": "添加基金查看已公布净值和涨跌幅。\n[按名称或代码添加基金](command:welove42.aShareTurnover.funds.add)\n行末铅笔可设置份额和成本，计算个人持仓收益。\n基金净值通常按日公布，持仓数据只保存在本机。",
-        "when": "config.aShareTurnover.funds.enabled"
+        "when": "aShareTurnover.visible && config.aShareTurnover.funds.enabled"
       }
     ],
     "menus": {
