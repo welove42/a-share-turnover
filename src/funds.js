@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { shanghaiClock } = require('./market');
 const { signed, percentText } = require('./quotes');
 const { StockSettings } = require('./stock-settings');
@@ -43,7 +44,7 @@ class FundsController {
   tick() {
     if (!this.disposed && this.enabled && this.symbols.length && !this.paused && this.tree.visible && !this.inflight && this.now().getTime() - this.lastAttempt >= FUND_POLL_MS) return this.refresh(true);
   }
-  getChildren(element) { return !element && this.enabled ? this.symbols.map(code => this.element(code)) : []; }
+  getChildren(element) { return !element && this.enabled && !this.hidden ? this.symbols.map(code => this.element(code)) : []; }
   getParent() { return undefined; }
   element(code) { if (!this.elements.has(code)) this.elements.set(code, { kind: 'fund', code }); return this.elements.get(code); }
   getTreeItem(element) {
@@ -90,7 +91,7 @@ class FundsController {
     if (structural) this.emitter.fire(undefined); else for (const code of changed) this.emitter.fire(this.element(code));
   }
   refresh(automatic = false) {
-    if (this.disposed || !this.enabled || !this.symbols.length || automatic && (this.paused || !this.tree.visible)) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.enabled || !this.symbols.length || automatic && (this.paused || !this.tree.visible)) return Promise.resolve();
     if (this.inflight && this.abort?.signal.aborted) return this.inflight.then(() => this.refresh(automatic));
     if (this.inflight) return this.inflight;
     const codes = [...this.symbols], generation = this.generation, abort = this.abort = new AbortController();
@@ -129,7 +130,7 @@ class FundsController {
       try { codes = fundCodes(input); }
       catch (error) { if (typeof input === 'string' && input.trim() && !/[,，;；]/.test(input)) return this.searchAndAdd(input); throw error; }
       await this.saveSymbols([...this.symbols, ...codes]);
-    } catch (error) { return vscode.window.showErrorMessage(error.message); }
+    } catch (error) { return privateUI.showErrorMessage(error.message); }
   }
   searchAndAdd(initial = '') {
     const picker = vscode.window.createQuickPick();
@@ -160,7 +161,7 @@ class FundsController {
         const item = picker.selectedItems[0] || picker.activeItems?.[0]; if (!item?.codes || accepting) return;
         accepting = true;
         try { await this.saveSymbols([...this.symbols, ...item.codes]); picker.hide(); }
-        catch (error) { accepting = false; void vscode.window.showErrorMessage(error.message); }
+        catch (error) { accepting = false; void privateUI.showErrorMessage(error.message); }
       }), picker.onDidHide(() => {
         closed = true; request?.abort(); clearTimeout(timer); for (const listener of listeners) listener.dispose(); picker.dispose(); if (this.activePicker === picker) this.activePicker = null; resolve();
       })];
@@ -170,7 +171,7 @@ class FundsController {
   async chooseCode(element, title) {
     const raw = typeof element === 'string' ? element : element?.code;
     if (raw !== undefined) { try { const code = fundCode(raw); return this.symbols.includes(code) ? code : undefined; } catch { return undefined; } }
-    const selected = await vscode.window.showQuickPick(this.symbols.map(code => ({ label: this.quotes.get(code)?.name || code, description: code, code })), { title });
+    const selected = await privateUI.showQuickPick(this.symbols.map(code => ({ label: this.quotes.get(code)?.name || code, description: code, code })), { title });
     return selected?.code;
   }
   async remove(element) {
@@ -194,15 +195,15 @@ class FundsController {
     if (!this.quotes.has(code)) await this.refresh();
     if (this.disposed || !this.symbols.includes(code)) return;
     const q = this.quotes.get(code);
-    if (!q) return vscode.window.showErrorMessage('请先成功获取该基金净值，再设置持仓');
-    if (q.kind === 'money') return vscode.window.showErrorMessage('货币基金已显示万份收益和七日年化；累计持仓收益需要交易流水，本版不按净值估算货币基金盈亏。');
+    if (!q) return privateUI.showErrorMessage('请先成功获取该基金净值，再设置持仓');
+    if (q.kind === 'money') return privateUI.showErrorMessage('货币基金已显示万份收益和七日年化；累计持仓收益需要交易流水，本版不按净值估算货币基金盈亏。');
     const current = this.holdings[code];
     const validate = (value, field) => { try { holdingPosition({ shares: 1, cost: 1, [field]: value }); return undefined; } catch (error) { return error.message; } };
-    const shares = await vscode.window.showInputBox({ title: `${q.name} · 持仓份额（1/2）`, prompt: '填写当前已确认的持仓份额；申购、赎回或分红再投资后需更新。清除持仓请用右键菜单。', value: current ? String(current.shares) : '', ignoreFocusOut: true, validateInput: value => validate(value, 'shares') });
+    const shares = await privateUI.showInputBox({ title: `${q.name} · 持仓份额（1/2）`, prompt: '填写当前已确认的持仓份额；申购、赎回或分红再投资后需更新。清除持仓请用右键菜单。', value: current ? String(current.shares) : '', ignoreFocusOut: true, validateInput: value => validate(value, 'shares') });
     if (shares === undefined || this.disposed || !this.symbols.includes(code)) return;
-    const cost = await vscode.window.showInputBox({ title: `${q.name} · 持仓总成本（2/2）`, prompt: '填写剩余持仓的总成本（含费用，非单位成本），币种应与基金净值一致；已收现金分红可自行从成本扣除。', value: current ? String(current.cost) : '', ignoreFocusOut: true, validateInput: value => validate(value, 'cost') });
+    const cost = await privateUI.showInputBox({ title: `${q.name} · 持仓总成本（2/2）`, prompt: '填写剩余持仓的总成本（含费用，非单位成本），币种应与基金净值一致；已收现金分红可自行从成本扣除。', value: current ? String(current.cost) : '', ignoreFocusOut: true, validateInput: value => validate(value, 'cost') });
     if (cost === undefined || this.disposed || !this.symbols.includes(code)) return;
-    try { await this.saveHolding(code, { shares, cost }); } catch (error) { return vscode.window.showErrorMessage(error.message); }
+    try { await this.saveHolding(code, { shares, cost }); } catch (error) { return privateUI.showErrorMessage(error.message); }
   }
   async clearHolding(element) {
     const code = await this.chooseCode(element, '清除基金持仓（保留关注）');
@@ -216,6 +217,11 @@ class FundsController {
     this.paused = !this.paused; if (this.paused) this.abort?.abort();
     await this.context.globalState.update('fundsPaused', this.paused); this.publish();
     if (!this.paused) return this.refresh(true);
+  }
+  setHidden(hidden) {
+    this.hidden = hidden; if (hidden) { this.generation++; this.abort?.abort(); this.activePicker?.hide(); }
+    this.publish(true);
+    if (!hidden && this.enabled && !this.paused) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && !this.hidden && !this.paused) return this.refresh(true); });
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer); this.abort?.abort(); this.activePicker?.hide();

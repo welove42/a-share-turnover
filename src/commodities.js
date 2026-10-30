@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { POLL_MS } = require('./market');
 const { signed, percentText } = require('./quotes');
 const { StockSettings } = require('./stock-settings');
@@ -36,7 +37,7 @@ class CommoditiesController {
   tick() {
     if (!this.inflight && this.now().getTime() - this.lastAttempt >= POLL_MS) return this.refresh(true);
   }
-  getChildren(element) { return this.enabled && !element ? this.codes.map(code => this.element(code)) : []; }
+  getChildren(element) { return this.enabled && !this.hidden && !element ? this.codes.map(code => this.element(code)) : []; }
   element(code) { if (!this.elements.has(code)) this.elements.set(code, { kind: 'commodity', code }); return this.elements.get(code); }
   getParent() { return undefined; }
   getTreeItem(element) {
@@ -70,7 +71,7 @@ class CommoditiesController {
     if (structural) this.emitter.fire(undefined); else for (const code of changed) this.emitter.fire(this.element(code));
   }
   refresh(automatic = false) {
-    if (this.disposed || !this.enabled || !this.codes.length || (automatic && (this.paused || !this.tree.visible))) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.enabled || !this.codes.length || (automatic && (this.paused || !this.tree.visible))) return Promise.resolve();
     if (this.inflight && this.abort?.signal.aborted) return this.inflight.then(() => this.refresh(automatic));
     if (this.inflight) return this.inflight;
     const abort = this.abort = new AbortController(), generation = this.generation, codes = [...this.codes];
@@ -108,22 +109,22 @@ class CommoditiesController {
     if (this.disposed || !this.enabled) return;
     if (Array.isArray(input) || typeof input === 'string' && /^[a-zA-Z_,，;；\s]+$/.test(input)) {
       try { return await this.saveSelection([...this.codes, ...normalizeCommodityCodes(input)]); }
-      catch (error) { return vscode.window.showErrorMessage(error.message); }
+      catch (error) { return privateUI.showErrorMessage(error.message); }
     }
     const query = typeof input === 'string' ? input.trim().toLowerCase() : '';
     const items = COMMODITIES.filter(entry => !query || `${entry.name} ${entry.code} ${entry.aliases}`.toLowerCase().includes(query)).map(entry => ({
       label: entry.name, description: `${entry.code} · ${entry.aliases}${this.codes.includes(entry.code) ? ' · 已添加' : ''}`,
       detail: `${entry.unit} · 新浪财经 CFD参考行情`, code: entry.code
     }));
-    const selected = await vscode.window.showQuickPick(items, { title: '添加全球商品', placeHolder: '输入名称、拼音简称或代码；可勾选多个商品后回车添加', matchOnDescription: true, canPickMany: true });
+    const selected = await privateUI.showQuickPick(items, { title: '添加全球商品', placeHolder: '输入名称、拼音简称或代码；可勾选多个商品后回车添加', matchOnDescription: true, canPickMany: true });
     if (selected?.length && !this.disposed && this.enabled) await this.saveSelection([...this.codes, ...selected.map(item => item.code)]);
   }
   async remove(element) {
     if (this.disposed || !this.enabled) return;
     let code = typeof element === 'string' ? element : element?.code;
-    if (!code) code = (await vscode.window.showQuickPick(this.codes.map(code => ({ label: entryFor(code).name, description: code, code })), { title: '移除全球商品' }))?.code;
+    if (!code) code = (await privateUI.showQuickPick(this.codes.map(code => ({ label: entryFor(code).name, description: code, code })), { title: '移除全球商品' }))?.code;
     if (!code || this.disposed || !this.enabled) return;
-    try { code = normalizeCommodityCodes([code])[0]; } catch (error) { return vscode.window.showErrorMessage(error.message); }
+    try { code = normalizeCommodityCodes([code])[0]; } catch (error) { return privateUI.showErrorMessage(error.message); }
     await this.saveSelection(this.codes.filter(current => current !== code));
   }
   open(element) {
@@ -135,6 +136,11 @@ class CommoditiesController {
     this.paused = !this.paused; if (this.paused) this.abort?.abort();
     await this.context.globalState.update('commoditiesPaused', this.paused); this.publish();
     if (!this.paused) return this.refresh(true);
+  }
+  setHidden(hidden) {
+    this.hidden = hidden; if (hidden) { this.generation++; this.abort?.abort(); }
+    this.publish(true);
+    if (!hidden && this.enabled && !this.paused) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && !this.hidden && !this.paused) return this.refresh(true); });
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer); this.abort?.abort();

@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { POLL_MS, PHASE_LABELS, stockSession, timeToMinute, stockTradingMinute } = require('./market');
 const { INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, isQuote, signed, percentText, orderedSymbols, StockProvider } = require('./quotes');
 const { quoteClock } = require('./view');
@@ -79,7 +80,7 @@ class WatchlistController {
   }
   clock() { return stockSession(this.now(), this.config.closedDates); }
   tick() {
-    if (this.disposed) return;
+    if (this.disposed || this.hidden) return;
     const clock = this.clock(), key = clock.date + clock.phase;
     const boundary = key !== this.phaseKey; this.phaseKey = key;
     this.publish(false);
@@ -93,7 +94,7 @@ class WatchlistController {
     return clock.polling && stockTradingMinute(clock.minute) - stockTradingMinute(timeToMinute(q.timestamp.slice(8, 12))) > 2;
   }
   getChildren(element) {
-    if (!this.config.enabled) return [];
+    if (!this.config.enabled || this.hidden) return [];
     if (!element) return [this.group, ...this.overseas.getGroups()];
     if (element.kind === 'overseasGroup') return this.overseas.getChildren(element);
     if (element.kind !== 'group') return [];
@@ -152,7 +153,7 @@ class WatchlistController {
     this.renderStatus();
   }
   renderStatus() {
-    if (!this.config.enabled) { if (this.statusVisible) { this.status.hide(); this.statusVisible = false; } return; }
+    if (!this.config.enabled || this.hidden) { if (this.statusVisible) { this.status.hide(); this.statusVisible = false; } return; }
     const symbol = this.config.selected, q = this.quotes.get(symbol);
     const stale = this.stale(symbol);
     const text = q ? `[${q.name}] ${q.priceText} ${q.percent > 0 ? '$(triangle-up)' : q.percent < 0 ? '$(triangle-down)' : '$(dash)'} (${percentText(q.percent)})${this.paused ? ' · 暂停' : stale ? ' · 未更新' : ''}`
@@ -166,7 +167,7 @@ class WatchlistController {
     if (!this.statusVisible) { this.status.show(); this.statusVisible = true; }
   }
   refresh() {
-    if (this.disposed || !this.config.enabled) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.config.enabled) return Promise.resolve();
     if (this.inflight && this.abort?.signal.aborted) return this.inflight.then(() => this.refresh());
     if (this.inflight) return this.inflight;
     const symbols = [...new Set([INDEX_SYMBOL, ...this.config.symbols])];
@@ -204,11 +205,11 @@ class WatchlistController {
         return this.searchAndAdd(input);
       }
     }
-    catch (e) { return vscode.window.showErrorMessage(e.message); }
+    catch (e) { return privateUI.showErrorMessage(e.message); }
     return this.enqueueSettings(async () => {
       let symbols;
       try { symbols = normalizeSymbols([...this.config.symbols, ...additions]); }
-      catch (e) { return vscode.window.showErrorMessage(e.message); }
+      catch (e) { return privateUI.showErrorMessage(e.message); }
       await this.writeSetting('stocks.symbols', symbols);
     });
   }
@@ -258,7 +259,7 @@ class WatchlistController {
         await this.settings.set('stocks.symbols', next);
         if (this.config.sortBy !== 'manual') await this.settings.set('stocks.sortBy', 'manual');
       } catch (error) {
-        if (!this.disposed) void vscode.window.showErrorMessage(`无法保存自选股顺序：${error.message || '请重试'}`);
+        if (!this.disposed) void privateUI.showErrorMessage(`无法保存自选股顺序：${error.message || '请重试'}`);
       } finally {
         this.writingSettings--;
         if (!this.disposed) { this.config = this.readConfig(); this.publish(true); }
@@ -312,7 +313,7 @@ class WatchlistController {
           if (item.market === 'hk' || item.market === 'us') await this.overseas.mutate(item.market, list => [...list, ...item.symbols]);
           else await this.add(item.symbols);
           picker.hide();
-        } catch (e) { accepting = false; void vscode.window.showErrorMessage(e.message); }
+        } catch (e) { accepting = false; void privateUI.showErrorMessage(e.message); }
       }), picker.onDidHide(() => {
         closed = true; abort?.abort(); clearTimeout(timer); for (const listener of listeners) listener.dispose(); picker.dispose(); this.activePicker = null; resolve();
       })];
@@ -322,7 +323,7 @@ class WatchlistController {
   async remove(element) {
     let symbol = typeof element === 'string' ? normalizeSymbol(element) : element?.symbol;
     if (!symbol) {
-      const selected = await vscode.window.showQuickPick(this.config.symbols.map(s => ({ label: this.quotes.get(s)?.name || s, description: s, symbol: s })), { title: '删除自选股' });
+      const selected = await privateUI.showQuickPick(this.config.symbols.map(s => ({ label: this.quotes.get(s)?.name || s, description: s, symbol: s })), { title: '删除自选股' });
       symbol = selected?.symbol;
     }
     if (!symbol) return;
@@ -339,15 +340,15 @@ class WatchlistController {
         return { label: q?.name || (s === INDEX_SYMBOL ? '上证指数' : s),
           description: `${s}  ${q?.priceText || '—'}  ${percentText(q?.percent ?? null)}${s === this.config.selected ? '  当前显示' : ''}`, symbol: s };
       });
-      const selected = await vscode.window.showQuickPick(entries, { title: '选择底部状态栏显示的指数 / 个股' });
+      const selected = await privateUI.showQuickPick(entries, { title: '选择底部状态栏显示的指数 / 个股' });
       symbol = selected?.symbol;
     }
     if (!symbol) return;
-    if (symbol !== INDEX_SYMBOL && !this.config.symbols.includes(symbol)) return vscode.window.showErrorMessage('请先将该代码加入自选股');
+    if (symbol !== INDEX_SYMBOL && !this.config.symbols.includes(symbol)) return privateUI.showErrorMessage('请先将该代码加入自选股');
     await this.updateSetting('stocks.statusBarSymbol', symbol);
   }
   async sort() {
-    const chosen = await vscode.window.showQuickPick([
+    const chosen = await privateUI.showQuickPick([
       { label: '手动顺序（可拖拽）', mode: 'manual' }, { label: '涨幅从高到低', mode: 'percentDesc' }, { label: '跌幅从大到小', mode: 'percentAsc' }
     ], { title: '自选股排序' });
     if (chosen) await this.updateSetting('stocks.sortBy', chosen.mode);
@@ -358,6 +359,19 @@ class WatchlistController {
     this.publish(false);
     this.overseas.publishAll();
     if (!this.paused) { if (this.inflight) await this.inflight; await Promise.all(Object.values(this.overseas.inflight)); return Promise.all([this.refresh(), this.overseas.refreshAll()]); }
+  }
+  setHidden(hidden) {
+    this.hidden = hidden;
+    if (hidden) {
+      this.generation++; this.abort?.abort();
+      for (const controller of Object.values(this.overseas.abort)) controller?.abort();
+      this.activePicker?.hide(); this.overseas.picker?.hide();
+    }
+    this.publish(true);
+    if (!hidden && !this.paused && this.config.enabled) {
+      const pending = [this.inflight, ...Object.values(this.overseas.inflight)].filter(Boolean);
+      void Promise.all(pending).then(() => { if (!this.disposed && !this.hidden && !this.paused && this.config.enabled) return Promise.all([this.refresh(), this.overseas.refreshAll()]); });
+    }
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer); this.abort?.abort();

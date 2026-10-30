@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { randomBytes } = require('node:crypto');
 const { normalizeSymbol, INDEX_SYMBOL } = require('./quotes');
 const { POLL_MS, session } = require('./market');
@@ -49,9 +50,9 @@ class ChartController {
   }
   resolve(element) { return normalizeSymbol(typeof element === 'string' ? element : element?.symbol || this.selected()); }
   async open(element, mode) {
-    if (this.disposed) return;
+    if (this.disposed || this.hidden) return;
     let symbol;
-    try { symbol = this.resolve(element); } catch (e) { return vscode.window.showErrorMessage(e.message); }
+    try { symbol = this.resolve(element); } catch (e) { return privateUI.showErrorMessage(e.message); }
     const requestedMode = MODES.includes(mode) ? mode : undefined;
     const defaultMode = vscode.workspace.getConfiguration('aShareTurnover').get('charts.defaultMode', 'intraday');
     const existing = this.panels.values().next().value;
@@ -109,7 +110,7 @@ class ChartController {
       { mode: 'chips', label: '筹码盘口（东方财富）', detail: '买卖五档及“日K → 筹码分布”；遇验证码建议在浏览器打开并手动完成验证。' }
     ].filter(item => item.mode !== 'chips' || supportsChips(state.symbol))
       .map(item => ({ ...item, description: item.mode === state.mode ? '当前图表' : undefined }));
-    const picked = await vscode.window.showQuickPick(items, {
+    const picked = await privateUI.showQuickPick(items, {
       title: `${this.name(state.symbol) || state.symbol} · 切换图表来源`,
       placeHolder: isWebMode(state.mode) ? '返回内置图表或选择网页模式'
         : supportsChips(state.symbol) ? '周期请在图表内切换，这里选择网页图表' : '周期请在图表内切换；当前品种仅支持东方财富常规图表',
@@ -121,7 +122,7 @@ class ChartController {
   async chooseIndicator() {
     const state = this.visibleState(); if (!state) return;
     const token = state.token;
-    const picked = await vscode.window.showQuickPick([
+    const picked = await privateUI.showQuickPick([
       { indicator: 'macd', label: 'MACD (12,26,9)', detail: 'DIF、DEA与红绿柱；默认显示。' },
       { indicator: 'kdj', label: 'KDJ (9,3,3)', detail: 'K、D、J三条曲线；分时使用分钟采样价格计算。' },
       { indicator: 'rsi', label: 'RSI (6,12,24)', detail: '6、12、24周期相对强弱曲线。' },
@@ -217,7 +218,7 @@ class ChartController {
       const symbol = this.resolve(element);
       return await vscode.env.openExternal(vscode.Uri.parse(isWebMode(mode) ? eastmoneyChartUrl(symbol, mode) : eastmoneyUrl(symbol)));
     }
-    catch (e) { return vscode.window.showErrorMessage(e.message); }
+    catch (e) { return privateUI.showErrorMessage(e.message); }
   }
   getState(symbol) {
     const state = this.panels.get(symbol);
@@ -227,6 +228,10 @@ class ChartController {
     this.cancel(state);
     for (const listener of state.listeners) listener.dispose();
     if (this.panels.get(state.symbol) === state) this.panels.delete(state.symbol);
+  }
+  setHidden(hidden) {
+    this.hidden = hidden;
+    if (hidden) for (const state of [...this.panels.values()]) state.panel.dispose();
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer);

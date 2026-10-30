@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const data = require('./event-calendar-data');
 const { LABELS, DAY, beijing, staticEvents, snapshotEvent, parseBls, parseFed, CalendarProvider } = require('./event-calendar');
 const { MARKETS, parseHolidays, parseTradingDays, makeTradingEvents, parseEconomic, parseUsEarly, ranges, OnlineCalendar } = require('./online-calendar');
@@ -108,12 +109,12 @@ class ReminderController {
   }
   start() { this.render(); this.tick(); this.timer = setInterval(() => this.tick(),60000); if (this.enabled) void this.refresh(); }
   tick() {
-    if (this.disposed || !this.enabled) return;
+    if (this.disposed || this.hidden || !this.enabled) return;
     this.render(); this.notifyDue();
     if (!this.inflight && this.now().getTime()-(this.lastAttempt || 0) >= DAY) void this.refresh();
   }
   async refresh() {
-    if (this.inflight || this.disposed || !this.enabled) return this.inflight;
+    if (this.inflight || this.disposed || this.hidden || !this.enabled) return this.inflight;
     this.abort = new AbortController(); this.lastAttempt = this.now().getTime();
     const signal = this.abort.signal;
     this.inflight = (async () => {
@@ -135,7 +136,7 @@ class ReminderController {
     return this.inflight;
   }
   render() {
-    if (!this.enabled) { if (this.visible) this.item.hide(); this.visible = false; return; }
+    if (!this.enabled || this.hidden) { if (this.visible) this.item.hide(); this.visible = false; return; }
     const now = this.now().getTime(), future = this.events().filter(e => (e.end || e.when) >= now), next = future[0];
     const remaining = next && next.when-now;
     const countdown = remaining <= 0 ? '今日' : remaining <= DAY ? `${Math.ceil(remaining/3600000)}小时` : `${Math.ceil(remaining/DAY)}天`;
@@ -150,7 +151,7 @@ class ReminderController {
     if (!this.visible) { this.item.show(); this.visible = true; }
   }
   notifyDue() {
-    if (!this.notifications) return;
+    if (this.hidden || !this.notifications) return;
     const now = this.now().getTime(), all = this.events(); let changed = false;
     for (const e of all) {
       if(e.cancelled) continue;
@@ -171,9 +172,24 @@ class ReminderController {
     const items = [{ label:'$(refresh) 刷新日历', description:'财经事件及交易所休市安排每天自动更新，失败使用缓存或内置快照', action:'refresh' },
       { label:'$(info) 数据来源与覆盖', description:'Markets Open · Finance Calendar · 官方日历', detail:`在线接口未覆盖的年份使用快照；交易日期与交割以交易所公告为准。${this.onlineErrors.size ? ' 本次未成功的接口：'+[...this.onlineErrors.keys()].join('、') : ''}`, source:data.SOURCES.cnHoliday },
       ...entries.map(e => ({ label:`$(calendar) ${e.name}`, description:`${beijing(e.when)} 北京${e.allDay ? '（按当地09:30提醒）' : ''}`, detail:`${e.detail} ${e.provenance}`, source:e.source }))];
-    const selected = await vscode.window.showQuickPick(items,{ title:'财经大事日历', placeHolder:'选择事件查看官方来源；时间均为北京时间' });
+    const selected = await privateUI.showQuickPick(items,{ title:'财经大事日历', placeHolder:'选择事件查看官方来源；时间均为北京时间' });
     if (selected?.action === 'refresh' && this.enabled) { await this.refresh(); return this.show(); }
     if (selected?.source) await vscode.env.openExternal(vscode.Uri.parse(selected.source));
+  }
+  setHidden(hidden, since) {
+    this.hidden = hidden;
+    if (hidden) this.abort?.abort();
+    else if (Number.isFinite(since)) {
+      const now=this.now().getTime();
+      for (const e of this.events()) {
+        if (e.cancelled || e.when<=now) continue;
+        const kind=/半日市/.test(e.name)?'half':/提前收盘/.test(e.name)?'early':'event';
+        for(const lead of [1440,30]) if(e.when-lead*60000 <= now) this.notified[`${e.type}:${e.date}:${kind}:${lead}`]=now;
+      }
+      void this.context.globalState.update('eventNotifications',this.notified);
+    }
+    this.render();
+    if (!hidden && this.enabled) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && !this.hidden && this.enabled) return this.refresh(); });
   }
   dispose() { this.disposed = true; clearInterval(this.timer); this.abort?.abort(); this.listener.dispose(); this.item.dispose(); }
 }

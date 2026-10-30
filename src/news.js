@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { shanghaiClock } = require('./market');
 const { SOURCES, isArticle, mergeNews, NewsProvider } = require('./news-data');
 const TOKEN_KEY = 'aShareTurnover.xuangubaoToken';
@@ -52,6 +53,7 @@ class NewsController {
   }
   publish() {
     if (this.disposed) return;
+    if (this.hidden) { if (this.statusVisible) { this.status.hide(); this.statusVisible = false; } return; }
     if (this.error && this.error !== this.lastError) this.output.appendLine(`⚠ ${this.error}${this.items.length ? '。保留上次成功快讯。' : ''}`);
     this.lastError = this.error;
     if (!this.config.enabled) { if (this.statusVisible) { this.status.hide(); this.statusVisible = false; } return; }
@@ -63,7 +65,7 @@ class NewsController {
     if (!this.statusVisible) { this.status.show(); this.statusVisible = true; }
   }
   refresh() {
-    if (this.disposed || !this.config.enabled) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.config.enabled) return Promise.resolve();
     if (this.inflight) return this.inflight;
     const generation = this.generation, source = this.config.source;
     const abort = this.abort = new AbortController(); this.lastAttempt = this.now().getTime();
@@ -114,14 +116,14 @@ class NewsController {
     return vscode.window.showTextDocument(vscode.Uri.from({ scheme: 'a-share-news', path }), { preview: true, preserveFocus: false });
   }
   async source() {
-    const selected = await vscode.window.showQuickPick([
+    const selected = await privateUI.showQuickPick([
       { label: '东方财富', description: '公开 7×24 财经快讯，无需 Token', source: 'eastmoney' },
       { label: '选股宝', description: '与参考插件相同来源，需要设置登录 Token', source: 'xuangubao' }
     ], { title: '选择财经新闻来源' });
     if (selected) await vscode.workspace.getConfiguration('aShareTurnover').update('news.source', selected.source, vscode.ConfigurationTarget.Global);
   }
   async setToken() {
-    const token = await vscode.window.showInputBox({ title: '设置选股宝登录 Token', password: true, ignoreFocusOut: true,
+    const token = await privateUI.showInputBox({ title: '设置选股宝登录 Token', password: true, ignoreFocusOut: true,
       prompt: '使用选股通网站自己的登录 Token。凭证保存在 VS Code SecretStorage，不写入 settings.json；留空可清除。' });
     if (token === undefined) return;
     if (token.trim()) await this.context.secrets.store(TOKEN_KEY, token.trim()); else await this.context.secrets.delete(TOKEN_KEY);
@@ -134,6 +136,12 @@ class NewsController {
     this.paused = !this.paused; if (this.paused) this.abort?.abort();
     await this.context.globalState.update('newsPaused', this.paused); this.publish();
     if (!this.paused) { if (this.inflight) await this.inflight; return this.refresh(); }
+  }
+  setHidden(hidden) {
+    this.hidden = hidden;
+    if (hidden) { this.generation++; this.abort?.abort(); this.output.hide(); }
+    this.publish();
+    if (!hidden && !this.paused && this.config.enabled) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && !this.hidden && !this.paused && this.config.enabled) return this.refresh(); });
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer); this.abort?.abort();

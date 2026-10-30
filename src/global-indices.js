@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { POLL_MS, shanghaiClock } = require('./market');
 const { signed, percentText } = require('./quotes');
 const { REGIONS, ALIASES, DEFAULT_INDEX_IDS, BUILTIN_INDICES, normalizeIndexIds, indexEntry, isGlobalQuote, GlobalIndexProvider, globalIndexUrl } = require('./global-index-data');
@@ -63,7 +64,7 @@ class GlobalIndicesController {
     });
   }
   getChildren(element) {
-    return this.enabled && !element ? this.selectedIds.map(id => this.element(id)) : [];
+    return this.enabled && !this.hidden && !element ? this.selectedIds.map(id => this.element(id)) : [];
   }
   element(id) {
     if (!this.elements.has(id)) this.elements.set(id, { kind: 'globalIndex', id });
@@ -103,7 +104,7 @@ class GlobalIndicesController {
     if (structural) this.emitter.fire(undefined); else for (const id of changed) this.emitter.fire(this.element(id));
   }
   refresh(automatic = false) {
-    if (this.disposed || !this.enabled || !this.selectedIds.length || (automatic && (this.paused || !this.tree.visible))) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.enabled || !this.selectedIds.length || (automatic && (this.paused || !this.tree.visible))) return Promise.resolve();
     if (this.inflight && this.abort?.signal.aborted) return this.inflight.then(() => this.refresh(automatic));
     if (this.inflight) return this.inflight;
     const abort = this.abort = new AbortController(), generation = this.generation, selected = [...this.selectedIds];
@@ -148,7 +149,7 @@ class GlobalIndicesController {
     return this.inflight;
   }
   async ensureCatalog() {
-    if (this.catalogLoaded || this.now().getTime() < this.catalogRetryAt || !this.provider.loadCatalog) return;
+    if (this.hidden || this.catalogLoaded || this.now().getTime() < this.catalogRetryAt || !this.provider.loadCatalog) return;
     if (this.catalogInflight) return this.catalogInflight;
     const abort = this.catalogAbort = new AbortController();
     this.catalogInflight = (async () => {
@@ -180,11 +181,11 @@ class GlobalIndicesController {
     if (typeof input === 'string' || Array.isArray(input)) {
       let ids;
       try { ids = normalizeIndexIds(input); }
-      catch (error) { return vscode.window.showErrorMessage(error.message); }
+      catch (error) { return privateUI.showErrorMessage(error.message); }
       if (ids.some(id => !this.catalog.has(id))) await this.ensureCatalog();
       if (this.disposed || !this.enabled) return;
       const unknown = ids.filter(id => !this.catalog.has(id));
-      if (unknown.length) return vscode.window.showErrorMessage(`未找到指数 ${unknown.join('、')}，可使用＋按名称或代码搜索`);
+      if (unknown.length) return privateUI.showErrorMessage(`未找到指数 ${unknown.join('、')}，可使用＋按名称或代码搜索`);
       return this.saveSelection([...this.selectedIds, ...ids]);
     }
     // Title actions pass a focused row/context object: always open the add picker.
@@ -194,22 +195,22 @@ class GlobalIndicesController {
       const q = this.quotes.get(entry.id), region = REGIONS.find(item => item.id === entry.region);
       return { label: entry.name, description: `${entry.code} · ${region.name} · ${ALIASES[entry.code] || ''}${this.selectedIds.includes(entry.id) ? ' · 已添加' : ''}`, detail: `${q ? q.price.toFixed(2) : '—'}　${percentText(q?.percent ?? null)}　行情 ${quoteTime(q)}（北京）`, id: entry.id };
     });
-    const selected = await vscode.window.showQuickPick(items, { title: '添加全球指数', placeHolder: '输入名称、代码或地区；可勾选多个指数后回车添加', matchOnDescription: true, canPickMany: true });
+    const selected = await privateUI.showQuickPick(items, { title: '添加全球指数', placeHolder: '输入名称、代码或地区；可勾选多个指数后回车添加', matchOnDescription: true, canPickMany: true });
     if (selected?.length && !this.disposed && this.enabled) {
       try { await this.saveSelection([...this.selectedIds, ...selected.map(item => item.id)]); }
-      catch (error) { return vscode.window.showErrorMessage(error.message); }
+      catch (error) { return privateUI.showErrorMessage(error.message); }
     }
   }
   async remove(element) {
     if (this.disposed || !this.enabled) return;
     let id = typeof element === 'string' ? element : element?.id;
     if (!id) {
-      const chosen = await vscode.window.showQuickPick(this.selectedIds.map(id => ({ label: this.catalog.get(id).name, description: id, id })), { title: '删除全球指数' });
+      const chosen = await privateUI.showQuickPick(this.selectedIds.map(id => ({ label: this.catalog.get(id).name, description: id, id })), { title: '删除全球指数' });
       id = chosen?.id;
     }
     if (!id || this.disposed || !this.enabled) return;
     try { id = normalizeIndexIds([id])[0]; }
-    catch (error) { return vscode.window.showErrorMessage(error.message); }
+    catch (error) { return privateUI.showErrorMessage(error.message); }
     await this.saveSelection(this.selectedIds.filter(current => current !== id));
   }
   async open(element) {
@@ -222,6 +223,11 @@ class GlobalIndicesController {
     await this.context.globalState.update('globalIndicesPaused', this.paused);
     this.publish();
     if (!this.paused && this.tree.visible) return this.refresh(true);
+  }
+  setHidden(hidden) {
+    this.hidden = hidden; if (hidden) { this.generation++; this.abort?.abort(); this.catalogAbort?.abort(); }
+    this.publish(true);
+    if (!hidden && this.enabled && !this.paused) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && !this.hidden && !this.paused) return this.refresh(true); });
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer); this.abort?.abort(); this.catalogAbort?.abort();

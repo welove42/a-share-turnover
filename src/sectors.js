@@ -99,7 +99,7 @@ class SectorsController {
   }
   start() { this.render(); this.timer = setInterval(() => this.tick(), 1000); if (this.enabled) void this.refresh(); }
   tick() {
-    if (this.disposed || !this.enabled) return;
+    if (this.disposed || this.hidden || !this.enabled) return;
     this.render();
     const trading = stockSession(this.now(), this.closedDates).polling;
     const due = trading ? this.now().getTime() - this.lastAttempt >= (this.category === 'concept' ? CONCEPT_POLL_MS : POLL_MS)
@@ -107,12 +107,12 @@ class SectorsController {
     if (!this.inflight && due) void this.refresh();
   }
   retry() {
-    if (this.disposed || !this.enabled) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.enabled) return Promise.resolve();
     this.retryCount = 0; this.provider.resetCooldowns?.();
     return (this.inflight || Promise.resolve()).then(() => this.refresh());
   }
   refresh() {
-    if (this.disposed || !this.enabled) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.enabled) return Promise.resolve();
     if (this.inflight) return this.inflight;
     const abort = this.abort = new AbortController(), generation = this.generation, category = this.category;
     this.lastAttempt = this.now().getTime();
@@ -131,7 +131,7 @@ class SectorsController {
     return this.inflight;
   }
   render() {
-    if (!this.enabled) { if (this.visible) { this.item.hide(); this.visible = false; } return; }
+    if (!this.enabled || this.hidden) { if (this.visible) { this.item.hide(); this.visible = false; } return; }
     const clock = stockSession(this.now(), this.closedDates), rows = this.rows, first = rows?.[0];
     const oldest = rows && Math.min(...rows.map(r => r.timestamp)), stamp = oldest ? shanghaiClock(new Date(oldest * 1000)) : null;
     const sina = first?.source === 'sina';
@@ -146,6 +146,11 @@ class SectorsController {
     if (tip.value !== this.rendered.tooltip) this.item.tooltip = tip;
     this.rendered = { text, tooltip: tip.value };
     if (!this.visible) { this.item.show(); this.visible = true; }
+  }
+  setHidden(hidden) {
+    this.hidden = hidden; if (hidden) { this.generation++; this.abort?.abort(); }
+    this.render();
+    if (!hidden && this.enabled) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && !this.hidden && this.enabled) return this.refresh(); });
   }
   dispose() { this.disposed = true; this.generation++; clearInterval(this.timer); this.abort?.abort(); this.listener.dispose(); this.item.dispose(); }
 }

@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.18.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.19.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -58,6 +58,10 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "welove42.aShareTurnover.toggleHidden",
+        "title": "A股行情：切换隐藏模式（老板键）"
+      },
       {
         "command": "welove42.aShareTurnover.reminders.show",
         "title": "财经大事：查看提醒日历"
@@ -593,6 +597,12 @@
         }
       }
     },
+    "keybindings": [
+      {
+        "command": "welove42.aShareTurnover.toggleHidden",
+        "key": "ctrl+shift+;"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -607,25 +617,26 @@
         {
           "id": "welove42.aShareTurnover.watchlist",
           "name": "自选股（名称 / 代码）",
-          "contextualTitle": "STOCK 自选股"
+          "contextualTitle": "STOCK 自选股",
+          "when": "aShareTurnover.visible"
         },
         {
           "id": "welove42.aShareTurnover.globalIndices",
           "name": "全球指数",
           "contextualTitle": "STOCK 全球指数",
-          "when": "config.aShareTurnover.globalIndices.enabled"
+          "when": "aShareTurnover.visible && config.aShareTurnover.globalIndices.enabled"
         },
         {
           "id": "welove42.aShareTurnover.funds",
           "name": "基金",
           "contextualTitle": "STOCK 基金",
-          "when": "config.aShareTurnover.funds.enabled"
+          "when": "aShareTurnover.visible && config.aShareTurnover.funds.enabled"
         },
         {
           "id": "welove42.aShareTurnover.commodities",
           "name": "全球商品",
           "contextualTitle": "STOCK 全球商品",
-          "when": "config.aShareTurnover.commodities.enabled"
+          "when": "aShareTurnover.visible && config.aShareTurnover.commodities.enabled"
         }
       ]
     },

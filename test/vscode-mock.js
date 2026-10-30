@@ -13,7 +13,7 @@ function harness(configuration = {}) {
   const changes = new EventEmitter(), values = new Map(Object.entries(configuration));
   const trees = new Map(), statuses = [], channels = [], opened = [], documents = new Map(), panels = [], pickers = [];
   const api = {
-    EventEmitter, MarkdownString, DataTransferItem: class { constructor(value) { this.value = value; } }, StatusBarAlignment: { Right: 2 }, ConfigurationTarget: { Global: 1 },
+    EventEmitter, MarkdownString, CancellationTokenSource: class { constructor() { const e = new EventEmitter(); this.token = { isCancellationRequested: false, onCancellationRequested: e.event }; this.events = e; } cancel() { this.token.isCancellationRequested = true; this.events.fire(); } dispose() { this.events.dispose(); } }, DataTransferItem: class { constructor(value) { this.value = value; } }, StatusBarAlignment: { Right: 2 }, ConfigurationTarget: { Global: 1 },
     ThemeColor: class { constructor(id) { this.id = id; } }, ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
     TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
@@ -48,7 +48,7 @@ function harness(configuration = {}) {
         for (const key of ['text', 'tooltip']) Object.defineProperty(item, key, { get: () => props[key], set: value => { props[key] = value; item.writes[key] = (item.writes[key] || 0) + 1; } });
         statuses.push(item); return item;
       },
-      createOutputChannel: name => { const channel = { name, lines: [], shown: 0, appendLine(t) { this.lines.push(t); }, clear() { this.lines = []; }, show() { this.shown++; }, dispose() {} }; channels.push(channel); return channel; },
+      createOutputChannel: name => { const channel = { name, lines: [], shown: 0, hidden: 0, appendLine(t) { this.lines.push(t); }, clear() { this.lines = []; }, show() { this.shown++; }, hide() { this.hidden++; }, dispose() {} }; channels.push(channel); return channel; },
       showInputBox: async () => undefined, showQuickPick: async () => undefined,
       showErrorMessage: async text => { opened.push({ error: text }); },
       showTextDocument: async uri => { opened.push(uri); return uri; }

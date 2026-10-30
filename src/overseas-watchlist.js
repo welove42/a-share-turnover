@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { requestQuoteText } = require('./http');
 const { percentText, signed, orderedSymbols } = require('./quotes');
 const { trendIcon } = require('./trend-icon');
@@ -88,7 +89,7 @@ class OverseasWatchlist {
   publishAll() { for(const m of ['hk','us'])this.publish(m); }
   tick(active = true) { for (const m of ['hk','us']) { this.publish(m); if (active && this.symbols[m].length && localClock(this.parent.now(),m).polling && this.parent.now().getTime()-this.last[m]>=10000) void this.refresh(m); } }
   async refresh(m, force = false) {
-    if (this.parent.disposed || !this.parent.config.enabled || (this.parent.paused && !force) || !this.symbols[m].length) return;
+    if (this.parent.disposed || this.parent.hidden || !this.parent.config.enabled || (this.parent.paused && !force) || !this.symbols[m].length) return;
     if (this.inflight[m] && this.abort[m]?.signal.aborted) return this.inflight[m].then(()=>this.refresh(m,force));
     if (this.inflight[m]) return this.inflight[m];
     const symbols = [...this.symbols[m]], generation = this.generation, abort = this.abort[m] = new AbortController(); this.last[m] = this.parent.now().getTime();
@@ -125,7 +126,7 @@ class OverseasWatchlist {
       },300);
     };
     return new Promise(resolve=>{ const listeners=[picker.onDidChangeValue(update),picker.onDidAccept(async()=>{ const item=picker.selectedItems[0]||picker.activeItems?.[0]; if(!item?.symbol||accepting)return; accepting=true;
-      try { await this.mutate(market, list => [...list,item.symbol]); picker.hide(); } catch(e) { accepting=false; void vscode.window.showErrorMessage(e.message); }
+      try { await this.mutate(market, list => [...list,item.symbol]); picker.hide(); } catch(e) { accepting=false; void privateUI.showErrorMessage(e.message); }
     }),picker.onDidHide(()=>{ closed=true;abort?.abort();clearTimeout(timer);for(const l of listeners)l.dispose();picker.dispose();if(this.picker===picker)this.picker=null;resolve(); })]; this.picker?.hide();this.picker=picker;picker.show(); });
   }
   async mutate(market, change) {
@@ -153,7 +154,7 @@ class OverseasWatchlist {
   }
   async open(element) {
     try { const m=element?.market, symbol=normalizeOverseas(element?.symbol,m); await vscode.env.openExternal(vscode.Uri.parse(`https://gu.qq.com/${symbol}`)); }
-    catch(e) { void vscode.window.showErrorMessage(e.message); }
+    catch(e) { void privateUI.showErrorMessage(e.message); }
   }
   dispose() { this.generation++; for(const c of Object.values(this.abort))c?.abort(); this.picker?.hide(); }
 }

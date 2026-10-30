@@ -1,6 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { MarketProvider } = require('./provider');
 const { POLL_MS, session, isSnapshot, PHASE_LABELS } = require('./market');
 const { view } = require('./view');
@@ -17,6 +18,7 @@ const { TemperatureHistory } = require('./temperature-history');
 const { TemperatureChartController } = require('./temperature-chart');
 const { SectorsController } = require('./sectors');
 const { ReminderController } = require('./reminders');
+const { BossKey } = require('./boss-key');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -88,7 +90,7 @@ class TurnoverController {
   }
 
   tick() {
-    if (this.disposed) return;
+    if (this.disposed || this.hidden) return;
     const clock = session(this.now(), this.config.additionalClosedDates);
     const phaseChanged = clock.phase !== this.lastPhase;
     const dateChanged = clock.date !== this.lastDate;
@@ -104,7 +106,7 @@ class TurnoverController {
   }
 
   refresh(manual = false) {
-    if (this.disposed || !this.config.enabled) return Promise.resolve();
+    if (this.disposed || this.hidden || !this.config.enabled) return Promise.resolve();
     if (this.inflight) return this.inflight;
     this.lastAttempt = this.now().getTime();
     this.requestController = new AbortController();
@@ -147,7 +149,7 @@ class TurnoverController {
     if (this.disposed) return;
     const now = this.now(), clock = session(now, this.config.additionalClosedDates);
     this.temperatureHistory.rollover(clock.date);
-    if (!this.config.enabled) {
+    if (!this.config.enabled || this.hidden) {
       if (this.visible) { this.item.hide(); this.visible = false; }
       if (this.temperatureVisible) { this.temperatureItem.hide(); this.temperatureVisible = false; }
       this.temperatureChart.update();
@@ -211,7 +213,7 @@ class TurnoverController {
   }
 
   showTemperature() {
-    if (this.disposed) return;
+    if (this.disposed || this.hidden) return;
     this.temperatureHistory.rollover(session(this.now(), this.config.additionalClosedDates).date);
     this.temperatureChart.open();
   }
@@ -236,7 +238,7 @@ class TurnoverController {
   }
 
   async switchComparison() {
-    const selected = await vscode.window.showQuickPick([
+    const selected = await privateUI.showQuickPick([
       { label: '昨日同刻', description: '相同分钟的累计成交额（默认）', mode: 'sameTime' },
       { label: '昨日全天', description: '当前累计额对比上个交易日全天', mode: 'previousDay' }
     ], { title: '选择缩量 / 放量的比较口径', placeHolder: '昨日均指上一交易日' });
@@ -245,7 +247,7 @@ class TurnoverController {
   }
 
   async showMenu() {
-    const selected = await vscode.window.showQuickPick([
+    const selected = await privateUI.showQuickPick([
       { label: '$(refresh) 立即刷新', command: 'welove42.aShareTurnover.refresh' },
       { label: '$(arrow-swap) 切换比较口径', command: 'welove42.aShareTurnover.switchComparison' },
       { label: '$(dashboard) 市场温度走势图', command: 'welove42.aShareTurnover.showTemperature' },
@@ -256,6 +258,19 @@ class TurnoverController {
     if (!selected) return;
     if (selected.command === 'settings') return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:welove42.a-share-turnover');
     return vscode.commands.executeCommand(selected.command);
+  }
+
+  setHidden(hidden) {
+    this.hidden = hidden;
+    if (hidden) {
+      this.requestController?.abort();
+      this.temperatureChart.state?.panel.dispose();
+      this.output.hide(); this.temperatureOutput.hide();
+    }
+    this.render();
+    if (!hidden && !this.state.paused && this.config.enabled) {
+      void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && !this.hidden && !this.state.paused && this.config.enabled) return this.refresh(); });
+    }
   }
 
   dispose() {
@@ -285,60 +300,63 @@ function activate(context) {
   const commodities = new CommoditiesController(context, { log: message => controller.log(message) });
   const sectors = new SectorsController(context);
   const reminders = new ReminderController(context);
+  const bossKey = new BossKey(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders });
+  const bind = (command, callback) => vscode.commands.registerCommand(command, (...args) => bossKey.hidden ? undefined : callback(...args));
   context.subscriptions.push(controller,
-    vscode.commands.registerCommand('welove42.aShareTurnover.refresh', () => controller.refresh(true)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.showMenu', () => controller.showMenu()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.togglePause', () => controller.togglePause()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.switchComparison', () => controller.switchComparison()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.showLog', () => controller.output.show()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.showTemperature', () => controller.showTemperature()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.showTemperatureDetails', () => controller.showTemperatureDetails()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.temperature.refresh', () => controller.refresh(true)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.sectors.refresh', () => sectors.retry()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.reminders.show', () => reminders.show()),
+    bossKey, vscode.commands.registerCommand('welove42.aShareTurnover.toggleHidden', () => bossKey.toggle()),
+    bind('welove42.aShareTurnover.refresh', () => controller.refresh(true)),
+    bind('welove42.aShareTurnover.showMenu', () => controller.showMenu()),
+    bind('welove42.aShareTurnover.togglePause', () => controller.togglePause()),
+    bind('welove42.aShareTurnover.switchComparison', () => controller.switchComparison()),
+    bind('welove42.aShareTurnover.showLog', () => controller.output.show()),
+    bind('welove42.aShareTurnover.showTemperature', () => controller.showTemperature()),
+    bind('welove42.aShareTurnover.showTemperatureDetails', () => controller.showTemperatureDetails()),
+    bind('welove42.aShareTurnover.temperature.refresh', () => controller.refresh(true)),
+    bind('welove42.aShareTurnover.sectors.refresh', () => sectors.retry()),
+    bind('welove42.aShareTurnover.reminders.show', () => reminders.show()),
     stocks, news, charts, globals, funds, commodities, sectors, reminders,
-    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.refresh', () => commodities.refresh()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.togglePause', () => commodities.togglePause()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.commodities.open', element => commodities.open(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.funds.add', input => funds.add(input)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.funds.remove', element => funds.remove(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.funds.refresh', () => funds.refresh()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.funds.togglePause', () => funds.togglePause()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.funds.editHolding', element => funds.editHolding(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.funds.clearHolding', element => funds.clearHolding(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.funds.open', element => funds.open(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.search', () => globals.search()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.add', input => globals.add(input)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.remove', element => globals.remove(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.refresh', () => globals.refresh()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.togglePause', () => globals.togglePause()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.globalIndices.open', element => globals.open(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.openChart', (element, mode) => charts.open(element, mode)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.openInBrowser', element => charts.openExternal(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.chart.selectMode', () => charts.chooseMode()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.chart.selectIndicator', () => charts.chooseIndicator()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.chart.refresh', () => charts.refreshActive()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.chart.openInBrowser', () => charts.openActiveExternal()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.add', input => stocks.add(input)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.remove', element => stocks.remove(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.refresh', () => Promise.all([stocks.refresh(), stocks.overseas.refreshAll(true)])),
-    vscode.commands.registerCommand('welove42.aShareTurnover.overseas.add', element => stocks.overseas.add(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.overseas.remove', element => stocks.overseas.remove(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.overseas.open', element => stocks.overseas.open(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.selectStatus', element => stocks.selectStatus(element)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.sort', () => stocks.sort()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.stocks.togglePause', () => stocks.togglePause()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.news.refresh', () => news.refresh()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.news.show', () => news.show()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.news.open', item => news.open(item)),
-    vscode.commands.registerCommand('welove42.aShareTurnover.news.source', () => news.source()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.news.setToken', () => news.setToken()),
-    vscode.commands.registerCommand('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
+    bind('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
+    bind('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),
+    bind('welove42.aShareTurnover.commodities.refresh', () => commodities.refresh()),
+    bind('welove42.aShareTurnover.commodities.togglePause', () => commodities.togglePause()),
+    bind('welove42.aShareTurnover.commodities.open', element => commodities.open(element)),
+    bind('welove42.aShareTurnover.funds.add', input => funds.add(input)),
+    bind('welove42.aShareTurnover.funds.remove', element => funds.remove(element)),
+    bind('welove42.aShareTurnover.funds.refresh', () => funds.refresh()),
+    bind('welove42.aShareTurnover.funds.togglePause', () => funds.togglePause()),
+    bind('welove42.aShareTurnover.funds.editHolding', element => funds.editHolding(element)),
+    bind('welove42.aShareTurnover.funds.clearHolding', element => funds.clearHolding(element)),
+    bind('welove42.aShareTurnover.funds.open', element => funds.open(element)),
+    bind('welove42.aShareTurnover.globalIndices.search', () => globals.search()),
+    bind('welove42.aShareTurnover.globalIndices.add', input => globals.add(input)),
+    bind('welove42.aShareTurnover.globalIndices.remove', element => globals.remove(element)),
+    bind('welove42.aShareTurnover.globalIndices.refresh', () => globals.refresh()),
+    bind('welove42.aShareTurnover.globalIndices.togglePause', () => globals.togglePause()),
+    bind('welove42.aShareTurnover.globalIndices.open', element => globals.open(element)),
+    bind('welove42.aShareTurnover.stocks.openChart', (element, mode) => charts.open(element, mode)),
+    bind('welove42.aShareTurnover.stocks.openInBrowser', element => charts.openExternal(element)),
+    bind('welove42.aShareTurnover.chart.selectMode', () => charts.chooseMode()),
+    bind('welove42.aShareTurnover.chart.selectIndicator', () => charts.chooseIndicator()),
+    bind('welove42.aShareTurnover.chart.refresh', () => charts.refreshActive()),
+    bind('welove42.aShareTurnover.chart.openInBrowser', () => charts.openActiveExternal()),
+    bind('welove42.aShareTurnover.stocks.add', input => stocks.add(input)),
+    bind('welove42.aShareTurnover.stocks.remove', element => stocks.remove(element)),
+    bind('welove42.aShareTurnover.stocks.refresh', () => Promise.all([stocks.refresh(), stocks.overseas.refreshAll(true)])),
+    bind('welove42.aShareTurnover.overseas.add', element => stocks.overseas.add(element)),
+    bind('welove42.aShareTurnover.overseas.remove', element => stocks.overseas.remove(element)),
+    bind('welove42.aShareTurnover.overseas.open', element => stocks.overseas.open(element)),
+    bind('welove42.aShareTurnover.stocks.selectStatus', element => stocks.selectStatus(element)),
+    bind('welove42.aShareTurnover.stocks.sort', () => stocks.sort()),
+    bind('welove42.aShareTurnover.stocks.togglePause', () => stocks.togglePause()),
+    bind('welove42.aShareTurnover.news.refresh', () => news.refresh()),
+    bind('welove42.aShareTurnover.news.show', () => news.show()),
+    bind('welove42.aShareTurnover.news.open', item => news.open(item)),
+    bind('welove42.aShareTurnover.news.source', () => news.source()),
+    bind('welove42.aShareTurnover.news.setToken', () => news.setToken()),
+    bind('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
   );
   controller.start(); stocks.start(); news.start(); globals.start(); funds.start(); commodities.start(); sectors.start(); reminders.start();
-  void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
+  if (!bossKey.hidden) void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
   return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
     getMarketTemperature: () => controller.temperatureResult ? { ...controller.temperatureResult } : undefined,
     getMarketTemperatureHistory: () => controller.temperatureHistory.data(),
