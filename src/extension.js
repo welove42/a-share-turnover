@@ -16,6 +16,7 @@ const { marketTemperature, temperatureView } = require('./temperature');
 const { TemperatureHistory } = require('./temperature-history');
 const { TemperatureChartController } = require('./temperature-chart');
 const { SectorsController } = require('./sectors');
+const { ReminderController } = require('./reminders');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -283,6 +284,7 @@ function activate(context) {
   const funds = new FundsController(context, { log: message => controller.log(message) });
   const commodities = new CommoditiesController(context, { log: message => controller.log(message) });
   const sectors = new SectorsController(context);
+  const reminders = new ReminderController(context);
   context.subscriptions.push(controller,
     vscode.commands.registerCommand('welove42.aShareTurnover.refresh', () => controller.refresh(true)),
     vscode.commands.registerCommand('welove42.aShareTurnover.showMenu', () => controller.showMenu()),
@@ -293,7 +295,8 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.showTemperatureDetails', () => controller.showTemperatureDetails()),
     vscode.commands.registerCommand('welove42.aShareTurnover.temperature.refresh', () => controller.refresh(true)),
     vscode.commands.registerCommand('welove42.aShareTurnover.sectors.refresh', () => sectors.retry()),
-    stocks, news, charts, globals, funds, commodities, sectors,
+    vscode.commands.registerCommand('welove42.aShareTurnover.reminders.show', () => reminders.show()),
+    stocks, news, charts, globals, funds, commodities, sectors, reminders,
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),
     vscode.commands.registerCommand('welove42.aShareTurnover.commodities.refresh', () => commodities.refresh()),
@@ -334,7 +337,7 @@ function activate(context) {
     vscode.commands.registerCommand('welove42.aShareTurnover.news.setToken', () => news.setToken()),
     vscode.commands.registerCommand('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
   );
-  controller.start(); stocks.start(); news.start(); globals.start(); funds.start(); commodities.start(); sectors.start();
+  controller.start(); stocks.start(); news.start(); globals.start(); funds.start(); commodities.start(); sectors.start(); reminders.start();
   void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
   return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
     getMarketTemperature: () => controller.temperatureResult ? { ...controller.temperatureResult } : undefined,

@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.16.1",
+  "version": "1.17.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.16.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.17.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -58,6 +58,10 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "welove42.aShareTurnover.reminders.show",
+        "title": "财经大事：查看提醒日历"
+      },
       {
         "command": "welove42.aShareTurnover.refresh",
         "title": "A股成交额：立即刷新"
@@ -347,6 +351,20 @@
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
           "description": "额外休市日期（YYYY-MM-DD），用于补充未来年份或临时休市。内置 2026 年交易所节假日。周末始终休市，不跟随调休补班。"
+        },
+        "aShareTurnover.reminders.enabled": {
+          "type": "boolean", "default": true, "scope": "application",
+          "description": "在状态栏显示最近的财经大事，点击查看完整日历。"
+        },
+        "aShareTurnover.reminders.notifications": {
+          "type": "boolean", "default": true, "scope": "application",
+          "description": "在事件前 24 小时及 30 分钟内显示一次提醒；VS Code 未运行时不会发送。"
+        },
+        "aShareTurnover.reminders.categories": {
+          "type": "array", "scope": "application", "uniqueItems": true,
+          "default": ["fed", "delivery", "cnHoliday", "hkHoliday", "usHoliday", "nonfarm", "cpi"],
+          "items": { "type": "string", "enum": ["fed", "delivery", "cnHoliday", "hkHoliday", "usHoliday", "nonfarm", "cpi"], "enumDescriptions": ["美联储议息", "A股股指期货交割", "A股节假日", "港股节假日及半日市", "美股节假日及提前收盘", "美国非农", "美国 CPI"] },
+          "description": "选择需要显示和提醒的大事类型，删除数组中的类型即可关闭。"
         },
         "aShareTurnover.stocks.enabled": {
           "type": "boolean",
