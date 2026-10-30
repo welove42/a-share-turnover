@@ -4,35 +4,11 @@ const { requestQuoteText } = require('./http');
 const { percentText, signed, orderedSymbols } = require('./quotes');
 const { trendIcon } = require('./trend-icon');
 const { normalizeDate, timeToMinute } = require('./market');
+const { normalizeOverseas } = require('./overseas-symbols');
+const { parseMarketSuggestions } = require('./stock-search');
 
-function normalizeOverseas(value, market) {
-  if (typeof value !== 'string') throw new Error('请输入股票代码');
-  const input = value.trim();
-  if (market === 'hk') {
-    const match = input.match(/^(?:hk)?(\d{1,5})(?:\.hk)?$/i);
-    if (match) return 'hk' + match[1].padStart(5, '0');
-    throw new Error('港股代码示例：00700 或 hk00700');
-  }
-  if (market === 'us') {
-    const clean = input.replace(/^us(?=[A-Z])/, '').replace(/\.(?:OQ|N|AM|PS)$/i, '').toUpperCase();
-    if (/^[A-Z][A-Z0-9]{0,9}(?:\.[A-Z]{1,3})?$/.test(clean)) return 'us' + clean;
-    throw new Error('美股代码示例：AAPL 或 usAAPL');
-  }
-  throw new Error('未知股票市场');
-}
 function parseOverseasSearch(text, market) {
-  const m = typeof text === 'string' && text.match(/(?:var\s+)?v_hint\s*=\s*"([^"\r\n]*)"/);
-  if (!m) throw new Error('股票搜索接口返回异常');
-  const seen = new Set(), out = [];
-  for (const row of m[1].split('^')) {
-    const [area, code, rawName, pinyin, type] = row.split('~');
-    if (area !== market || type !== 'GP' || !rawName) continue;
-    try {
-      const symbol = normalizeOverseas(code, market); if (seen.has(symbol)) continue; seen.add(symbol);
-      out.push({ symbol, name: rawName.replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))).slice(0, 100), pinyin: (pinyin || '').slice(0, 100) });
-    } catch { /* Ignore unrelated search results. */ }
-  }
-  return out;
+  return parseMarketSuggestions(text).filter(item => item.market === market).map(({symbol,name,pinyin})=>({symbol,name,pinyin}));
 }
 function parseOverseasQuotes(text, market, symbols) {
   const wanted = new Set(symbols), quotes = new Map(), errors = new Map();

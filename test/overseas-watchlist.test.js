@@ -41,10 +41,10 @@ test('港美股请求失败保留缓存，显示原始当地时间并可打开�
   await c.overseas.open(e);assert.equal(h.opened.at(-1),'https://gu.qq.com/hk00700');
  }finally{c.dispose();}
 });
-test('分组加号按中文名搜索并添加，取消不会写入，标题按钮携带分组时也可打开',async()=>{
+test('分组加号按中文名搜索并添加，取消不会写入',async()=>{
  const h=harness(); const {WatchlistController}=h.load('../src/watchlist'); const c=new WatchlistController(h.context,{provider:{load:async()=>({quotes:new Map(),errors:new Map()})}});c.paused=true;
  c.overseas.request=async()=> 'v_hint="hk~00700~\\u817e\\u8baf\\u63a7\\u80a1~txkg~GP^us~tcehy.ps~\\u817e\\u8baf~tx~GP"';
- try {const pending=c.add(c.overseas.groups.hk), picker=h.pickers.at(-1);picker.change('腾讯');await new Promise(r=>setTimeout(r,330));assert.equal(picker.items[0].label,'腾讯控股');picker.selectedItems=[picker.items[0]];picker.accept();await pending;assert.deepEqual(c.overseas.symbols.hk,['hk00700']);
+ try {const pending=c.overseas.add(c.overseas.groups.hk), picker=h.pickers.at(-1);picker.change('腾讯');await new Promise(r=>setTimeout(r,330));assert.equal(picker.items[0].label,'腾讯控股');picker.selectedItems=[picker.items[0]];picker.accept();await pending;assert.deepEqual(c.overseas.symbols.hk,['hk00700']);
  const cancel=c.overseas.add(c.overseas.groups.us);h.pickers.at(-1).hide();await cancel;assert.deepEqual(c.overseas.symbols.us,[]);
  }finally{c.dispose();}
 });

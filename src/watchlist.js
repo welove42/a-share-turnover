@@ -7,6 +7,7 @@ const { StockSearch } = require('./stock-search');
 const { StockSettings } = require('./stock-settings');
 const { trendIcon } = require('./trend-icon');
 const { OverseasWatchlist } = require('./overseas-watchlist');
+const { normalizeOverseas } = require('./overseas-symbols');
 const WATCHLIST_MIME = 'application/vnd.code.tree.welove42.ashareturnover.watchlist';
 
 class WatchlistController {
@@ -194,7 +195,6 @@ class WatchlistController {
   }
   async add(input) {
     // View-title actions can pass the focused tree item instead of stock input.
-    if (input?.kind === 'overseasGroup' || input?.kind === 'overseasStock') return this.overseas.add(input);
     if (typeof input !== 'string' && !Array.isArray(input)) return this.searchAndAdd();
     let additions;
     try {
@@ -267,17 +267,22 @@ class WatchlistController {
   }
   searchAndAdd(initial = '') {
     const picker = vscode.window.createQuickPick();
-    picker.title = '搜索并添加自选股'; picker.placeholder = '输入中文名、拼音或股票编号，例如 贵州茅台 / 平安 / 600519；完整代码也可批量输入';
+    picker.title = '搜索并添加自选股'; picker.placeholder = '搜索A股、港股、美股：例如 贵州茅台 / 腾讯 / 苹果 / 00700 / AAPL';
     picker.matchOnDescription = true; picker.matchOnDetail = true; picker.ignoreFocusOut = true;
     let timer, abort, generation = 0, closed = false, accepting = false;
     const update = async value => {
       const current = ++generation;
       abort?.abort(); clearTimeout(timer); picker.busy = false; picker.items = []; picker.activeItems = [];
       if (!value.trim()) return;
-      let direct;
+      let direct, directMarket = 'a';
       try { direct = normalizeSymbols(value); } catch { /* A name or partial code needs lookup. */ }
+      if (!direct && /^(?:hk\d{1,5}|\d{5}|\d{1,5}\.hk)$/i.test(value.trim())) {
+        direct = [normalizeOverseas(value, 'hk')]; directMarket = 'hk';
+      } else if (!direct && /^(?:us[A-Z][A-Z0-9.]{0,13}|[A-Z][A-Z0-9]{0,9}(?:\.[A-Z]{1,3})?)$/.test(value.trim())) {
+        direct = [normalizeOverseas(value, 'us')]; directMarket = 'us';
+      }
       if (direct?.length) {
-        picker.items = [{ label: direct.length === 1 ? `添加 ${direct[0]}` : `批量添加 ${direct.length} 个代码`, description: direct.join(', '), symbols: direct, alwaysShow: true }];
+        picker.items = [{ label: direct.length === 1 ? `添加 ${direct[0]}` : `批量添加 ${direct.length} 个代码`, description: `${directMarket === 'hk' ? '港股' : directMarket === 'us' ? '美股' : 'A股'} · ${direct.join(', ')}`, market:directMarket, symbols: direct, alwaysShow: true }];
         picker.activeItems = [picker.items[0]];
       }
       timer = setTimeout(async () => {
@@ -285,9 +290,13 @@ class WatchlistController {
         const request = abort = new AbortController(); picker.busy = true;
         try {
           if (direct?.length > 1) return;
-          const result = await this.search.search(value.trim(), request.signal);
+          const result = await (this.search.searchAll ? this.search.searchAll(value.trim(), request.signal) : this.search.search(value.trim(), request.signal));
           if (closed || this.disposed || request.signal.aborted || current !== generation) return;
-          const entries = result.map(item => ({ label: item.name, description: item.symbol, detail: `${item.pinyin}${this.config.symbols.includes(item.symbol) ? ' · 已在自选' : ''}`, symbols: [item.symbol], alwaysShow: true }));
+          const entries = result.map(item => {
+            const market = item.market || 'a', selected = market === 'a' ? this.config.symbols : this.overseas.symbols[market];
+            return { label:item.name, description:`${market === 'hk' ? '港股' : market === 'us' ? '美股' : 'A股'} · ${item.symbol}`,
+              detail:`${item.pinyin || ''}${selected?.includes(item.symbol) ? ' · 已在自选' : ''}`, market, symbols:[item.symbol], alwaysShow:true };
+          });
           picker.items = entries.length ? entries : direct?.length ? picker.items : [{ label: '未找到匹配股票，请换一个名称或完整代码', empty: true, alwaysShow: true }];
           picker.activeItems = picker.items[0]?.symbols ? [picker.items[0]] : [];
         } catch (e) {
@@ -299,7 +308,11 @@ class WatchlistController {
       const listeners = [picker.onDidChangeValue(value => void update(value)), picker.onDidAccept(async () => {
         const item = picker.selectedItems[0] || picker.activeItems?.[0]; if (!item?.symbols || accepting) return;
         accepting = true;
-        try { await this.add(item.symbols); picker.hide(); } catch (e) { accepting = false; void vscode.window.showErrorMessage(e.message); }
+        try {
+          if (item.market === 'hk' || item.market === 'us') await this.overseas.mutate(item.market, list => [...list, ...item.symbols]);
+          else await this.add(item.symbols);
+          picker.hide();
+        } catch (e) { accepting = false; void vscode.window.showErrorMessage(e.message); }
       }), picker.onDidHide(() => {
         closed = true; abort?.abort(); clearTimeout(timer); for (const listener of listeners) listener.dispose(); picker.dispose(); this.activePicker = null; resolve();
       })];

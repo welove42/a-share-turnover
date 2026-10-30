@@ -272,3 +272,16 @@ test('添加代码后立刻刷新会等待已取消的启动请求，最终获�
     assert.ok(h.c.quotes.has('sh600519'));assert.equal(calls,2);
   }finally{h.c.dispose();}
 });
+test('标题加号统一搜索港美名称并加入各自分组，已有标记和上下文正确',async()=>{
+ const h=setup();h.c.paused=true;h.c.search={searchAll:async query=>query==='腾讯'?[{market:'a',symbol:'sh000847',name:'腾讯济安',pinyin:'txja'},{market:'hk',symbol:'hk00700',name:'腾讯控股',pinyin:'txkg'}]:[{market:'us',symbol:'usAAPL',name:'苹果',pinyin:'pg'}]};
+ try{const first=h.c.add(h.c.overseas.groups.us);let picker=h.pickers.at(-1);assert.equal(picker.title,'搜索并添加自选股');picker.change('腾讯');await new Promise(r=>setTimeout(r,330));assert.match(picker.items[1].description,/港股.*hk00700/);picker.selectedItems=[picker.items[1]];picker.accept();await first;assert.deepEqual(h.c.overseas.symbols.hk,['hk00700']);assert.deepEqual(h.c.config.symbols,[]);
+ const second=h.c.add();picker=h.pickers.at(-1);picker.change('苹果');await new Promise(r=>setTimeout(r,330));assert.match(picker.items[0].description,/美股.*usAAPL/);picker.accept();await second;assert.deepEqual(h.c.overseas.symbols.us,['usAAPL']);
+ const third=h.c.add();picker=h.pickers.at(-1);picker.change('腾讯');await new Promise(r=>setTimeout(r,330));assert.match(picker.items[1].detail,/已在自选/);picker.hide();await third;
+ }finally{h.c.dispose();}
+});
+test('统一入口支持港股代码及美股代码直加，失败时不会误写入A股',async()=>{
+ const h=setup();h.c.paused=true;try{
+  let pending=h.c.add();let picker=h.pickers.at(-1);picker.change('00700');assert.match(picker.items[0].description,/港股/);picker.accept();await pending;assert.deepEqual(h.c.overseas.symbols.hk,['hk00700']);
+  pending=h.c.add();picker=h.pickers.at(-1);picker.change('AAPL');assert.match(picker.items[0].description,/美股/);picker.accept();await pending;assert.deepEqual(h.c.overseas.symbols.us,['usAAPL']);assert.deepEqual(h.c.config.symbols,[]);
+ }finally{h.c.dispose();}
+});
