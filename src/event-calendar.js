@@ -108,4 +108,4 @@ class CalendarProvider {
     return type === 'fed' ? parseFed(html) : parseBls(html,type);
   }
 }
-module.exports = { LABELS, DAY, beijing, zonedTime, staticEvents, snapshotEvent, parseBls, parseFed, CalendarProvider };
+module.exports = { LABELS, DAY, beijing, zonedTime, staticEvents, snapshotEvent, parseBls, parseFed, CalendarProvider, event, holiday, shift };
