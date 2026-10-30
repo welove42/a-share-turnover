@@ -66,3 +66,17 @@ test('切换行业与概念时分别恢复对应缓存，不将行业排名冒�
     assert.match(c.item.tooltip.value,/行业板块/); assert.equal(c.rows.length,10);
   } finally { c.dispose(); }
 });
+test('概念板块盘中每60秒请求，失败后也不会提频，手动刷新可立即触发', async () => {
+  const h = harness({'aShareTurnover.sectors.category':'concept'}), { SectorsController, parseSectors } = h.load('../src/sectors');
+  let time = now, calls = 0, fail = false;
+  const c = new SectorsController(h.context, { now: () => time, provider: { load: async category => { calls++; if (fail) throw new Error('断网'); return parseSectors(data(Math.floor(time.getTime()/1000)), category, time.getTime()); } } });
+  try {
+    await c.refresh(); assert.match(c.item.tooltip.value, /每60秒/);
+    time = new Date(time.getTime()+59000); c.tick(); assert.equal(calls, 1);
+    fail = true; time = new Date(time.getTime()+1000); c.tick(); await c.inflight; assert.equal(calls, 2);
+    time = new Date(time.getTime()+30000); c.tick(); assert.equal(calls, 2);
+    fail = false; await c.retry(); assert.equal(calls, 3);
+    time = new Date(time.getTime()+59000); c.tick(); assert.equal(calls, 3);
+    time = new Date(time.getTime()+1000); c.tick(); await c.inflight; assert.equal(calls, 4);
+  } finally { c.dispose(); }
+});

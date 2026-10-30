@@ -4,6 +4,7 @@ const { requestJson } = require('./http');
 const { stockSession, shanghaiClock, POLL_MS } = require('./market');
 
 const CATEGORIES = { industry: { name: '行业', fs: 'm:90+t:2+f:!50' }, concept: { name: '概念', fs: 'm:90+t:3+f:!50' } };
+const CONCEPT_POLL_MS = 60000;
 function parseSectors(payload, category, now = Date.now()) {
   if (!CATEGORIES[category] || payload?.rc !== 0 || !payload.data?.diff) throw new Error('板块行情返回无效');
   const rows = Object.values(payload.data.diff), seen = new Set(), result = [];
@@ -71,7 +72,7 @@ class SectorsController {
     if (this.disposed || !this.enabled) return;
     this.render();
     const trading = stockSession(this.now(), this.closedDates).polling;
-    const due = trading ? this.now().getTime() - this.lastAttempt >= POLL_MS
+    const due = trading ? this.now().getTime() - this.lastAttempt >= (this.category === 'concept' ? CONCEPT_POLL_MS : POLL_MS)
       : this.error && this.retryCount < 5 && this.now().getTime() - this.lastAttempt >= 60000;
     if (!this.inflight && due) void this.refresh();
   }
@@ -109,7 +110,7 @@ class SectorsController {
     const tip = new vscode.MarkdownString(); tip.isTrusted = false;
     tip.appendText(`东方财富${CATEGORIES[this.category].name}板块 · 涨跌幅前十\n${stamp ? `行情时间：${stamp.date} ${stamp.time}（北京，最早报价）` : '尚无可用行情'}${stale && first ? '\n当前为历史或未更新行情' : ''}${this.error ? `\n获取失败：${this.error}` : ''}\n\n`);
     if (rows) rows.forEach((r, i) => tip.appendText(`${i + 1}. ${r.name} ${format(r.percent)}\n`));
-    tip.appendText('\n点击状态栏重新获取。');
+    tip.appendText(`\n交易期间每${this.category === 'concept' ? 60 : 10}秒自动更新；点击状态栏重新获取。`);
     if (text !== this.rendered.text) this.item.text = text;
     if (tip.value !== this.rendered.tooltip) this.item.tooltip = tip;
     this.rendered = { text, tooltip: tip.value };
