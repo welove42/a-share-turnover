@@ -1,10 +1,34 @@
 'use strict';
 const vscode = require('vscode');
-const { requestJson } = require('./http');
+const { requestJson, requestBuffer } = require('./http');
 const { stockSession, shanghaiClock, POLL_MS } = require('./market');
 
 const CATEGORIES = { industry: { name: '行业', fs: 'm:90+t:2+f:!50' }, concept: { name: '概念', fs: 'm:90+t:3+f:!50' } };
 const CONCEPT_POLL_MS = 60000;
+const SINA_CONCEPT_URL = 'https://stocks.sina.cn/sh/fieldranking?type=class&vt=4';
+function parseSinaConcept(html, now = Date.now()) {
+  const section = typeof html === 'string' && html.match(/<section\s+class="finlist_mod"[^>]*>([\s\S]*?)<\/section>/i);
+  if (!section) throw new Error('新浪概念榜页面格式无效');
+  const items = [...section[1].matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)];
+  if (items.length < 10) throw new Error('新浪概念榜不足十项');
+  const seen = new Set(), rows = [];
+  for (const item of items.slice(0, 10)) {
+    const match = item[1].match(/<a\b[^>]*\bboardid=(gn_[a-z0-9_]+)[^>]*>([^<>&]{1,40})<\/a>[\s\S]*?<span\b[^>]*>\s*([+-]?\d+(?:\.\d+)?)%\s*<\/span>/i);
+    if (!match || seen.has(match[1]) || !Number.isFinite(Number(match[3])) || /[\x00-\x1f]/.test(match[2])) throw new Error('新浪概念榜字段无效');
+    seen.add(match[1]); rows.push({ code: match[1], name: match[2].trim(), percent: Number(match[3]), timestamp: Math.floor(now / 1000), source: 'sina' });
+  }
+  if (rows.some((r, i) => !r.name || (i && r.percent > rows[i - 1].percent))) throw new Error('新浪概念榜顺序无效');
+  return rows;
+}
+function restoreSina(rows, now) {
+  if (!Array.isArray(rows) || rows.length !== 10) throw new Error('新浪概念榜缓存无效');
+  const seen = new Set();
+  for (const [i, r] of rows.entries()) {
+    if (r.source !== 'sina' || !/^gn_[a-z0-9_]+$/i.test(r.code || '') || seen.has(r.code) || typeof r.name !== 'string' || !r.name.trim() || r.name.length > 40 || /[\x00-\x1f]/.test(r.name) || !Number.isFinite(r.percent) || !Number.isInteger(r.timestamp) || r.timestamp < 946684800 || r.timestamp * 1000 > now + 300000 || (i && r.percent > rows[i - 1].percent)) throw new Error('新浪概念榜缓存无效');
+    seen.add(r.code);
+  }
+  return rows;
+}
 function parseSectors(payload, category, now = Date.now()) {
   if (!CATEGORIES[category] || payload?.rc !== 0 || !payload.data?.diff) throw new Error('板块行情返回无效');
   const rows = Object.values(payload.data.diff), seen = new Set(), result = [];
@@ -19,7 +43,7 @@ function parseSectors(payload, category, now = Date.now()) {
   return result;
 }
 class SectorProvider {
-  constructor(request = requestJson) { this.request = request; this.cooldowns = new Map(); }
+  constructor(request = requestJson, requestPage = async (url, signal) => (await requestBuffer(url, signal)).toString('utf8')) { this.request = request; this.requestPage = requestPage; this.cooldowns = new Map(); }
   resetCooldowns() { this.cooldowns.clear(); }
   async load(category, signal, now = Date.now()) {
     const entry = CATEGORIES[category]; if (!entry) throw new Error('未知板块类型');
@@ -27,7 +51,6 @@ class SectorProvider {
     let lastError;
     const hosts = ['push2.eastmoney.com', '82.push2.eastmoney.com'];
     const available = hosts.filter(host => (this.cooldowns.get(host) || 0) <= now);
-    if (!available.length) throw new Error('板块行情接口暂不可用，等待重试');
     for (const host of available) {
       if (signal?.aborted) throw new Error('请求已取消');
       try {
@@ -37,6 +60,11 @@ class SectorProvider {
         if (signal?.aborted) throw error;
         lastError = error; this.cooldowns.set(host, now + 30000);
       }
+    }
+    if (category === 'concept') {
+      if (signal?.aborted) throw new Error('请求已取消');
+      try { return parseSinaConcept(await this.requestPage(SINA_CONCEPT_URL, signal), now); }
+      catch (error) { if (signal?.aborted) throw error; lastError = new Error(`东方财富和新浪备用源均不可用：${error.message}`); }
     }
     throw lastError || new Error('板块行情接口暂不可用');
   }
@@ -65,7 +93,7 @@ class SectorsController {
   restore() {
     const cached = this.context.globalState.get('sectorRankings', {})[this.category] || this.context.globalState.get('sectorRanking', null);
     if (cached?.category !== this.category || !Array.isArray(cached.rows)) return;
-    try { this.rows = parseSectors({ rc: 0, data: { diff: cached.rows.map(r => ({ f12: r.code, f14: r.name, f3: r.percent, f124: r.timestamp })) } }, this.category, this.now().getTime()); } catch { /* ignore invalid cache */ }
+    try { this.rows = this.category === 'concept' && cached.rows[0]?.source === 'sina' ? restoreSina(cached.rows, this.now().getTime()) : parseSectors({ rc: 0, data: { diff: cached.rows.map(r => ({ f12: r.code, f14: r.name, f3: r.percent, f124: r.timestamp })) } }, this.category, this.now().getTime()); } catch { /* ignore invalid cache */ }
   }
   start() { this.render(); this.timer = setInterval(() => this.tick(), 1000); if (this.enabled) void this.refresh(); }
   tick() {
@@ -91,7 +119,7 @@ class SectorsController {
         const rows = await this.provider.load(category, abort.signal, this.now().getTime());
         if (abort.signal.aborted || this.disposed || generation !== this.generation) return;
         const newest = Math.max(...rows.map(r => r.timestamp));
-        if (this.rows && newest < Math.max(...this.rows.map(r => r.timestamp))) throw new Error('行情时间早于上次结果');
+        if (this.rows && (this.rows[0].source || 'eastmoney') === (rows[0].source || 'eastmoney') && newest < Math.max(...this.rows.map(r => r.timestamp))) throw new Error('行情时间早于上次结果');
         this.rows = rows; this.error = ''; this.retryCount = 0;
         const saved = this.context.globalState.get('sectorRankings', {});
         await this.context.globalState.update('sectorRankings', { ...saved, [category]: { category, rows } }).catch(() => {});
@@ -104,11 +132,12 @@ class SectorsController {
     if (!this.enabled) { if (this.visible) { this.item.hide(); this.visible = false; } return; }
     const clock = stockSession(this.now(), this.closedDates), rows = this.rows, first = rows?.[0];
     const oldest = rows && Math.min(...rows.map(r => r.timestamp)), stamp = oldest ? shanghaiClock(new Date(oldest * 1000)) : null;
+    const sina = first?.source === 'sina';
     const stale = Boolean(this.error || !stamp || stamp.date !== clock.date || (clock.polling && this.now().getTime() - oldest * 1000 > 120000));
     const format = p => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
-    const text = first ? `板块 ${first.name} ${format(first.percent)}${stale ? ' · 未更新' : ''}` : this.error ? '板块 获取失败' : '板块 待获取';
+    const text = first ? `板块 ${first.name} ${format(first.percent)}${sina ? ' · 参考' : ''}${stale ? ' · 未更新' : ''}` : this.error ? '板块 获取失败' : '板块 待获取';
     const tip = new vscode.MarkdownString(); tip.isTrusted = false;
-    tip.appendText(`东方财富${CATEGORIES[this.category].name}板块 · 涨跌幅前十\n${stamp ? `行情时间：${stamp.date} ${stamp.time}（北京，最早报价）` : '尚无可用行情'}${stale && first ? '\n当前为历史或未更新行情' : ''}${this.error ? `\n获取失败：${this.error}` : ''}\n\n`);
+    tip.appendText(`${sina ? '新浪概念板块（备用，分类口径与东方财富不同）' : `东方财富${CATEGORIES[this.category].name}板块`} · 涨跌幅前十\n${sina && stamp ? `获取时间：${stamp.date} ${stamp.time}（北京）；页面未提供行情时间，不保证实时` : stamp ? `行情时间：${stamp.date} ${stamp.time}（北京，最早报价）` : '尚无可用行情'}${stale && first ? '\n当前为历史或未更新行情' : ''}${this.error ? `\n获取失败：${this.error}` : ''}\n\n`);
     if (rows) rows.forEach((r, i) => tip.appendText(`${i + 1}. ${r.name} ${format(r.percent)}\n`));
     tip.appendText(`\n交易期间每${this.category === 'concept' ? 60 : 10}秒自动更新；点击状态栏重新获取。`);
     if (text !== this.rendered.text) this.item.text = text;
@@ -118,4 +147,4 @@ class SectorsController {
   }
   dispose() { this.disposed = true; this.generation++; clearInterval(this.timer); this.abort?.abort(); this.listener.dispose(); this.item.dispose(); }
 }
-module.exports = { SectorProvider, SectorsController, parseSectors };
+module.exports = { SectorProvider, SectorsController, parseSectors, parseSinaConcept };

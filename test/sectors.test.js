@@ -5,6 +5,33 @@ const now = new Date('2026-10-30T10:30:30+08:00');
 function data(timestamp = Math.floor(now.getTime() / 1000)) {
   return { rc: 0, data: { diff: Array.from({ length: 10 }, (_, i) => ({ f12: `BK${1000+i}`, f14: `板块${i}`, f3: 10-i, f124: timestamp })) } };
 }
+function sinaPage() {
+  return `<section class="finlist_mod"><ul>${Array.from({length: 12}, (_, i) => `<li><span><a href="http://dp.sina.cn/bk?boardid=gn_test${i}&boardname=板块${i}">概念${i}</a></span><span class="f_red">+${(12-i).toFixed(2)}%</span></li>`).join('')}</ul></section>`;
+}
+test('概念板块双域名断连后使用独立备用榜，恢复后回归东方财富', async () => {
+  const h = harness(), { SectorProvider, parseSinaConcept } = h.load('../src/sectors');
+  let fail = true, pages = 0;
+  const p = new SectorProvider(async () => { if (fail) throw new Error('socket hang up'); return data(); }, async () => { pages++; return sinaPage(); });
+  const rows = await p.load('concept', undefined, now.getTime());
+  assert.equal(rows.length, 10); assert.equal(rows[0].source, 'sina'); assert.equal(rows[0].name, '概念0');
+  await p.load('concept', undefined, now.getTime()+1000); assert.equal(pages, 2);
+  fail = false; const recovered = await p.load('concept', undefined, now.getTime()+31000); assert.equal(recovered[0].name, '板块0'); assert.equal(pages, 2);
+  assert.throws(() => parseSinaConcept(sinaPage().replace('+12.00%', '--'), now.getTime()), /字段无效/);
+  assert.throws(() => parseSinaConcept(sinaPage().replace('+11.00%', '+99.00%'), now.getTime()), /顺序无效/);
+  const abort = new AbortController(); abort.abort(); await assert.rejects(p.load('concept', abort.signal, now.getTime()+60000), /取消/); assert.equal(pages, 2);
+});
+test('备用榜明确说明时间与口径，缓存恢复及切回主源不混淆时间', async () => {
+  const h = harness({'aShareTurnover.sectors.category':'concept'}), { SectorsController, parseSectors, parseSinaConcept } = h.load('../src/sectors');
+  let useSina = true; const provider = { load: async () => useSina ? parseSinaConcept(sinaPage(), now.getTime()) : parseSectors(data(Math.floor(now.getTime()/1000)-60), 'concept', now.getTime()) };
+  const c = new SectorsController(h.context, { now: () => now, provider });
+  try {
+    await c.refresh(); assert.match(c.item.text, /参考/); assert.match(c.item.tooltip.value, /新浪概念板块.*分类口径/);
+    assert.match(c.item.tooltip.value, /获取时间/); assert.match(c.item.tooltip.value, /未提供行情时间，不保证实时/); assert.doesNotMatch(c.item.tooltip.value, /行情时间：/);
+    const restored = new SectorsController(h.context, { now: () => now, provider });
+    try { restored.render(); assert.match(restored.item.text, /参考/); assert.equal(restored.rows.length, 10); } finally { restored.dispose(); }
+    useSina = false; await c.refresh(); assert.match(c.item.tooltip.value, /东方财富概念板块/); assert.doesNotMatch(c.item.text, /参考/);
+  } finally { c.dispose(); }
+});
 test('东方财富板块排名验证字段、按涨跌幅降序，损坏或不足十项不冒充完整榜单', async () => {
   const h = harness(), { parseSectors, SectorProvider } = h.load('../src/sectors');
   assert.equal(parseSectors(data(), 'industry', now.getTime())[0].name, '板块0');
