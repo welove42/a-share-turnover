@@ -36,7 +36,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <div id="indicator-chart"><svg id="indicator-svg" viewBox="0 0 1040 220" aria-hidden="true"></svg></div>
 <aside id="indicator-guide" aria-label="指标读图说明"><strong id="indicator-guide-title"></strong><p id="indicator-guide-body"></p><p id="indicator-guide-context"></p></aside>
 <div id="chart-tooltip" hidden></div></div>
-<p class="note" id="indicator-note"></p><p class="note">在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；5日分时按交易日分区，均价与副图指标每日重置，历史日期缺少昨收时涨跌幅显示为空。K线换手率为对应周期值，5日分时显示当日全天换手率（最后一天为数据源最新值）；来源东方财富，沪深日周月K及5日分时可使用搜狐备用；数据缺失时显示“—”。K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
+<p class="note" id="indicator-note"></p><p class="note">在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；5日分时按交易日分区，均价与副图指标每日重置，历史日期缺少昨收时涨跌幅显示为空。成交量柱高按所显示周期线性缩放；分时柱颜色按相邻分钟价格涨跌判断，首分钟参考昨收，缺少参考价或价格不变显示中性色。K线换手率为对应周期值，5日分时显示当日全天换手率（最后一天为数据源最新值）；来源东方财富，沪深日周月K及5日分时可使用搜狐备用；数据缺失时显示“—”。K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
 <script nonce="${nonce}" src="${escapeHtml(indicators)}"></script><script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
 }
 

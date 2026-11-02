@@ -113,7 +113,8 @@
     // Each canvas uses the same horizontal coordinates and its own responsive height.
     const height = Math.round(svg.clientHeight * 1040 / svg.clientWidth) || 500;
     const indicatorHeight = Math.round(indicatorSvg.clientHeight * 1040 / indicatorSvg.clientWidth) || 220;
-    const L = 68, R = 967, T = 40, B = height * .64, V = height * .77, VB = height - 45;
+    // Give the volume panel a substantial share of the available height.
+    const L = 68, R = 967, T = 40, B = height * .59, V = height * .68, VB = height - 30;
     const I = 35, IB = indicatorHeight - 40, bottom = VB;
     svg.setAttribute('viewBox', `0 0 1040 ${height}`);
     indicatorSvg.setAttribute('viewBox', `0 0 1040 ${indicatorHeight}`);
@@ -132,7 +133,7 @@
     }
     const pad = Math.max((max - min) * .08, max * .001, .001); min -= pad; max += pad;
     const y = value => B - (value - min) / (max - min) * (B - T);
-    const maxVolume = Math.max(...bars.map(b => b.volume), ...volumeAverages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)), 1);
+    const maxVolume = Math.max(...bars.map(b => b.volume), ...volumeAverages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)), 0) || 1;
     const fragment = document.createDocumentFragment(), indicatorFragment = document.createDocumentFragment();
     let target = fragment;
     const add = (tag, attrs, text) => { const e = element(tag, attrs, text); target.append(e); return e; };
@@ -160,8 +161,12 @@
       add('line', { x1: L, x2: R, y1: yy, y2: yy, class: 'grid' }); add('text', { x: L - 8, y: yy + 4, 'text-anchor': 'end' }, price(p));
       if (mode === 'intraday' && data.previousClose) add('text', { x: R + 8, y: yy + 4 }, `${((p / data.previousClose - 1) * 100).toFixed(2)}%`);
     }
-    add('line', { x1: L, x2: R, y1: VB, y2: VB, class: 'grid' });
-    add('text', { x: L, y: V - 12 }, `成交量 · 手  上限 ${volume(maxVolume)}`);
+    for (let i = 0; i <= 3; i++) {
+      const yy = VB - (VB - V) * i / 3;
+      add('line', { x1: L, x2: R, y1: yy, y2: yy, class: i === 0 ? 'grid volume-grid' : 'volume-grid volume-grid-guide' });
+      add('text', { x: L - 8, y: yy + 4, 'text-anchor': 'end', class: 'volume-tick' }, volume(maxVolume * i / 3));
+    }
+    add('text', { x: L, y: V - 10 }, '成交量 · 手');
     if (mode === 'intraday' && data.previousClose) add('line', { x1: L, x2: R, y1: y(data.previousClose), y2: y(data.previousClose), class: 'baseline' });
     if (isIntraday(mode)) {
       if (fiveDay) drawSeries({color:lineColor,values:all.map(b=>b.close)}, y, 'intraday-price');
@@ -170,16 +175,16 @@
         if (bars.length === 1) add('circle', { cx: x(bars[0], 0), cy: y(bars[0].close), r: 3, fill: lineColor });
       }
     }
-    const barWidth = Math.max(1, Math.min(12, width / (candles ? bars.length : fiveDay ? data.dates.length * 241 : 241) * .65));
+    const barWidth = Math.max(.5, Math.min(12, width / (candles ? bars.length : fiveDay ? data.dates.length * 241 : 241) * (candles ? .65 : .85)));
     bars.forEach((bar, i) => {
-      const baseline = candles ? bar.open : fiveDay ? (i && bars[i-1].dayIndex === bar.dayIndex ? bars[i-1].close : bar.previousClose) : data.previousClose || bars[Math.max(0, i - 1)].close;
-      const xx = x(bar, i), color = baseline == null ? 'var(--vscode-descriptionForeground)' : bar.close >= baseline ? up : down;
+      const baseline = candles ? bar.open : fiveDay ? (i && bars[i-1].dayIndex === bar.dayIndex ? bars[i-1].close : bar.previousClose) : (i ? bars[i-1].close : data.previousClose);
+      const xx = x(bar, i), color = !Number.isFinite(baseline) ? 'var(--vscode-descriptionForeground)' : bar.close > baseline || (candles && bar.close === baseline) ? up : bar.close < baseline ? down : 'var(--vscode-descriptionForeground)';
       if (candles) {
         add('line', { x1: xx, x2: xx, y1: y(bar.high), y2: y(bar.low), stroke: color, 'stroke-width': 1 });
         add('rect', { x: xx - barWidth / 2, y: Math.min(y(bar.open), y(bar.close)), width: barWidth, height: Math.max(1, Math.abs(y(bar.open) - y(bar.close))), fill: color });
       }
       const vh = bar.volume / maxVolume * (VB - V);
-      add('rect', { x: xx - barWidth / 2, y: VB - vh, width: barWidth, height: vh, fill: color, opacity: .8 });
+      add('rect', { x: xx - barWidth / 2, y: VB - vh, width: barWidth, height: vh, fill: color, class: 'volume-bar' });
     });
     averages.forEach((a, index) => {
       drawSeries(a, y, candles ? 'price-average' : 'intraday-average');
@@ -187,7 +192,7 @@
     });
     volumeAverages.forEach((a, index) => {
       drawSeries(a, value => VB - value / maxVolume * (VB - V), 'volume-average');
-      addLegend(a, { x: L + 310 + index * 260, y: V - 12, class: 'series-' + index }, value => Number.isFinite(value) ? volume(value) : '—');
+      addLegend(a, { x: L + 310 + index * 260, y: V - 10, class: 'series-' + index }, value => Number.isFinite(value) ? volume(value) : '—');
     });
     const ticks = fiveDay ? data.dates.map((date,i)=>[L+(i+.5)*width/data.dates.length,date.slice(5)]) : mode === 'intraday' ? [[L, '09:30'], [L + width / 4, '10:30'], [L + width / 2, '11:30 / 13:00'], [L + width * .75, '14:00'], [R, '15:00']]
       : [...new Set([0, Math.floor((bars.length - 1) / 2), bars.length - 1])].map(i => [x(bars[i], i), /^m\d+$/.test(mode) ? bars[i].time.slice(5) : bars[i].time]);
@@ -225,7 +230,7 @@
     const indicatorCross = withIndicator ? add('line', { x1: L, x2: L, y1: I, y2: IB, class: 'crosshair', visibility: 'hidden' }) : null;
     target = fragment;
     if (fiveDay) for (let i=1;i<data.dates.length;i++) add('line', { x1:L+i*width/data.dates.length, x2:L+i*width/data.dates.length, y1:T, y2:bottom, class:'grid' });
-    ticks.forEach(([xx, text]) => add('text', { x: xx, y: bottom + 30, 'text-anchor': 'middle' }, text));
+    ticks.forEach(([xx, text]) => add('text', { x: xx, y: bottom + 22, 'text-anchor': 'middle' }, text));
     const cross = add('line', { x1: L, x2: L, y1: T, y2: bottom, class: 'crosshair', visibility: 'hidden' });
     const marker = add('circle', { cx: L, cy: T, r: 3, fill: lineColor, visibility: 'hidden' });
     svg.replaceChildren(fragment);

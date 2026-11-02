@@ -118,6 +118,31 @@ test('科创板分时价格波动按正确均价拉伸，零股成交量以小�
   assert.match(p.nodes.get('detail').textContent,/均价 599\.00/);
 });
 
+test('成交量区域高度随窗口缩放保持清晰，柱高线性且分时按相邻价格着色',()=>{
+  for(const width of [800,1400]) {
+    const p=page();
+    const bars=[102,99,100,100].map((close,i)=>({time:`093${i}`,open:close,close,high:close,low:close,volume:[100,50,25,0][i],cumulativeVolume:100,averagePrice:100}));
+    const data={symbol:'sh600105',mode:'intraday',name:'测试股',date:'2026-11-02',source:'腾讯行情',previousClose:101,bars};
+    p.receive({type:'data',data});const svg=p.nodes.get('svg');svg.clientWidth=width;svg.clientHeight=420;p.receive({type:'data',data});
+    const all=descendants(svg), columns=all.filter(n=>n.getAttribute('class')==='volume-bar');assert.equal(columns.length,4);
+    const heights=columns.map(n=>Number(n.getAttribute('height')));
+    assert.ok(heights[0]*width/1040>=80);assert.ok(Math.abs(heights[1]/heights[0]-.5)<1e-10);assert.ok(Math.abs(heights[2]/heights[0]-.25)<1e-10);assert.equal(heights[3],0);
+    assert.deepEqual(columns.map(n=>n.getAttribute('fill')),['var(--chart-up, #f05b68)','var(--chart-down, #26bd8c)','var(--chart-up, #f05b68)','var(--vscode-descriptionForeground)']);
+    assert.equal(all.filter(n=>n.getAttribute('class')==='volume-tick').length,4);
+    assert.equal(all.filter(n=>n.getAttribute('class')==='volume-grid-guide').length,0); // Guides also carry their base class.
+    assert.equal(all.filter(n=>n.getAttribute('class')==='volume-grid volume-grid-guide').length,3);
+  }
+});
+test('五日分时的成交量颜色不跨交易日比较',()=>{
+  const p=page({mode:'intraday5'});p.receive({type:'select-mode',mode:'intraday5'});
+  const bars=[{time:'2026-10-29 09:30',date:'2026-10-29',dayIndex:0,close:10,previousClose:null},
+    {time:'2026-10-30 09:30',date:'2026-10-30',dayIndex:1,close:11,previousClose:null},
+    {time:'2026-10-30 09:31',date:'2026-10-30',dayIndex:1,close:12,previousClose:null}].map(b=>({...b,open:b.close,high:b.close,low:b.close,volume:100}));
+  p.receive({type:'data',data:{symbol:'sh600105',mode:'intraday5',name:'测试股',date:'2026-10-30',dates:['2026-10-29','2026-10-30'],source:'腾讯行情',bars}});
+  const columns=descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='volume-bar');
+  assert.equal(columns[1].getAttribute('fill'),'var(--vscode-descriptionForeground)');assert.equal(columns[2].getAttribute('fill'),'var(--chart-up, #f05b68)');
+});
+
 test('页面副图按钮等待宿主确认再高亮，读图说明在无行情时也可用', () => {
   const p = page();
   assert.equal(p.indicatorButtons.macd.getAttribute('aria-pressed'), 'true');

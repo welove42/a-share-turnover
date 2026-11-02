@@ -42,13 +42,14 @@ select { padding: 4px 8px; }
 #chart-tooltip { position: absolute; top: 38px; right: 12px; z-index: 1; pointer-events: none; max-width: calc(100% - 24px); padding: 9px 12px; border: 1px solid var(--vscode-editorHoverWidget-border, #59677c); border-radius: 5px; background: var(--vscode-editorHoverWidget-background, #202937); color: var(--vscode-editorHoverWidget-foreground, #d9e1ee); box-shadow: 0 3px 12px #0003; white-space: pre-wrap; font-size: 12px; line-height: 1.8; font-variant-numeric: tabular-nums; }
 body.vscode-light #chart-tooltip, body.vscode-high-contrast-light #chart-tooltip { background: var(--vscode-editorHoverWidget-background, #fff); color: var(--vscode-editorHoverWidget-foreground, #222); }
 svg { display: block; width: 100%; }
-#svg { height: clamp(300px, 48vh, 500px); }
+#svg { height: clamp(420px, 60vh, 620px); }
 #indicator-svg { height: clamp(160px, 24vh, 260px); }
 svg text { fill: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; font-family: inherit; }
 svg text.ma5, svg text.series-0 { fill: var(--chart-series-0); } svg text.ma10, svg text.series-1 { fill: var(--chart-series-1); } svg text.ma20, svg text.series-2 { fill: var(--chart-series-2); }
 svg text.ma30 { fill: var(--chart-series-3); } svg text.ma60 { fill: var(--chart-series-4); }
 svg text.indicator-title { fill: var(--vscode-foreground, #d9e1ee); font-weight: 600; }
 .grid { stroke: var(--vscode-panel-border, #354053); stroke-width: 1; }
+.volume-grid-guide { stroke: var(--vscode-panel-border, #354053); stroke-width: 1; stroke-dasharray: 4 4; }
 .baseline { stroke: var(--vscode-descriptionForeground, #9caec5); stroke-dasharray: 5 5; opacity: .7; }
 .crosshair { stroke: var(--vscode-foreground, #d9e1ee); opacity: .5; stroke-dasharray: 4 4; pointer-events: none; }
 .selected-details { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 4px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background, #151c28)); }
