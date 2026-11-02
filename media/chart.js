@@ -67,7 +67,7 @@
     } else {
       // Release the third-party document while the user is viewing native charts.
       cancelWebLoad(); $('eastmoney').removeAttribute('src');
-      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('indicator-svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('daily-extremes').textContent = ''; $('turnover').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('history-status').textContent = ''; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
+      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('indicator-svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('turnover').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('history-status').textContent = ''; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
     }
     updateIndicatorControls();
     remember(); if (notify) send('mode-ready', { mode });
@@ -294,6 +294,9 @@
     const turnover = data.turnoverApplicable && mode !== 'intraday' ? `${mode === 'intraday5' ? (bar.date === data.date ? '当日换手率（最新）' : '当日换手率（全天）') : '换手率'} ${historicalRate}` : '';
     for (const { label, series, format } of legend) label.textContent = `${series.name} ${format(series.values[index])}`;
     const direction = value => Number.isFinite(previous) && previous > 0 && Number.isFinite(value) ? value - previous : 0;
+    const selectedDate = mode === 'intraday5' ? bar.date : data.date;
+    const sameQuoteDay = /^\d{14}$/.test(data.dailyQuoteTimestamp || '') && data.dailyQuoteTimestamp.slice(0, 8) === String(selectedDate || '').replaceAll('-', '');
+    const dailyHigh = sameQuoteDay ? data.dailyHigh : null, dailyLow = sameQuoteDay ? data.dailyLow : null;
     const turnLabel = mode === 'intraday5' ? (bar.date === data.date ? '当日换手率（最新）' : '当日换手率（全天）') : '换手率';
     const groups = !isIntraday(mode) ? [
       [['开', price(bar.open), direction(bar.open)], ['收', price(bar.close), direction(bar.close)]],
@@ -303,6 +306,7 @@
       [['成交量', volume(bar.volume)], ['前收', priceOrDash(previous)]]
     ] : [
       [['价格', price(bar.close), direction(bar.close)], ['均价', priceOrDash(bar.averagePrice)]],
+      [['高', priceOrDash(dailyHigh), direction(dailyHigh)], ['低', priceOrDash(dailyLow), direction(dailyLow)]],
       [['涨跌幅', percent(change), change], ['涨跌', signed(delta, precision), delta]],
       [['分钟成交量', volume(bar.volume)], ['累计成交量', Number.isFinite(bar.cumulativeVolume) ? volume(bar.cumulativeVolume) : '—']],
       [['分钟成交额', amount(bar.amount)], ['累计成交额', amount(bar.cumulativeAmount)]],
@@ -314,6 +318,7 @@
     $('indicator-detail').textContent = !indicatorData ? '' : indicatorText(indicatorData);
     const rows = isIntraday(mode)
       ? [time, `价格 ${price(bar.close)}　均价 ${priceOrDash(bar.averagePrice)}`, changes,
+        `日高 ${priceOrDash(dailyHigh)}　日低 ${priceOrDash(dailyLow)}`,
         `分钟量 ${volume(bar.volume)}　累计量 ${Number.isFinite(bar.cumulativeVolume) ? volume(bar.cumulativeVolume) : '—'}`,
         `分钟额 ${amount(bar.amount)}　累计额 ${amount(bar.cumulativeAmount)}`]
       : [time, `开 ${price(bar.open)}　收 ${price(bar.close)}`, `高 ${price(bar.high)}　低 ${price(bar.low)}`,
@@ -376,7 +381,6 @@
       const last = data.bars.at(-1).close, delta = data.previousClose ? (last / data.previousClose - 1) * 100 : null;
       $('quote').textContent = `${data.name} · ${symbol}　${price(last)}${delta === null || !isIntraday(mode) ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;
       $('quote').style.color = delta === null || !isIntraday(mode) ? '' : delta >= 0 ? up : down;
-      $('daily-extremes').textContent = `当日最高 ${priceOrDash(data.dailyHigh)}　最低 ${priceOrDash(data.dailyLow)}`;
       $('turnover').textContent = data.turnoverApplicable ? `最新换手率 ${Number.isFinite(data.turnoverRate) ? data.turnoverRate.toFixed(2) + '%' : '—'}${data.turnoverTimestamp ? `（${clock(data.turnoverTimestamp)} 北京）` : ''}` : '';
       draw();
     }

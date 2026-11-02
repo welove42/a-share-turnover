@@ -86,7 +86,8 @@ test('首次详情默认内置分时，设置与显式类型可覆盖，HTML不�
     await h.c.open('600105'); let s = h.c.panels.get('sh600105');
     assert.equal(s.mode, 'intraday'); assert.doesNotMatch(s.panel.webview.html, /<iframe[^>]+\ssrc=/);
     assert.ok(s.panel.webview.html.indexOf('id="detail"') < s.panel.webview.html.indexOf('id="plot"'));
-    assert.match(s.panel.webview.html, /class="selected-details"[^>]*><div id="daily-extremes"><\/div><div id="detail"/);
+    assert.match(s.panel.webview.html, /class="selected-details"[^>]*><div id="detail"/);
+    assert.doesNotMatch(s.panel.webview.html, /id="daily-extremes"/);
     await h.mode(s, 'intraday'); assert.equal(h.calls(), 1);
     s.panel.dispose(); h.values.set('aShareTurnover.charts.defaultMode', 'daily');
     await h.c.open('600105'); s = h.c.panels.get('sh600105'); assert.equal(s.mode, 'daily');

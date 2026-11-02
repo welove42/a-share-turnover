@@ -72,16 +72,18 @@ test('顶部展示所选K线的历史换手率，独立显示最新报价换手�
   p.receive({type:'data',data:{...d,turnoverApplicable:false,turnoverRate:null}});
   assert.equal(p.nodes.get('turnover').textContent,'');
 });
-test('当日最高最低显示在行情框中且不带时间，悬停历史K线不混淆所选历史高低',()=>{
-  const p=page({mode:'daily'});p.receive({type:'select-mode',mode:'daily'});
-  const d={symbol:'sh600105',name:'测试股',mode:'daily',source:'腾讯行情',date:'2026-09-17',adjustment:'前复权',bars:sampleBars,
-    dailyHigh:672.82,dailyLow:565,dailyQuoteTimestamp:'20261102113234'};
-  p.receive({type:'data',data:d});assert.equal(p.nodes.get('daily-extremes').textContent,'当日最高 672.82　最低 565.00');
-  p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});
-  assert.match(p.nodes.get('daily-extremes').textContent,/672\.82/);assert.match(p.nodes.get('chart-tooltip').textContent,/高 11\.61.*低 9\.61/);
-  p.receive({type:'data',data:{...d,dailyHigh:null,dailyLow:null,dailyQuoteTimestamp:null}});
-  assert.equal(p.nodes.get('daily-extremes').textContent,'当日最高 —　最低 —');
-  p.receive({type:'select-mode',mode:'intraday'});assert.equal(p.nodes.get('daily-extremes').textContent,'');
+test('分时高低与K线放在相同数据组，颜色按前收比较，历史日期不混入当日报价',()=>{
+  const p=page(), bars=[{time:'0930',open:10,close:10,high:10,low:10,volume:100,averagePrice:10}];
+  const d={symbol:'sh600105',name:'测试股',mode:'intraday',source:'腾讯行情',date:'2026-11-02',previousClose:10,bars,
+    dailyHigh:12,dailyLow:8,dailyQuoteTimestamp:'20261102113234'};
+  const column=()=>descendants(p.nodes.get('detail')).find(n=>n.className==='detail-column'&&n.children[0].children[0].textContent.trim()==='高');
+  p.receive({type:'data',data:d});let group=column();assert.equal(group.children[0].children[1].textContent,'12.00');
+  assert.equal(group.children[0].children[1].className,'detail-value rising');assert.equal(group.children[1].children[1].textContent,'8.00');assert.equal(group.children[1].children[1].className,'detail-value falling');
+  p.receive({type:'data',data:{...d,dailyQuoteTimestamp:'20261030150000'}});group=column();assert.equal(group.children[0].children[1].textContent,'—');assert.equal(group.children[1].children[1].textContent,'—');
+  p.receive({type:'select-mode',mode:'daily'});
+  p.receive({type:'data',data:{...d,mode:'daily',date:'2026-09-17',adjustment:'前复权',bars:sampleBars}});
+  p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});group=column();assert.equal(group.children[0].children[1].textContent,'11.61');assert.equal(group.children[1].children[1].textContent,'9.61');
+  assert.match(p.nodes.get('chart-tooltip').textContent,/高 11\.61.*低 9\.61/);
 });
 
 test('历史换手率显示获取中、失败原因和缓存来源',()=>{
@@ -149,6 +151,8 @@ test('五日分时的日高日低只覆盖最后一个匹配的交易日',()=>{
   const data={symbol:'sh600105',mode:'intraday5',name:'测试股',date:'2026-11-02',dates:['2026-10-30','2026-11-02'],source:'腾讯行情',bars,dailyHigh:12,dailyLow:8,dailyQuoteTimestamp:'20261102113234'};
   p.receive({type:'data',data});let lines=descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='daily-extreme-line');
   assert.equal(lines.length,2);assert.equal(Number(lines[0].getAttribute('x1')),517.5);assert.equal(lines[0].getAttribute('x2'),'967');
+  assert.match(p.nodes.get('detail').textContent,/高 12\.00低 8\.00/);
+  p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});assert.match(p.nodes.get('detail').textContent,/高 —低 —/);
   p.receive({type:'data',data:{...data,dailyQuoteTimestamp:'20261030150000'}});
   lines=descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='daily-extreme-line');assert.equal(lines.length,0);
 });
