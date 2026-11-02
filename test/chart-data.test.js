@@ -9,14 +9,48 @@ test('历史换手率按证券、周期及时间解析并缓存，非法数值�
   const provider = new ChartProvider(async url => { calls++; lastUrl = url; return {rc:0,data:{code:'600519',market:1,klines:['2026-10-29,1,1,1,1,1,1,1,1,1,2.35','2026-10-30,1,1,1,1,1,1,1,1,1,0','2026-10-31,1,1,1,1,1,1,1,1,1,-1']}}; });
   const rates = await provider.loadHistoricalTurnover(symbol, 'daily');
   assert.equal(rates.get('2026-10-29'),2.35); assert.equal(rates.get('2026-10-30'),0); assert.equal(rates.has('2026-10-31'),false);
-  assert.match(lastUrl,/klt=101/); await provider.loadHistoricalTurnover(symbol,'intraday5'); assert.equal(calls,1);
-  await provider.loadHistoricalTurnover('sh000001','daily'); assert.equal(calls,1);
+  assert.match(lastUrl,/klt=101/); await provider.loadHistoricalTurnover(symbol,'daily'); assert.equal(calls,1);
+  await provider.loadHistoricalTurnover(symbol,'intraday5'); assert.equal(calls,2);
+  await provider.loadHistoricalTurnover('sh000001','daily'); assert.equal(calls,2);
   const wrong = new ChartProvider(async()=>({rc:0,data:{code:'000001',market:1,klines:[]}}));
   await assert.rejects(wrong.loadHistoricalTurnover(symbol,'daily'),/不可用/);
 });
 test('分钟换手率保留准确的周期结束时间', async () => {
   const p = new ChartProvider(async()=>({rc:0,data:{code:'600519',market:1,klines:['2026-10-29 10:05,1,1,1,1,1,1,1,1,1,0.12']}}));
   const rates=await p.loadHistoricalTurnover(symbol,'m5'); assert.equal(rates.get('2026-10-29 10:05'),0.12); assert.equal(rates.has('2026-10-29'),false);
+});
+
+test('东方财富失败时使用搜狐对应证券与周期的历史换手率', async () => {
+  const seen=[]; const p=new ChartProvider(async url=>{
+    seen.push(url); if(url.includes('eastmoney')) throw new Error('socket hang up');
+    return [{status:0,code:'cn_600519',hq:[['2026-10-16','','','','','','','','','7.26%'],['2026-10-15','','','','','','','','','0.00%'],['2026-10-14','','','','','','','','','--']]}];
+  });
+  const bars=[{time:'2026-10-15'},{time:'2026-10-16'}]; const rates=await p.loadHistoricalTurnover(symbol,'daily',undefined,{bars});
+  assert.equal(rates.source,'搜狐财经'); assert.equal(rates.get('2026-10-16'),7.26); assert.equal(rates.get('2026-10-15'),0); assert.equal(rates.has('2026-10-14'),false);
+  assert.match(seen[1],/start=20261015&end=20261016.*period=d/);
+  await p.loadHistoricalTurnover(symbol,'daily',undefined,{bars}); assert.equal(seen.length,2);
+  await p.loadHistoricalTurnover(symbol,'weekly',undefined,{bars}); assert.match(seen[3],/period=w/);
+  await p.loadHistoricalTurnover(symbol,'monthly',undefined,{bars}); assert.match(seen[5],/period=m/);
+});
+test('来源代码错误不使用，失败限频但手动刷新可重试；取消不会请求备用源', async () => {
+  let calls=0, works=false;const p=new ChartProvider(async url=>{calls++;if(works && url.includes('eastmoney'))return {rc:0,data:{code:'600519',market:1,klines:['2026-10-16,1,1,1,1,1,1,1,1,1,1.8']}};
+    if(url.includes('eastmoney')) throw new Error('socket hang up');return [{status:0,code:'cn_000001',hq:[['2026-10-16','','','','','','','','','2.00%']]}];});
+  await assert.rejects(p.loadHistoricalTurnover(symbol,'daily'),/搜狐财经/);assert.equal(calls,2);
+  await assert.rejects(p.loadHistoricalTurnover(symbol,'daily'),/搜狐财经/);assert.equal(calls,2);
+  works=true;assert.equal((await p.loadHistoricalTurnover(symbol,'daily',undefined,{force:true})).get('2026-10-16'),1.8);assert.equal(calls,3);
+  const abort=new AbortController();let invoked=0;const cancelled=new ChartProvider(async()=>{invoked++;abort.abort();throw new Error('cancel');});
+  await assert.rejects(cancelled.loadHistoricalTurnover(symbol,'daily',abort.signal),/cancel/);assert.equal(invoked,1);
+});
+test('五日分时的短窗口缓存不会截断日K的历史窗口',async()=>{
+  const urls=[];const p=new ChartProvider(async url=>{urls.push(url);if(url.includes('eastmoney'))throw new Error('offline');return [{status:0,code:'cn_600519',hq:[['2026-10-16','','','','','','','','','2.00%']]}];});
+  await p.loadHistoricalTurnover(symbol,'intraday5',undefined,{bars:[{date:'2026-10-26'},{date:'2026-10-30'}]});
+  await p.loadHistoricalTurnover(symbol,'daily',undefined,{bars:[{time:'2026-10-01'},{time:'2026-10-30'}]});
+  assert.equal(urls.length,4);assert.match(urls[1],/start=20261026/);assert.match(urls[3],/start=20261001/);
+});
+test('更新失败后保留已取得的历史换手率并标记缓存', async () => {
+  let fail=false;const p=new ChartProvider(async()=>{if(fail)throw new Error('offline');return {rc:0,data:{code:'600519',market:1,klines:['2026-10-16,1,1,1,1,1,1,1,1,1,1.25']}};});
+  await p.loadHistoricalTurnover(symbol,'daily');fail=true;const cached=await p.loadHistoricalTurnover(symbol,'daily',undefined,{force:true});
+  assert.equal(cached.get('2026-10-16'),1.25);assert.equal(cached.stale,true);assert.equal(cached.source,'东方财富');assert.ok(cached.fetchedAt);
 });
 
 test('图表提取最新报价换手率及时间，缺失或代码不匹配不冒充有效行情',()=>{

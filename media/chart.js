@@ -67,7 +67,7 @@
     } else {
       // Release the third-party document while the user is viewing native charts.
       cancelWebLoad(); $('eastmoney').removeAttribute('src');
-      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('indicator-svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('turnover').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
+      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('indicator-svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('turnover').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('history-status').textContent = ''; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
     }
     updateIndicatorControls();
     remember(); if (notify) send('mode-ready', { mode });
@@ -269,6 +269,7 @@
     const volumeValues = volumeAverages.map(a => `${a.name} ${Number.isFinite(a.values[index]) ? volume(a.values[index]) : '—'}`);
     const indicatorText = item => `${item.label}　${item.lines.map(s => `${s.name} ${numberOrDash(s.values[index])}`).join('　')}${item.histogram ? '　柱 ' + numberOrDash(item.histogram[index]) : ''}`;
     const historicalRate = Number.isFinite(bar.historicalTurnover) ? bar.historicalTurnover.toFixed(2) + '%' : '—';
+    const missingReason = data.historicalStatus === 'loading' ? '获取中' : data.historicalStatus === 'error' ? '获取失败，可刷新重试' : '该时间暂无数据';
     const turnover = data.turnoverApplicable && mode !== 'intraday' ? `${mode === 'intraday5' ? (bar.date === data.date ? '当日换手率（最新）' : '当日换手率（全天）') : '换手率'} ${historicalRate}` : '';
     for (const { label, series, format } of legend) label.textContent = `${series.name} ${format(series.values[index])}`;
     const direction = value => Number.isFinite(previous) && previous > 0 && Number.isFinite(value) ? value - previous : 0;
@@ -297,7 +298,7 @@
       : [time, `开 ${price(bar.open)}　收 ${price(bar.close)}`, `高 ${price(bar.high)}　低 ${price(bar.low)}`,
         changes, `振幅 ${signed(amplitude)}%　量 ${volume(bar.volume)}`,
         mainAverages.slice(0, 3).join('　'), mainAverages.slice(3).join('　'), volumeValues.join('　')];
-    $('chart-tooltip').textContent = [...rows, ...(turnover ? [turnover] : []), ...Object.values(metrics).map(indicatorText)].join('\n');
+    $('chart-tooltip').textContent = [...rows, ...(turnover ? [turnover + (historicalRate === '—' ? `（${missingReason}）` : '')] : []), ...Object.values(metrics).map(indicatorText)].join('\n');
   }
   function pointAt(index) {
     if (!hover) return;
@@ -349,6 +350,7 @@
     if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
       data = message.data;
       $('status').className = ''; $('status').textContent = '';
+      $('history-status').textContent = !data.turnoverApplicable || mode === 'intraday' ? '' : data.historicalStatus === 'loading' ? '历史换手率获取中…' : data.historicalStatus === 'error' ? `${data.historicalError || '历史换手率获取失败'}；可点击右上角刷新重试。` : data.historicalStatus === 'ready' || data.historicalStatus === 'stale' ? `历史换手率：${data.historicalSource || '行情源'}${data.historicalStatus === 'stale' ? '（接口失败，使用缓存）' : ''}${data.historicalFetchedAt ? ` · 获取时间 ${data.historicalFetchedAt}（北京）` : ''}；未覆盖的时间显示“—”。` : '';
       $('meta').textContent = `${data.source} · ${names[mode]} · ${isIntraday(mode) ? '分钟采样' : data.adjustment} · ${mode === 'intraday5' ? `交易日 ${data.dates.length} 天 · ` : ''}数据日期 ${data.date}${data.timestamp ? ` · 报价时间 ${clock(data.timestamp)}` : ''}（北京）`;
       const last = data.bars.at(-1).close, delta = data.previousClose ? (last / data.previousClose - 1) * 100 : null;
       $('quote').textContent = `${data.name} · ${symbol}　${price(last)}${delta === null || !isIntraday(mode) ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;

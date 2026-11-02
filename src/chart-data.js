@@ -127,35 +127,73 @@ function parseFiveDayChart(payload, input) {
 }
 class ChartProvider {
   constructor(request = requestJson) { this.request = request; this.minuteFeed = new MinuteFeed(request); this.turnoverCache = new Map(); }
-  async loadHistoricalTurnover(input, mode, signal) {
+  async loadHistoricalTurnover(input, mode, signal, options = {}) {
     const symbol = normalizeSymbol(input);
     const klt = { intraday5: 101, daily: 101, weekly: 102, monthly: 103, m1: 1, m5: 5, m15: 15, m30: 30, m60: 60 }[mode];
     if (!supportsTurnover(symbol) || !klt) return new Map();
-    const key = `${symbol}:${klt}`, cached = this.turnoverCache.get(key), now = Date.now();
-    if (cached && now - cached.at < 60000) return cached.rates;
+    // Five-day intraday and daily use the same klt but need different history windows.
+    const key = `${symbol}:${mode}`, cached = this.turnoverCache.get(key), now = Date.now();
+    if (cached && now - cached.at < 60000 && !options.force) {
+      if (cached.error && !cached.rates) throw new Error(cached.error);
+      return cached.rates;
+    }
     const market = symbol.startsWith('sh') ? 1 : 0;
     const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${symbol.slice(2)}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=300`;
-    let payload;
-    try {
-      payload = await this.request(url, signal, { Referer: 'https://quote.eastmoney.com/' });
-      if (payload?.rc !== 0 || payload.data?.code !== symbol.slice(2) || payload.data?.market !== market || !Array.isArray(payload.data?.klines)) throw new Error('历史换手率数据不可用');
-    } catch (error) {
-      if (!signal?.aborted) {
-        this.turnoverCache.set(key, { at: now, rates: new Map() });
-        if (this.turnoverCache.size > 40) this.turnoverCache.delete(this.turnoverCache.keys().next().value);
+    const failures = [];
+    const eastmoney = async address => {
+      const payload = await this.request(address, signal, { Referer: 'https://quote.eastmoney.com/' });
+      if (payload?.rc !== 0 || payload.data?.code !== symbol.slice(2) || payload.data?.market !== market || !Array.isArray(payload.data?.klines)) throw new Error('数据不可用');
+      const rates = new Map();
+      for (const row of payload.data.klines) {
+        if (typeof row !== 'string') continue;
+        const fields = row.split(','), time = fields[0], rate = turnoverRate(fields[10]);
+        if (rate === null || !(klt < 100 ? /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(time) : /^\d{4}-\d{2}-\d{2}$/.test(time))) continue;
+        rates.set(time, rate);
       }
-      throw error;
+      if (!rates.size) throw new Error('没有有效数据');
+      return rates;
+    };
+    const sohu = async () => {
+      const dates = (options.bars || []).map(bar => (bar.date || bar.time || '').slice(0, 10)).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+      const start = (dates[0] || '2010-01-01').replaceAll('-', ''), end = (dates.at(-1) || '2050-01-01').replaceAll('-', '');
+      const period = klt === 101 ? 'd' : klt === 102 ? 'w' : 'm';
+      const address = `https://q.stock.sohu.com/hisHq?code=cn_${symbol.slice(2)}&start=${start}&end=${end}&stat=1&order=D&period=${period}`;
+      const payload = await this.request(address, signal, { Referer: 'https://q.stock.sohu.com/', 'User-Agent': 'Mozilla/5.0' });
+      const result = Array.isArray(payload) && payload[0];
+      if (result?.status !== 0 || result.code !== `cn_${symbol.slice(2)}` || !Array.isArray(result.hq)) throw new Error('数据不可用');
+      const rates = new Map();
+      for (const row of result.hq) {
+        if (!Array.isArray(row) || !/^\d{4}-\d{2}-\d{2}$/.test(row[0]) || typeof row[9] !== 'string' || !/^\d+(?:\.\d+)?%$/.test(row[9])) continue;
+        rates.set(row[0], Number(row[9].slice(0, -1)));
+      }
+      if (!rates.size) throw new Error('没有有效数据');
+      return rates;
+    };
+    const sources = [['东方财富', () => eastmoney(url)]];
+    if (klt >= 100 && !symbol.startsWith('bj')) sources.push(['搜狐财经', sohu]);
+    else if (klt < 100) sources.push(['东方财富备用', () => eastmoney(url.replace('push2his.eastmoney.com', '54.push2his.eastmoney.com'))]);
+    for (const [source, load] of sources) {
+      try {
+        const rates = await load();
+        if (signal?.aborted) throw new Error('请求已取消');
+        rates.source = source; rates.fetchedAt = Date.now();
+        this.turnoverCache.delete(key); this.turnoverCache.set(key, { at: Date.now(), rates });
+        if (this.turnoverCache.size > 40) this.turnoverCache.delete(this.turnoverCache.keys().next().value);
+        return rates;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        failures.push(`${source}：${error.message || '请求失败'}`);
+      }
     }
-    const rates = new Map();
-    for (const row of payload.data.klines) {
-      if (typeof row !== 'string') continue;
-      const fields = row.split(','), time = fields[0], rate = turnoverRate(fields[10]);
-      if (rate === null || !(klt < 100 ? /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(time) : /^\d{4}-\d{2}-\d{2}$/.test(time))) continue;
-      rates.set(time, rate);
+    const message = `历史换手率获取失败（${failures.join('；')}）`;
+    if (cached?.rates) {
+      const rates = new Map(cached.rates); rates.source = cached.rates.source; rates.fetchedAt = cached.rates.fetchedAt; rates.stale = true;
+      this.turnoverCache.set(key, { at: now, rates });
+      return rates;
     }
-    this.turnoverCache.set(key, { at: now, rates });
+    this.turnoverCache.set(key, { at: now, error: message });
     if (this.turnoverCache.size > 40) this.turnoverCache.delete(this.turnoverCache.keys().next().value);
-    return rates;
+    throw new Error(message);
   }
   async load(input, mode, signal) {
     const symbol = normalizeSymbol(input);

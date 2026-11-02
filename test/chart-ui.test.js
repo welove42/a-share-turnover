@@ -73,6 +73,17 @@ test('顶部展示所选K线的历史换手率，独立显示最新报价换手�
   assert.equal(p.nodes.get('turnover').textContent,'');
 });
 
+test('历史换手率显示获取中、失败原因和缓存来源',()=>{
+  const p=page({mode:'daily'});p.receive({type:'select-mode',mode:'daily'});
+  const d={symbol:'sh600105',name:'测试股',mode:'daily',source:'腾讯行情',date:'2026-09-17',adjustment:'前复权',bars:sampleBars,turnoverApplicable:true,historicalStatus:'loading'};
+  p.receive({type:'data',data:d});p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});
+  assert.match(p.nodes.get('history-status').textContent,/获取中/);assert.match(p.nodes.get('chart-tooltip').textContent,/获取中/);
+  p.receive({type:'data',data:{...d,historicalStatus:'error',historicalError:'历史换手率获取失败（东方财富：socket hang up）'}});
+  assert.match(p.nodes.get('history-status').textContent,/socket hang up.*刷新重试/);assert.match(p.nodes.get('chart-tooltip').textContent,/获取失败/);
+  p.receive({type:'data',data:{...d,historicalStatus:'stale',historicalSource:'搜狐财经',historicalFetchedAt:'2026/11/2 10:00:00'}});
+  assert.match(p.nodes.get('history-status').textContent,/搜狐财经.*缓存.*10:00:00/);
+});
+
 test('五日分时区分历史全天换手率和最后一天的最新值',()=>{
   const p=page({mode:'intraday5'}); p.receive({type:'select-mode',mode:'intraday5'});
   const bars=[{time:'2026-10-29 09:30',date:'2026-10-29',dayIndex:0,open:10,high:10,low:10,close:10,volume:1,historicalTurnover:4.2},

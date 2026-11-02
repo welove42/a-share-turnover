@@ -61,7 +61,7 @@ svg text.indicator-title { fill: var(--vscode-foreground, #d9e1ee); font-weight:
 .detail-value { color: var(--vscode-foreground, #d9e1ee); font-weight: 500; }
 .detail-value.rising { color: var(--chart-up); }
 .detail-value.falling { color: var(--chart-down); }
-#indicator-detail, #average-detail { margin: 5px 0 0; line-height: 1.6; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground, #9caec5); }
-#indicator-detail:empty, #average-detail:empty { display: none; }
+#indicator-detail, #average-detail, #history-status { margin: 5px 0 0; line-height: 1.6; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground, #9caec5); }
+#indicator-detail:empty, #average-detail:empty, #history-status:empty { display: none; }
 .note { margin: 7px 0; }
 @media (max-width: 600px) { #local { padding: 10px; } .chart-tools { flex-wrap: wrap; } }

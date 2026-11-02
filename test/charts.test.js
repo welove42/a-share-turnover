@@ -27,6 +27,16 @@ test('历史换手率异步按日期对齐，切股后的旧结果不能覆盖�
   } finally {h.c.dispose();}
 });
 
+test('历史换手率失败可见且刷新可重试，图表价格不受影响',async()=>{
+  const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{time:'2026-10-16',close:10}],turnoverApplicable:true,turnoverRate:2}));let calls=[];
+  h.c.provider.loadHistoricalTurnover=async(symbol,mode,signal,options)=>{calls.push(options);if(calls.length===1)throw new Error('东方财富断开');const m=new Map([['2026-10-16',2.6]]);m.source='搜狐财经';return m;};
+  try {await h.c.open('600519');const s=h.c.panels.get('sh600519');await h.mode(s,'daily');
+    assert.equal(s.data.historicalStatus,'error');assert.match(s.data.historicalError,/东方财富断开/);assert.equal(s.data.bars[0].close,10);
+    h.setNow('2026-10-26T10:30:03+08:00');await h.c.refresh(s,true);
+    assert.equal(calls[1].force,true);assert.equal(s.data.historicalStatus,'ready');assert.equal(s.data.historicalSource,'搜狐财经');assert.equal(s.data.bars[0].historicalTurnover,2.6);
+  } finally {h.c.dispose();}
+});
+
 test('图表立即显示，缺少最新换手率时独立获取报价并补充来源时间',async()=>{
   let resolveQuote;
   const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{close:10}],turnoverApplicable:true,turnoverRate:null}));
