@@ -31,6 +31,12 @@ function turnoverRate(value) {
   const parsed = typeof value === 'number' ? value : signedNumber(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
+function dailyExtremes(high, low) {
+  const positive = value => { const result = turnoverRate(value); return result !== null && result > 0 ? result : null; };
+  const dailyHigh = positive(high), dailyLow = positive(low);
+  return dailyHigh !== null && dailyLow !== null && dailyHigh < dailyLow
+    ? { dailyHigh: null, dailyLow: null } : { dailyHigh, dailyLow };
+}
 function parseQuotes(text, symbols) {
   const wanted = new Set(symbols);
   const quotes = new Map();
@@ -104,4 +110,4 @@ class StockProvider {
     return { quotes, errors };
   }
 }
-module.exports = { MAX_STOCKS, INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, parseQuotes, isQuote, signed, percentText, orderedSymbols, supportsTurnover, turnoverRate, StockProvider };
+module.exports = { MAX_STOCKS, INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, parseQuotes, isQuote, signed, percentText, orderedSymbols, supportsTurnover, turnoverRate, dailyExtremes, StockProvider };

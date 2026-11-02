@@ -51,6 +51,23 @@ test('图表立即显示，缺少最新换手率时独立获取报价并补充�
     assert.equal(s.panel.webview.messages.at(-1).data.turnoverRate,3.25);
   } finally { h.c.dispose(); }
 });
+test('图表报价缺少当日最高最低时异步获取，失败及过时行情不覆盖图表',async()=>{
+  const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{close:10}],turnoverApplicable:true,turnoverRate:3,dailyHigh:null,dailyLow:null,dailyQuoteTimestamp:null}));
+  let finish; h.c.quoteProvider={load:()=>new Promise(resolve=>{finish=resolve;})};
+  try {await h.c.open('600519');const s=h.c.panels.get('sh600519'),pending=h.mode(s,'intraday');await new Promise(setImmediate);
+    assert.equal(s.data.dailyHigh,null);assert.equal(s.data.turnoverRate,3);
+    finish({quotes:new Map([['sh600519',{high:12,low:8,timestamp:'20261102113234'}]])});await pending;
+    assert.equal(s.data.dailyHigh,12);assert.equal(s.data.dailyLow,8);assert.equal(s.data.dailyQuoteTimestamp,'20261102113234');assert.equal(s.data.turnoverRate,3);
+    h.setNow('2026-10-26T10:30:12+08:00');let old=h.c.refresh(s);await new Promise(setImmediate);const done=finish;await h.c.open('000001');done({quotes:new Map([['sh600519',{high:13,low:7,timestamp:'20261102113300'}]])});await old;
+    assert.equal(s.data,null);assert.equal(s.symbol,'sz000001');
+    h.c.quoteProvider={load:async()=>{throw new Error('offline');}};await h.mode(s,'intraday');assert.equal(s.data.dailyHigh,null);assert.ok(!s.panel.webview.messages.some(m=>m.type==='error'));
+  } finally {h.c.dispose();}
+});
+test('备用报价日期早于已有最高价时不会混用不同快照',async()=>{
+  const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{close:10}],turnoverApplicable:true,turnoverRate:1,dailyHigh:12,dailyLow:null,dailyQuoteTimestamp:'20261102113234'}));
+  h.c.quoteProvider={load:async()=>({quotes:new Map([['sh600519',{high:11,low:8,timestamp:'20261101150000'}]])})};
+  try{await h.c.open('600519');const s=h.c.panels.get('sh600519');await h.mode(s,'intraday');assert.equal(s.data.dailyHigh,12);assert.equal(s.data.dailyLow,null);assert.equal(s.data.dailyQuoteTimestamp,'20261102113234');}finally{h.c.dispose();}
+});
 test('换手率备用请求失败或切股后返回不会破坏现有图表',async()=>{
   let finish;
   const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{close:10}],turnoverApplicable:true,turnoverRate:null}));

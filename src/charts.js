@@ -2,8 +2,8 @@
 const vscode = require('vscode');
 const privateUI = require('./privacy-ui');
 const { randomBytes } = require('node:crypto');
-const { normalizeSymbol, INDEX_SYMBOL, StockProvider } = require('./quotes');
-const { POLL_MS, session } = require('./market');
+const { normalizeSymbol, INDEX_SYMBOL, StockProvider, dailyExtremes } = require('./quotes');
+const { POLL_MS, session, normalizeDate, timeToMinute } = require('./market');
 const { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } = require('./chart-data');
 
 const MINUTE_MODES = ['m1', 'm5', 'm15', 'm30', 'm60'];
@@ -30,7 +30,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <link rel="stylesheet" href="${escapeHtml(css)}"><title>${escapeHtml(symbol)} 行情图表</title></head>
 <body data-symbol="${escapeHtml(symbol)}" data-token="${token}" data-regular-url="${escapeHtml(regularUrl)}" data-chips-url="${escapeHtml(chipsUrl)}" data-mode="${escapeHtml(mode)}">
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
-<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><span id="turnover"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="selected-details" aria-label="所选行情明细"><div id="detail">移动鼠标查看价格、成交量与指标。</div><p id="history-status" role="status"></p><p id="average-detail"></p><p id="indicator-detail"></p></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
+<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><span id="daily-extremes"></span><span id="turnover"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="selected-details" aria-label="所选行情明细"><div id="detail">移动鼠标查看价格、成交量与指标。</div><p id="history-status" role="status"></p><p id="average-detail"></p><p id="indicator-detail"></p></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
 <p id="meta"></p><p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 500" aria-hidden="true"></svg>
 <div id="indicator-controls" class="indicator-tools" role="group" aria-label="副图指标"><span class="tool-label">副图</span>${indicatorButtons}</div>
 <div id="indicator-chart"><svg id="indicator-svg" viewBox="0 0 1040 220" aria-hidden="true"></svg></div>
@@ -208,14 +208,21 @@ class ChartController {
         };
         const tasks = [];
         // Quote and historical enrichment never delay the first chart render.
-        if (data.turnoverApplicable && data.turnoverRate === null) tasks.push((async () => {
+        const needsExtremes = Object.hasOwn(data, 'dailyHigh') && (data.dailyHigh === null || data.dailyLow === null);
+        if ((data.turnoverApplicable && data.turnoverRate === null) || needsExtremes) tasks.push((async () => {
           try {
             const result = await this.quoteProvider.load([state.symbol], abort.signal);
             if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
             const quote = result.quotes.get(state.symbol);
-            if (quote && Number.isFinite(quote.turnoverRate) && quote.turnoverRate >= 0) {
-              enrich({ turnoverRate: quote.turnoverRate, turnoverTimestamp: quote.timestamp });
+            if (!quote || !/^\d{14}$/.test(quote.timestamp || '')) return;
+            try { normalizeDate(quote.timestamp.slice(0, 8)); timeToMinute(quote.timestamp.slice(8, 12)); if (Number(quote.timestamp.slice(12, 14)) > 59) return; } catch { return; }
+            const patch = {};
+            if (data.turnoverApplicable && data.turnoverRate === null && Number.isFinite(quote.turnoverRate) && quote.turnoverRate >= 0) Object.assign(patch, { turnoverRate: quote.turnoverRate, turnoverTimestamp: quote.timestamp });
+            if (needsExtremes) {
+              const range = dailyExtremes(quote.high, quote.low);
+              if ((range.dailyHigh !== null || range.dailyLow !== null) && (!data.dailyQuoteTimestamp || quote.timestamp >= data.dailyQuoteTimestamp)) Object.assign(patch, range, { dailyQuoteTimestamp: quote.timestamp });
             }
+            if (Object.keys(patch).length) enrich(patch);
           } catch { /* A quote failure must not prevent the chart from rendering. */ }
         })());
         if (needsHistory) tasks.push((async () => {

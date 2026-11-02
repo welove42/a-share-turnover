@@ -1,6 +1,6 @@
 'use strict';
 const { requestJson } = require('./http');
-const { normalizeSymbol, supportsTurnover, turnoverRate } = require('./quotes');
+const { normalizeSymbol, supportsTurnover, turnoverRate, dailyExtremes } = require('./quotes');
 const { normalizeDate, timeToMinute } = require('./market');
 const { MinuteFeed } = require('./minute-feed');
 const PERIODS = { daily: 'day', weekly: 'week', monthly: 'month' };
@@ -39,10 +39,13 @@ function metadata(data, symbol) {
   let validQuoteTime = false;
   try { normalizeDate(timestamp.slice(0,8)); timeToMinute(timestamp.slice(8,12)); validQuoteTime = Number(timestamp.slice(12,14)) <= 59; } catch { /* Missing or malformed quote timestamp. */ }
   const eligible = supportsTurnover(symbol);
-  const rate = eligible && validQuoteTime && q[2] === symbol.slice(2) ? turnoverRate(q[38]) : null;
+  const validQuote = validQuoteTime && q[2] === symbol.slice(2);
+  const rate = eligible && validQuote ? turnoverRate(q[38]) : null;
+  const extremes = validQuote ? dailyExtremes(q[33], q[34]) : { dailyHigh: null, dailyLow: null };
   return { name: typeof q[1] === 'string' ? q[1].slice(0, 100) : symbol,
     timestamp, previousClose: Number(q[4]) > 0 ? Number(q[4]) : null,
-    turnoverApplicable: eligible, turnoverRate: rate, turnoverTimestamp: rate === null ? null : timestamp };
+    turnoverApplicable: eligible, turnoverRate: rate, turnoverTimestamp: rate === null ? null : timestamp,
+    ...extremes, dailyQuoteTimestamp: extremes.dailyHigh !== null || extremes.dailyLow !== null ? timestamp : null };
 }
 function parseChart(payload, input, mode) {
   const symbol = normalizeSymbol(input);

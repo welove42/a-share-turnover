@@ -65,6 +65,17 @@ test('图表提取最新报价换手率及时间，缺失或代码不匹配不�
   assert.equal(parseChart({code:0,data:{sh000001:bars}},'sh000001','daily').turnoverApplicable,false);
 });
 
+test('最新报价最高最低严格校验代码、时间、价格及高低关系',()=>{
+  const q=Array(39).fill('');q[1]='测试股';q[2]='600519';q[30]='20261102113234';q[33]='672.82';q[34]='565.00';
+  const payload=()=>wrap({day:[['2026-10-29','600','610','620','590','100']],qt:{[symbol]:q}});
+  let d=parseChart(payload(),symbol,'daily');assert.equal(d.dailyHigh,672.82);assert.equal(d.dailyLow,565);assert.equal(d.dailyQuoteTimestamp,'20261102113234');
+  q[34]='';d=parseChart(payload(),symbol,'daily');assert.equal(d.dailyHigh,672.82);assert.equal(d.dailyLow,null);
+  q[34]='700';d=parseChart(payload(),symbol,'daily');assert.equal(d.dailyHigh,null);assert.equal(d.dailyLow,null);assert.equal(d.dailyQuoteTimestamp,null);
+  q[34]='0';q[33]='NaN';d=parseChart(payload(),symbol,'daily');assert.equal(d.dailyHigh,null);assert.equal(d.dailyLow,null);
+  q[33]='672.82';q[34]='565';q[2]='000001';assert.equal(parseChart(payload(),symbol,'daily').dailyHigh,null);
+  q[2]='600519';q[30]='20260230113234';assert.equal(parseChart(payload(),symbol,'daily').dailyLow,null);
+});
+
 test('五日分时按日期升序保留全部分钟、每天重新计算成交量和均价', () => {
   const q=Array(35).fill(''); q[1]='测试股';q[4]='9.5';q[30]='20261030110000';
   const days=Array.from({length:5},(_,i)=>({date:`202610${30-i}`,data:Array.from({length:100},(_,j)=>`${String(9+Math.floor((30+j)/60)).padStart(2,'0')}${String((30+j)%60).padStart(2,'0')} 10 ${100+j} ${(100+j)*1000}`)}));

@@ -67,7 +67,7 @@
     } else {
       // Release the third-party document while the user is viewing native charts.
       cancelWebLoad(); $('eastmoney').removeAttribute('src');
-      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('indicator-svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('turnover').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('history-status').textContent = ''; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
+      if (changed) { data = null; hover = null; indicatorData = null; $('svg').replaceChildren(); $('indicator-svg').replaceChildren(); $('chart-tooltip').hidden = true; $('meta').textContent = ''; $('quote').textContent = ''; $('daily-extremes').textContent = ''; $('turnover').textContent = ''; $('detail').textContent = '移动鼠标查看价格、成交量与指标。'; $('history-status').textContent = ''; $('average-detail').textContent = ''; $('indicator-detail').textContent = ''; $('indicator-note').textContent = ''; }
     }
     updateIndicatorControls();
     remember(); if (notify) send('mode-ready', { mode });
@@ -360,6 +360,7 @@
       const last = data.bars.at(-1).close, delta = data.previousClose ? (last / data.previousClose - 1) * 100 : null;
       $('quote').textContent = `${data.name} · ${symbol}　${price(last)}${delta === null || !isIntraday(mode) ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;
       $('quote').style.color = delta === null || !isIntraday(mode) ? '' : delta >= 0 ? up : down;
+      $('daily-extremes').textContent = `当日最高 ${priceOrDash(data.dailyHigh)}　最低 ${priceOrDash(data.dailyLow)}${data.dailyQuoteTimestamp ? `（${clock(data.dailyQuoteTimestamp)} 北京）` : ''}`;
       $('turnover').textContent = data.turnoverApplicable ? `最新换手率 ${Number.isFinite(data.turnoverRate) ? data.turnoverRate.toFixed(2) + '%' : '—'}${data.turnoverTimestamp ? `（${clock(data.turnoverTimestamp)} 北京）` : ''}` : '';
       draw();
     }
