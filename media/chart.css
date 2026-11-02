@@ -4,6 +4,7 @@ body.vscode-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) { c
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--vscode-foreground, #d9e1ee); background: var(--vscode-editor-background, #151c28); font: 13px var(--vscode-font-family, system-ui, sans-serif); }
 #quote { font-size: 16px; font-variant-numeric: tabular-nums; }
+#turnover { color: var(--vscode-descriptionForeground, #9caec5); font-variant-numeric: tabular-nums; }
 select { font: inherit; border: 1px solid var(--vscode-dropdown-border, #49596e); border-radius: 4px; color: var(--vscode-dropdown-foreground, #e6edf6); background: var(--vscode-dropdown-background, #253247); cursor: pointer; }
 select:focus-visible, #plot:focus-visible, .period-tools button:focus-visible, .indicator-tools button:focus-visible { outline: 2px solid var(--vscode-focusBorder, #55b1ef); outline-offset: 2px; }
 .note { color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; line-height: 1.7; }

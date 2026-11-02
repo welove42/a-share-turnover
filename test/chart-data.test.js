@@ -4,6 +4,18 @@ const { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, parseFiveDay
 const symbol = 'sh600519';
 const wrap = data => ({ code: 0, data: { [symbol]: data } });
 
+test('图表提取最新报价换手率及时间，缺失或代码不匹配不冒充有效行情',()=>{
+  const q=Array(39).fill(''); q[1]='测试股'; q[2]='600519'; q[4]='9'; q[30]='20261030110000'; q[38]='2.35';
+  const bars={day:[['2026-10-29','10','11','12','9','100']]};
+  let parsed=parseChart(wrap({...bars,qt:{[symbol]:q}}),symbol,'daily');
+  assert.equal(parsed.turnoverRate,2.35); assert.equal(parsed.turnoverTimestamp,'20261030110000');
+  q[38]='0'; assert.equal(parseChart(wrap({...bars,qt:{[symbol]:q}}),symbol,'daily').turnoverRate,0);
+  for(const bad of ['','NaN','-1']) { q[38]=bad; assert.equal(parseChart(wrap({...bars,qt:{[symbol]:q}}),symbol,'daily').turnoverRate,null); }
+  q[38]='2.35'; q[2]='000001'; parsed=parseChart(wrap({...bars,qt:{[symbol]:q}}),symbol,'daily'); assert.equal(parsed.turnoverRate,null); assert.equal(parsed.turnoverTimestamp,null);
+  q[2]='600519'; q[30]='20260230110000'; assert.equal(parseChart(wrap({...bars,qt:{[symbol]:q}}),symbol,'daily').turnoverRate,null);
+  assert.equal(parseChart({code:0,data:{sh000001:bars}},'sh000001','daily').turnoverApplicable,false);
+});
+
 test('五日分时按日期升序保留全部分钟、每天重新计算成交量和均价', () => {
   const q=Array(35).fill(''); q[1]='测试股';q[4]='9.5';q[30]='20261030110000';
   const days=Array.from({length:5},(_,i)=>({date:`202610${30-i}`,data:Array.from({length:100},(_,j)=>`${String(9+Math.floor((30+j)/60)).padStart(2,'0')}${String((30+j)%60).padStart(2,'0')} 10 ${100+j} ${(100+j)*1000}`)}));

@@ -2,7 +2,7 @@
 const vscode = require('vscode');
 const privateUI = require('./privacy-ui');
 const { randomBytes } = require('node:crypto');
-const { normalizeSymbol, INDEX_SYMBOL } = require('./quotes');
+const { normalizeSymbol, INDEX_SYMBOL, StockProvider } = require('./quotes');
 const { POLL_MS, session } = require('./market');
 const { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } = require('./chart-data');
 
@@ -30,7 +30,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <link rel="stylesheet" href="${escapeHtml(css)}"><title>${escapeHtml(symbol)} 行情图表</title></head>
 <body data-symbol="${escapeHtml(symbol)}" data-token="${token}" data-regular-url="${escapeHtml(regularUrl)}" data-chips-url="${escapeHtml(chipsUrl)}" data-mode="${escapeHtml(mode)}">
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
-<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
+<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><span id="turnover"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
 <p id="meta"></p><p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 500" aria-hidden="true"></svg>
 <div id="indicator-controls" class="indicator-tools" role="group" aria-label="副图指标"><span class="tool-label">副图</span>${indicatorButtons}</div>
 <div id="indicator-chart"><svg id="indicator-svg" viewBox="0 0 1040 220" aria-hidden="true"></svg></div>
@@ -41,8 +41,8 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 }
 
 class ChartController {
-  constructor(context, { provider = new ChartProvider(), now = () => new Date(), selected = () => INDEX_SYMBOL, name = () => undefined } = {}) {
-    this.context = context; this.provider = provider; this.now = now; this.selected = selected; this.name = name;
+  constructor(context, { provider = new ChartProvider(), quoteProvider = new StockProvider(), now = () => new Date(), selected = () => INDEX_SYMBOL, name = () => undefined } = {}) {
+    this.context = context; this.provider = provider; this.quoteProvider = quoteProvider; this.now = now; this.selected = selected; this.name = name;
     this.panels = new Map(); this.cache = new Map(); this.disposed = false;
     const savedIndicator = context.globalState.get('chartIndicator', 'macd');
     this.indicator = INDICATORS.includes(savedIndicator) ? savedIndicator : 'macd';
@@ -199,6 +199,19 @@ class ChartController {
         if (this.cache.size > 40) this.cache.delete(this.cache.keys().next().value);
         if (data.name) state.panel.title = `${data.name} · 行情`;
         this.send(state, { type: 'data', data });
+        // Some chart responses omit the quote snapshot. Fetch it separately without delaying the chart.
+        if (data.turnoverApplicable && data.turnoverRate === null) {
+          try {
+            const result = await this.quoteProvider.load([state.symbol], abort.signal);
+            if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
+            const quote = result.quotes.get(state.symbol);
+            if (quote && Number.isFinite(quote.turnoverRate) && quote.turnoverRate >= 0) {
+              const enriched = { ...data, turnoverRate: quote.turnoverRate, turnoverTimestamp: quote.timestamp };
+              state.data = enriched; this.cache.set(key, { data: enriched, at: state.lastAttempt });
+              this.send(state, { type: 'data', data: enriched });
+            }
+          } catch { /* A quote failure must not prevent the chart from rendering. */ }
+        }
       } catch (error) {
         if (!this.disposed && !abort.signal.aborted && state.generation === generation) this.send(state, { type: 'error', mode, message: error.message || '图表获取失败', preserve: Boolean(state.data) });
       } finally {

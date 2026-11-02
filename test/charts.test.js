@@ -12,6 +12,33 @@ function setup(load) {
   } };
 }
 
+test('图表立即显示，缺少最新换手率时独立获取报价并补充来源时间',async()=>{
+  let resolveQuote;
+  const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{close:10}],turnoverApplicable:true,turnoverRate:null}));
+  h.c.quoteProvider={load:(symbols,signal)=>new Promise(resolve=>{ resolveQuote={symbols,signal,resolve}; })};
+  try {
+    await h.c.open('600519'); const s=h.c.panels.get('sh600519'), pending=h.mode(s,'intraday');
+    await new Promise(setImmediate);
+    assert.equal(s.panel.webview.messages.at(-1).data.turnoverRate,null);
+    assert.deepEqual(resolveQuote.symbols,['sh600519']);
+    resolveQuote.resolve({quotes:new Map([['sh600519',{turnoverRate:3.25,timestamp:'20261102100500'}]])});
+    await pending; assert.equal(s.data.turnoverRate,3.25); assert.equal(s.data.turnoverTimestamp,'20261102100500');
+    assert.equal(s.panel.webview.messages.at(-1).data.turnoverRate,3.25);
+  } finally { h.c.dispose(); }
+});
+test('换手率备用请求失败或切股后返回不会破坏现有图表',async()=>{
+  let finish;
+  const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{close:10}],turnoverApplicable:true,turnoverRate:null}));
+  h.c.quoteProvider={load:()=>new Promise(resolve=>{finish=resolve;})};
+  try {
+    await h.c.open('600519'); const s=h.c.panels.get('sh600519'), old=h.mode(s,'intraday'); await new Promise(setImmediate);
+    const done=finish; await h.c.open('000001'); done({quotes:new Map([['sh600519',{turnoverRate:9,timestamp:'20261102100500'}]])}); await old;
+    assert.equal(s.symbol,'sz000001'); assert.equal(s.data,null);
+    h.c.quoteProvider={load:async()=>{throw new Error('断网');}}; await h.mode(s,'daily');
+    assert.equal(s.data.turnoverRate,null); assert.ok(!s.panel.webview.messages.some(m=>m.type==='error'));
+  } finally { h.c.dispose(); }
+});
+
 test('首次详情默认内置分时，设置与显式类型可覆盖，HTML不预加载第三方网页', async () => {
   const h = setup(); try {
     await h.c.open('600105'); let s = h.c.panels.get('sh600105');

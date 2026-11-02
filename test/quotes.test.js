@@ -2,15 +2,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeSymbol, normalizeSymbols, parseQuotes, isQuote, StockProvider, orderedSymbols } = require('../src/quotes');
-function quoteLine(symbol, { name = '测试股票', price = '11.30', previous = '11.20', percent = '0.89', delta = '0.10', stamp = '20261026103030' } = {}) {
+function quoteLine(symbol, { name = '测试股票', price = '11.30', previous = '11.20', percent = '0.89', delta = '0.10', stamp = '20261026103030', turnover = '0' } = {}) {
   const q = Array(40).fill('0');
-  q[1] = name; q[2] = symbol.slice(2); q[3] = price; q[4] = previous; q[30] = stamp; q[31] = delta; q[32] = percent; q[33] = '11.40'; q[34] = '11.00';
+  q[1] = name; q[2] = symbol.slice(2); q[3] = price; q[4] = previous; q[30] = stamp; q[31] = delta; q[32] = percent; q[33] = '11.40'; q[34] = '11.00'; q[38] = turnover;
   return `v_${symbol}="${q.join('~')}";`;
 }
 test('识别六位股票、ETF、北交所、显式指数与代码后缀', () => {
   for (const [input, expected] of [['600519','sh600519'],['000001','sz000001'],['300750','sz300750'],['510300','sh510300'],['159915','sz159915'],['920002','bj920002'],['830799','bj830799'],['SH000001','sh000001'],['600519.SH','sh600519']]) assert.equal(normalizeSymbol(input), expected);
   assert.deepEqual(normalizeSymbols('600519，sh600519 000001;sz159915'), ['sh600519','sz000001','sz159915']);
   for (const code of ['foo', '12345', 'sh600519,sh000001', '600519&token=x', 600519]) assert.throws(() => normalizeSymbol(code));
+});
+test('个股换手率按原始报价解析，缺失、负数和指数不伪造数值', () => {
+  for (const [value, expected] of [['2.35',2.35],['0.00',0],['',null],['-',null],['-2',null]]) {
+    assert.equal(parseQuotes(quoteLine('sh600519',{turnover:value}),['sh600519']).quotes.get('sh600519').turnoverRate,expected);
+  }
+  assert.equal(parseQuotes(quoteLine('sh000001',{turnover:'2.35'}),['sh000001']).quotes.get('sh000001').turnoverRate,null);
+  assert.equal(parseQuotes(quoteLine('sz399001',{turnover:'2.35'}),['sz399001']).quotes.get('sz399001').turnoverRate,null);
 });
 test('批量自选去重，限制100个防止超长请求', () => {
   assert.equal(normalizeSymbols(['600519','600519']).length, 1);

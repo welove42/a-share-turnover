@@ -26,6 +26,11 @@ function signedNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
+function supportsTurnover(symbol) { return !/^sz399\d{3}$/.test(symbol) && /^(?:sh6\d{5}|sz[03]\d{5}|bj\d{6})$/.test(symbol); }
+function turnoverRate(value) {
+  const parsed = typeof value === 'number' ? value : signedNumber(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 function parseQuotes(text, symbols) {
   const wanted = new Set(symbols);
   const quotes = new Map();
@@ -49,7 +54,8 @@ function parseQuotes(text, symbols) {
       quotes.set(symbol, {
         symbol, name: q[1].slice(0, 100), price: trading ? price : null,
         priceText: trading ? q[3] : '—', previousClose, delta, percent,
-        date, timestamp: q[30], high: signedNumber(q[33]), low: signedNumber(q[34])
+        date, timestamp: q[30], high: signedNumber(q[33]), low: signedNumber(q[34]),
+        turnoverRate: supportsTurnover(symbol) ? turnoverRate(q[38]) : null
       });
     } catch (error) { errors.set(symbol, error.message); }
   }
@@ -98,4 +104,4 @@ class StockProvider {
     return { quotes, errors };
   }
 }
-module.exports = { MAX_STOCKS, INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, parseQuotes, isQuote, signed, percentText, orderedSymbols, StockProvider };
+module.exports = { MAX_STOCKS, INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, parseQuotes, isQuote, signed, percentText, orderedSymbols, supportsTurnover, turnoverRate, StockProvider };
