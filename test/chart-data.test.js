@@ -97,6 +97,30 @@ test('股票及ETF分时成交均价按累计成交额元除以累计手数乘10
     assert.equal(bars[5].amount, 140000);
   }
 });
+test('科创板腾讯成交量以股返回，分时、五日分时和各周期K线统一转换为手',()=>{
+  for(const symbol of ['sh688836','sh689009']) {
+    const wrapStock = data => ({code:0,data:{[symbol]:data}});
+    const rows=['0930 600 10001 6000600','0931 620 20002 12201220'];
+    const intraday=parseChart(wrapStock({data:{date:'20261102',data:rows}}),symbol,'intraday');
+    assert.equal(intraday.bars[0].volume,100.01); assert.equal(intraday.bars[1].volume,100.01);
+    assert.equal(intraday.bars[1].cumulativeVolume,200.02); assert.equal(intraday.bars[1].averagePrice,610);
+    const five=parseFiveDayChart(wrapStock({data:[{date:'20261102',data:rows}]}),symbol);
+    assert.equal(five.bars[1].cumulativeVolume,200.02);assert.equal(five.bars[1].averagePrice,610);
+    for(const mode of ['m1','m5','m15','m30','m60']) {
+      const data=parseChart(wrapStock({[mode]:[['202611020935','600','610','620','590','20002']]}),symbol,mode);
+      assert.equal(data.bars[0].volume,200.02);
+    }
+    for(const [mode,key] of [['daily','qfqday'],['weekly','qfqweek'],['monthly','qfqmonth']]) {
+      const data=parseChart(wrapStock({[key]:[['2026-11-02','600','610','620','590','20002']]}),symbol,mode);
+      assert.equal(data.bars[0].volume,200.02);
+    }
+  }
+});
+test('明显异常的分时均价不显示，避免错误数据压扁价格曲线',()=>{
+  const input=wrap({data:{date:'20261102',data:['0930 600 100 60000000','0931 610 200 122000000']}});
+  const bars=parseChart(input,symbol,'intraday').bars;
+  assert.equal(bars[0].averagePrice,null);assert.equal(bars[1].averagePrice,null);assert.equal(bars[1].close,610);
+});
 test('指数不从成分股聚合成交量伪造均价；无量与错误成交额保留价格图', () => {
   const make = (s, rows) => parseChart({ code: 0, data: { [s]: { data: { date: '20261028', data: rows } } } }, s, 'intraday');
   assert.equal(make('sh000001', ['0930 3000 100 100000']).bars[0].averagePrice, null);

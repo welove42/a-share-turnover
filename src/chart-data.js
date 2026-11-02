@@ -6,6 +6,10 @@ const { MinuteFeed } = require('./minute-feed');
 const PERIODS = { daily: 'day', weekly: 'week', monthly: 'month' };
 const MINUTES = ['m1', 'm5', 'm15', 'm30', 'm60'];
 
+// Tencent reports STAR Market (688/689) volume in shares; other supported
+// A-share stocks and ETFs are reported in lots. Our chart uses lots throughout.
+const volumeInLots = (symbol, volume) => /^sh68[89]\d{3}$/.test(symbol) ? volume / 100 : volume;
+
 function eastmoneyUrl(input) {
   const symbol = normalizeSymbol(input), code = symbol.slice(2);
   if (symbol.startsWith('bj')) return `https://quote.eastmoney.com/bj/${code}.html`;
@@ -50,7 +54,7 @@ function parseChart(payload, input, mode) {
   if (mode === 'intraday') {
     date = normalizeDate(data.data?.date);
     if (!Array.isArray(data.data?.data)) throw new Error('缺少分时数据');
-    let cumulative = 0, lastMinute = -1, previousAmount = 0, largestAmount = 0;
+    let cumulative = 0, lastMinute = -1, previousAmount = 0, largestAmount = 0, lowestPrice = Infinity, highestPrice = 0;
     // These stocks/ETFs use 100 shares per lot. Index turnover cannot be
     // divided by aggregate constituent volume to obtain an index average.
     const supportsAverage = /^(?:sh[56]\d{5}|sz[03]\d{5}|sz1[568]\d{4}|bj\d{6})$/.test(symbol);
@@ -59,16 +63,19 @@ function parseChart(payload, input, mode) {
       const [time, rawPrice, rawVolume, rawAmount] = row.trim().split(/\s+/);
       const minute = timeToMinute(time);
       if (!((minute >= 570 && minute <= 690) || (minute >= 780 && minute <= 900))) continue;
-      const price = number(rawPrice, '分时价格'), total = number(rawVolume, '累计成交量');
-      if (minute <= lastMinute || total < cumulative) throw new Error('分时累计成交量或时间顺序异常');
+      const price = number(rawPrice, '分时价格'), rawTotal = number(rawVolume, '累计成交量');
+      if (minute <= lastMinute || rawTotal < cumulative) throw new Error('分时累计成交量或时间顺序异常');
       lastMinute = minute;
-      const volume = total - cumulative; cumulative = total;
+      const volume = volumeInLots(symbol, rawTotal - cumulative), total = volumeInLots(symbol, rawTotal); cumulative = rawTotal;
       const amountValue = rawAmount === undefined ? NaN : Number(rawAmount);
       const cumulativeAmount = Number.isFinite(amountValue) && amountValue >= largestAmount ? amountValue : null;
       const amount = cumulativeAmount !== null && previousAmount !== null ? cumulativeAmount - previousAmount : null;
       previousAmount = cumulativeAmount;
       if (cumulativeAmount !== null) largestAmount = cumulativeAmount;
-      const averagePrice = supportsAverage && total > 0 && cumulativeAmount > 0 ? cumulativeAmount / (total * 100) : null;
+      if (price > 0) { lowestPrice = Math.min(lowestPrice, price); highestPrice = Math.max(highestPrice, price); }
+      const candidate = supportsAverage && total > 0 && cumulativeAmount > 0 ? cumulativeAmount / (total * 100) : null;
+      // Reject wildly inconsistent feed fields instead of flattening the entire chart.
+      const averagePrice = candidate !== null && candidate >= lowestPrice * .5 && candidate <= highestPrice * 2 ? candidate : null;
       if (price > 0) bars.push({ time, open: price, close: price, high: price, low: price, volume,
         cumulativeVolume: total, amount, cumulativeAmount, averagePrice });
     }
@@ -80,7 +87,8 @@ function parseChart(payload, input, mode) {
       const raw = String(row[0]), day = normalizeDate(raw.slice(0, 8));
       timeToMinute(raw.slice(8));
       const time = `${day} ${raw.slice(8, 10)}:${raw.slice(10, 12)}`;
-      const [open, close, high, low, volume] = row.slice(1, 6).map(value => number(value, '分钟K线字段'));
+      const [open, close, high, low, rawVolume] = row.slice(1, 6).map(value => number(value, '分钟K线字段'));
+      const volume = volumeInLots(symbol, rawVolume);
       if (open === 0 && close === 0 && high === 0 && low === 0) continue;
       if (low <= 0 || low > Math.min(open, close) || high < Math.max(open, close) || (bars.length && time <= bars.at(-1).time)) throw new Error('分钟K线价格或时间顺序异常');
       bars.push({ time, open, close, high, low, volume });
@@ -97,7 +105,7 @@ function parseChart(payload, input, mode) {
       // Cash-dividend forward adjustment can legitimately make old prices negative.
       const adjustedPrices = adjustment === '前复权';
       const [open, close, high, low] = row.slice(1, 5).map(value => number(value, 'K线价格', adjustedPrices));
-      const volume = number(row[5], 'K线成交量');
+      const volume = volumeInLots(symbol, number(row[5], 'K线成交量'));
       if (open === 0 && close === 0 && high === 0 && low === 0) continue;
       if ((!adjustedPrices && low <= 0) || low > Math.min(open, close) || high < Math.max(open, close) || (bars.length && time <= bars.at(-1).time)) throw new Error('K线价格或日期顺序异常');
       bars.push({ time, open, close, high, low, volume });

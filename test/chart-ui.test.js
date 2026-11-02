@@ -107,6 +107,16 @@ test('明细按两行分组，价格相对前收着色，缺少前收时不着�
   const missing=descendants(p.nodes.get('detail')).find(n=>n.className==='detail-row' && n.children[0].textContent.trim()==='涨跌幅').children[1];
   assert.equal(missing.textContent,'—'); assert.equal(missing.className,'detail-value');
 });
+test('科创板分时价格波动按正确均价拉伸，零股成交量以小数手展示',()=>{
+  const p=page();const bars=[{time:'0930',open:639,close:639,high:639,low:639,volume:100.01,cumulativeVolume:100.01,averagePrice:639},
+    {time:'0931',open:565,close:565,high:565,low:565,volume:110.05,cumulativeVolume:210.06,averagePrice:600},
+    {time:'0932',open:658,close:658,high:658,low:658,volume:220.03,cumulativeVolume:430.09,averagePrice:599}];
+  p.receive({type:'data',data:{symbol:'sh600105',mode:'intraday',name:'测试股',date:'2026-11-02',source:'腾讯行情',previousClose:647.05,bars}});
+  const line=descendants(p.nodes.get('svg')).find(n=>n.tag==='polyline'&&n.getAttribute('stroke')==='var(--chart-series-2, #5bbcff)');
+  const ys=line.getAttribute('points').split(' ').map(point=>Number(point.split(',')[1]));
+  assert.ok(Math.max(...ys)-Math.min(...ys)>100);assert.match(p.nodes.get('detail').textContent,/分钟成交量 220\.03手/);
+  assert.match(p.nodes.get('detail').textContent,/均价 599\.00/);
+});
 
 test('页面副图按钮等待宿主确认再高亮，读图说明在无行情时也可用', () => {
   const p = page();

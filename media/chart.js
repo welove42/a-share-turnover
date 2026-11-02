@@ -19,7 +19,7 @@
   const remember = () => vscode.setState({ mode, range });
   const precision = /^(sh5|sz1)/.test(symbol) ? 3 : 2;
   const price = value => Number(value).toFixed(precision);
-  const volume = value => value >= 1e8 ? (value / 1e8).toFixed(2) + '亿手' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万手' : Number(value).toFixed(0) + '手';
+  const volume = value => value >= 1e8 ? (value / 1e8).toFixed(2) + '亿手' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万手' : Number(value).toFixed(Number.isInteger(value) ? 0 : 2) + '手';
   const amount = value => !Number.isFinite(value) ? '—' : value >= 1e8 ? (value / 1e8).toFixed(2) + '亿元' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万元' : value.toFixed(2) + '元';
   const priceOrDash = value => Number.isFinite(value) ? price(value) : '—';
   const signed = (value, digits = 2) => Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value.toFixed(digits)}` : '—';
