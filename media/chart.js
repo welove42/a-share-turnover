@@ -360,7 +360,7 @@
       const last = data.bars.at(-1).close, delta = data.previousClose ? (last / data.previousClose - 1) * 100 : null;
       $('quote').textContent = `${data.name} · ${symbol}　${price(last)}${delta === null || !isIntraday(mode) ? '' : `  ${delta >= 0 ? '▲ +' : '▼ '}${delta.toFixed(2)}%`}`;
       $('quote').style.color = delta === null || !isIntraday(mode) ? '' : delta >= 0 ? up : down;
-      $('daily-extremes').textContent = `当日最高 ${priceOrDash(data.dailyHigh)}　最低 ${priceOrDash(data.dailyLow)}${data.dailyQuoteTimestamp ? `（${clock(data.dailyQuoteTimestamp)} 北京）` : ''}`;
+      $('daily-extremes').textContent = `当日最高 ${priceOrDash(data.dailyHigh)}　最低 ${priceOrDash(data.dailyLow)}`;
       $('turnover').textContent = data.turnoverApplicable ? `最新换手率 ${Number.isFinite(data.turnoverRate) ? data.turnoverRate.toFixed(2) + '%' : '—'}${data.turnoverTimestamp ? `（${clock(data.turnoverTimestamp)} 北京）` : ''}` : '';
       draw();
     }

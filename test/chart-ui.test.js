@@ -72,11 +72,11 @@ test('顶部展示所选K线的历史换手率，独立显示最新报价换手�
   p.receive({type:'data',data:{...d,turnoverApplicable:false,turnoverRate:null}});
   assert.equal(p.nodes.get('turnover').textContent,'');
 });
-test('当日最高最低及报价日期固定显示，悬停历史K线不混淆所选历史高低',()=>{
+test('当日最高最低显示在行情框中且不带时间，悬停历史K线不混淆所选历史高低',()=>{
   const p=page({mode:'daily'});p.receive({type:'select-mode',mode:'daily'});
   const d={symbol:'sh600105',name:'测试股',mode:'daily',source:'腾讯行情',date:'2026-09-17',adjustment:'前复权',bars:sampleBars,
     dailyHigh:672.82,dailyLow:565,dailyQuoteTimestamp:'20261102113234'};
-  p.receive({type:'data',data:d});assert.match(p.nodes.get('daily-extremes').textContent,/当日最高 672\.82\s+最低 565\.00.*2026-11-02 11:32:34/);
+  p.receive({type:'data',data:d});assert.equal(p.nodes.get('daily-extremes').textContent,'当日最高 672.82　最低 565.00');
   p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});
   assert.match(p.nodes.get('daily-extremes').textContent,/672\.82/);assert.match(p.nodes.get('chart-tooltip').textContent,/高 11\.61.*低 9\.61/);
   p.receive({type:'data',data:{...d,dailyHigh:null,dailyLow:null,dailyQuoteTimestamp:null}});
