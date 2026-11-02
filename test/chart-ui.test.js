@@ -129,6 +129,30 @@ test('科创板分时价格波动按正确均价拉伸，零股成交量以小�
   assert.match(p.nodes.get('detail').textContent,/均价 599\.00/);
 });
 
+test('分时在匹配行情日期显示真实日高日低水平线并纳入纵轴，不虚构发生时间',()=>{
+  const p=page(),bars=[{time:'0930',open:10,close:10,high:10,low:10,volume:100},
+    {time:'0931',open:11,close:11,high:11,low:11,volume:100}];
+  const data={symbol:'sh600105',mode:'intraday',name:'测试股',date:'2026-11-02',source:'腾讯行情',previousClose:10,bars,dailyHigh:12,dailyLow:8,dailyQuoteTimestamp:'20261102113234'};
+  p.receive({type:'data',data});
+  const labels=()=>descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='daily-extreme-label');
+  const lines=()=>descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='daily-extreme-line');
+  assert.deepEqual(labels().map(n=>n.textContent),['日最高 12.00','日最低 8.00']);assert.equal(lines().length,2);
+  for(const line of lines()){assert.equal(line.getAttribute('x1'),'68');assert.equal(line.getAttribute('x2'),'967');assert.ok(Number(line.getAttribute('y1'))>=40 && Number(line.getAttribute('y1'))<=295);}
+  p.receive({type:'data',data:{...data,dailyQuoteTimestamp:'20261030150000'}});assert.equal(labels().length,0);
+  p.receive({type:'data',data:{...data,dailyHigh:null}});assert.deepEqual(labels().map(n=>n.textContent),['日最低 8.00']);
+  p.receive({type:'data',data:{...data,dailyHigh:10,dailyLow:10}});assert.deepEqual(labels().map(n=>n.textContent),['日高/日低 10.00']);
+  p.receive({type:'data',data:{...data,dailyHigh:8,dailyLow:12}});assert.equal(labels().length,0);
+});
+test('五日分时的日高日低只覆盖最后一个匹配的交易日',()=>{
+  const p=page({mode:'intraday5'});p.receive({type:'select-mode',mode:'intraday5'});
+  const bars=['2026-10-30','2026-11-02'].map((date,dayIndex)=>({date,dayIndex,time:`${date} 09:30`,open:10,close:10,high:10,low:10,volume:100}));
+  const data={symbol:'sh600105',mode:'intraday5',name:'测试股',date:'2026-11-02',dates:['2026-10-30','2026-11-02'],source:'腾讯行情',bars,dailyHigh:12,dailyLow:8,dailyQuoteTimestamp:'20261102113234'};
+  p.receive({type:'data',data});let lines=descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='daily-extreme-line');
+  assert.equal(lines.length,2);assert.equal(Number(lines[0].getAttribute('x1')),517.5);assert.equal(lines[0].getAttribute('x2'),'967');
+  p.receive({type:'data',data:{...data,dailyQuoteTimestamp:'20261030150000'}});
+  lines=descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='daily-extreme-line');assert.equal(lines.length,0);
+});
+
 test('成交量区域高度随窗口缩放保持清晰，柱高线性且分时按相邻价格着色',()=>{
   for(const width of [800,1400]) {
     const p=page();

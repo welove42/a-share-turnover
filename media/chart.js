@@ -127,6 +127,16 @@
       ? L + (bar.dayIndex + .02 + .96 * barMinute(bar) / 240) * width / data.dates.length : L + barMinute(bar) / 240 * width;
     let min = Math.min(...bars.map(b => b.low), ...averages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)));
     let max = Math.max(...bars.map(b => b.high), ...averages.flatMap(a => a.values.slice(start, start + bars.length).filter(Number.isFinite)));
+    // A quote provides prices but no timestamps for the extrema. Draw levels,
+    // not points that imply an exact minute, and only on the matching date.
+    const sameQuoteDay = isIntraday(mode) && /^\d{14}$/.test(data.dailyQuoteTimestamp || '') && data.dailyQuoteTimestamp.slice(0, 8) === String(data.date || '').replaceAll('-', '');
+    const high = sameQuoteDay && Number.isFinite(data.dailyHigh) && data.dailyHigh > 0 ? data.dailyHigh : null;
+    const low = sameQuoteDay && Number.isFinite(data.dailyLow) && data.dailyLow > 0 ? data.dailyLow : null;
+    const validRange = high === null || low === null || high >= low;
+    const levels = validRange ? (high !== null && high === low ? [{ label: '日高/日低', value: high }] : [
+      ...(high !== null ? [{ label: '日最高', value: high }] : []), ...(low !== null ? [{ label: '日最低', value: low }] : [])
+    ]) : [];
+    for (const level of levels) { min = Math.min(min, level.value); max = Math.max(max, level.value); }
     if (mode === 'intraday' && data.previousClose) {
       const spread = Math.max(Math.abs(min - data.previousClose), Math.abs(max - data.previousClose), data.previousClose * .002);
       min = data.previousClose - spread; max = data.previousClose + spread;
@@ -168,6 +178,12 @@
     }
     add('text', { x: L, y: V - 10 }, '成交量 · 手');
     if (mode === 'intraday' && data.previousClose) add('line', { x1: L, x2: R, y1: y(data.previousClose), y2: y(data.previousClose), class: 'baseline' });
+    const levelStart = fiveDay ? L + (data.dates.length - 1) * width / data.dates.length : L;
+    levels.forEach((level, i) => {
+      const yy = y(level.value), textY = Math.max(T + 11, Math.min(B - 3, yy + (i === 0 ? -4 : 13)));
+      add('line', { x1: levelStart, x2: R, y1: yy, y2: yy, class: 'daily-extreme-line' });
+      add('text', { x: R - 4, y: textY, 'text-anchor': 'end', class: 'daily-extreme-label' }, `${level.label} ${price(level.value)}`);
+    });
     if (isIntraday(mode)) {
       if (fiveDay) drawSeries({color:lineColor,values:all.map(b=>b.close)}, y, 'intraday-price');
       else {

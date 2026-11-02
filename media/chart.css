@@ -53,6 +53,8 @@ svg text.indicator-title { fill: var(--vscode-foreground, #d9e1ee); font-weight:
 .grid { stroke: var(--vscode-panel-border, #354053); stroke-width: 1; }
 .volume-grid-guide { stroke: var(--vscode-panel-border, #354053); stroke-width: 1; stroke-dasharray: 4 4; }
 .baseline { stroke: var(--vscode-descriptionForeground, #9caec5); stroke-dasharray: 5 5; opacity: .7; }
+.daily-extreme-line { stroke: var(--vscode-descriptionForeground, #9caec5); stroke-width: 1; stroke-dasharray: 3 4; opacity: .65; pointer-events: none; }
+svg text.daily-extreme-label { fill: var(--vscode-foreground, #d9e1ee); stroke: var(--vscode-editor-background, #151c28); stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; pointer-events: none; }
 .crosshair { stroke: var(--vscode-foreground, #d9e1ee); opacity: .5; stroke-dasharray: 4 4; pointer-events: none; }
 .selected-details { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 4px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background, #151c28)); }
 #detail { min-height: 24px; font-variant-numeric: tabular-nums; line-height: 1.65; }
