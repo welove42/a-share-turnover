@@ -54,18 +54,32 @@ const sampleBars = Array.from({ length: 240 }, (_, i) => ({ time: `2026-${String
 const descendants = item => [item, ...item.children.flatMap(descendants)];
 const rendered = p => [...descendants(p.nodes.get('svg')), ...descendants(p.nodes.get('indicator-svg'))];
 
-test('各周期显示最新换手率和报价时间，悬停历史K线不冒充历史换手率',()=>{
+test('顶部展示所选K线的历史换手率，独立显示最新报价换手率',()=>{
   const p=page({mode:'daily'}); p.receive({type:'select-mode',mode:'daily'});
   const d={symbol:'sh600105',name:'测试股',mode:'daily',source:'腾讯行情',date:'2026-09-17',adjustment:'前复权',bars:sampleBars,
     turnoverApplicable:true,turnoverRate:2.35,turnoverTimestamp:'20261102100530'};
+  d.bars = sampleBars.map((bar, i) => ({ ...bar, historicalTurnover: i === 61 ? 4.56 : null }));
   p.receive({type:'data',data:d});
   assert.match(p.nodes.get('turnover').textContent,/最新换手率 2\.35%.*2026-11-02 10:05:30/);
   p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});
-  assert.doesNotMatch(p.nodes.get('chart-tooltip').textContent,/换手率/);
+  assert.match(p.nodes.get('detail').textContent,/换手率 4\.56%/);
+  assert.match(p.nodes.get('chart-tooltip').textContent,/换手率 4\.56%/);
+  p.nodes.get('plot').dispatch('pointermove',{clientX:82,clientY:100});
+  assert.match(p.nodes.get('detail').textContent,/换手率 —/);
   p.receive({type:'data',data:{...d,turnoverRate:null,turnoverTimestamp:null}});
   assert.equal(p.nodes.get('turnover').textContent,'最新换手率 —');
   p.receive({type:'data',data:{...d,turnoverApplicable:false,turnoverRate:null}});
   assert.equal(p.nodes.get('turnover').textContent,'');
+});
+
+test('五日分时区分历史全天换手率和最后一天的最新值',()=>{
+  const p=page({mode:'intraday5'}); p.receive({type:'select-mode',mode:'intraday5'});
+  const bars=[{time:'2026-10-29 09:30',date:'2026-10-29',dayIndex:0,open:10,high:10,low:10,close:10,volume:1,historicalTurnover:4.2},
+    {time:'2026-10-30 09:30',date:'2026-10-30',dayIndex:1,open:11,high:11,low:11,close:11,volume:1,historicalTurnover:1.3}];
+  p.receive({type:'data',data:{symbol:'sh600105',mode:'intraday5',name:'测试股',source:'腾讯行情',date:'2026-10-30',dates:['2026-10-29','2026-10-30'],bars,turnoverApplicable:true}});
+  assert.match(p.nodes.get('detail').textContent,/当日换手率（最新） 1\.30%/);
+  p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});
+  assert.match(p.nodes.get('detail').textContent,/当日换手率（全天） 4\.20%/);
 });
 
 test('页面副图按钮等待宿主确认再高亮，读图说明在无行情时也可用', () => {

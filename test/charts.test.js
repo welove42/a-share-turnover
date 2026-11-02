@@ -12,6 +12,21 @@ function setup(load) {
   } };
 }
 
+test('历史换手率异步按日期对齐，切股后的旧结果不能覆盖新图表', async () => {
+  const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{time:'2026-10-29',close:10},{time:'2026-10-30',close:11}],turnoverApplicable:true,turnoverRate:2}));
+  let finish;
+  h.c.provider.loadHistoricalTurnover=()=>new Promise(resolve=>{finish=resolve;});
+  try {
+    await h.c.open('600519'); const s=h.c.panels.get('sh600519'), pending=h.mode(s,'daily'); await new Promise(setImmediate);
+    assert.equal(s.data.bars[0].historicalTurnover,undefined);
+    finish(new Map([['2026-10-29',3.7]])); await pending;
+    assert.equal(s.data.bars[0].historicalTurnover,3.7); assert.equal(s.data.bars[1].historicalTurnover,null);
+    h.setNow('2026-10-26T10:30:12+08:00'); const old=h.c.refresh(s); await new Promise(setImmediate);
+    const done=finish; await h.c.open('000001'); done(new Map([['2026-10-29',9]])); await old;
+    assert.equal(s.symbol,'sz000001'); assert.equal(s.data,null);
+  } finally {h.c.dispose();}
+});
+
 test('图表立即显示，缺少最新换手率时独立获取报价并补充来源时间',async()=>{
   let resolveQuote;
   const h=setup((symbol,mode)=>({symbol,mode,name:'测试股',bars:[{close:10}],turnoverApplicable:true,turnoverRate:null}));
@@ -43,6 +58,7 @@ test('首次详情默认内置分时，设置与显式类型可覆盖，HTML不�
   const h = setup(); try {
     await h.c.open('600105'); let s = h.c.panels.get('sh600105');
     assert.equal(s.mode, 'intraday'); assert.doesNotMatch(s.panel.webview.html, /<iframe[^>]+\ssrc=/);
+    assert.ok(s.panel.webview.html.indexOf('id="detail"') < s.panel.webview.html.indexOf('id="plot"'));
     await h.mode(s, 'intraday'); assert.equal(h.calls(), 1);
     s.panel.dispose(); h.values.set('aShareTurnover.charts.defaultMode', 'daily');
     await h.c.open('600105'); s = h.c.panels.get('sh600105'); assert.equal(s.mode, 'daily');

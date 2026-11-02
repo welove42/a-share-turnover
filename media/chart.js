@@ -251,10 +251,13 @@
     const mainAverages = averages.map(a => `${a.name} ${priceOrDash(a.values[index])}`);
     const volumeValues = volumeAverages.map(a => `${a.name} ${Number.isFinite(a.values[index]) ? volume(a.values[index]) : '—'}`);
     const indicatorText = item => `${item.label}　${item.lines.map(s => `${s.name} ${numberOrDash(s.values[index])}`).join('　')}${item.histogram ? '　柱 ' + numberOrDash(item.histogram[index]) : ''}`;
+    const historicalRate = Number.isFinite(bar.historicalTurnover) ? bar.historicalTurnover.toFixed(2) + '%' : '—';
+    const turnover = data.turnoverApplicable && mode !== 'intraday' ? `${mode === 'intraday5' ? (bar.date === data.date ? '当日换手率（最新）' : '当日换手率（全天）') : '换手率'} ${historicalRate}` : '';
     for (const { label, series, format } of legend) label.textContent = `${series.name} ${format(series.values[index])}`;
     $('detail').textContent = !isIntraday(mode)
       ? `${time}　开 ${price(bar.open)}　高 ${price(bar.high)}　低 ${price(bar.low)}　收 ${price(bar.close)}　${changes}　振幅 ${signed(amplitude)}%　成交量 ${volume(bar.volume)}`
       : `${time}　价格 ${price(bar.close)}　${changes}　均价 ${priceOrDash(bar.averagePrice)}　该分钟成交量 ${volume(bar.volume)}　该分钟成交额 ${amount(bar.amount)}　累计成交额 ${amount(bar.cumulativeAmount)}`;
+    if (turnover) $('detail').textContent += `　${turnover}`;
     $('average-detail').textContent = [...mainAverages, ...volumeValues].join('　');
     $('indicator-detail').textContent = !indicatorData ? '' : indicatorText(indicatorData);
     const rows = isIntraday(mode)
@@ -264,7 +267,7 @@
       : [time, `开 ${price(bar.open)}　收 ${price(bar.close)}`, `高 ${price(bar.high)}　低 ${price(bar.low)}`,
         changes, `振幅 ${signed(amplitude)}%　量 ${volume(bar.volume)}`,
         mainAverages.slice(0, 3).join('　'), mainAverages.slice(3).join('　'), volumeValues.join('　')];
-    $('chart-tooltip').textContent = [...rows, ...Object.values(metrics).map(indicatorText)].join('\n');
+    $('chart-tooltip').textContent = [...rows, ...(turnover ? [turnover] : []), ...Object.values(metrics).map(indicatorText)].join('\n');
   }
   function pointAt(index) {
     if (!hover) return;

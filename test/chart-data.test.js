@@ -4,6 +4,21 @@ const { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, parseFiveDay
 const symbol = 'sh600519';
 const wrap = data => ({ code: 0, data: { [symbol]: data } });
 
+test('历史换手率按证券、周期及时间解析并缓存，非法数值不使用', async () => {
+  let calls = 0, lastUrl;
+  const provider = new ChartProvider(async url => { calls++; lastUrl = url; return {rc:0,data:{code:'600519',market:1,klines:['2026-10-29,1,1,1,1,1,1,1,1,1,2.35','2026-10-30,1,1,1,1,1,1,1,1,1,0','2026-10-31,1,1,1,1,1,1,1,1,1,-1']}}; });
+  const rates = await provider.loadHistoricalTurnover(symbol, 'daily');
+  assert.equal(rates.get('2026-10-29'),2.35); assert.equal(rates.get('2026-10-30'),0); assert.equal(rates.has('2026-10-31'),false);
+  assert.match(lastUrl,/klt=101/); await provider.loadHistoricalTurnover(symbol,'intraday5'); assert.equal(calls,1);
+  await provider.loadHistoricalTurnover('sh000001','daily'); assert.equal(calls,1);
+  const wrong = new ChartProvider(async()=>({rc:0,data:{code:'000001',market:1,klines:[]}}));
+  await assert.rejects(wrong.loadHistoricalTurnover(symbol,'daily'),/不可用/);
+});
+test('分钟换手率保留准确的周期结束时间', async () => {
+  const p = new ChartProvider(async()=>({rc:0,data:{code:'600519',market:1,klines:['2026-10-29 10:05,1,1,1,1,1,1,1,1,1,0.12']}}));
+  const rates=await p.loadHistoricalTurnover(symbol,'m5'); assert.equal(rates.get('2026-10-29 10:05'),0.12); assert.equal(rates.has('2026-10-29'),false);
+});
+
 test('图表提取最新报价换手率及时间，缺失或代码不匹配不冒充有效行情',()=>{
   const q=Array(39).fill(''); q[1]='测试股'; q[2]='600519'; q[4]='9'; q[30]='20261030110000'; q[38]='2.35';
   const bars={day:[['2026-10-29','10','11','12','9','100']]};

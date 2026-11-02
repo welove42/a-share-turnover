@@ -30,13 +30,13 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
 <link rel="stylesheet" href="${escapeHtml(css)}"><title>${escapeHtml(symbol)} 行情图表</title></head>
 <body data-symbol="${escapeHtml(symbol)}" data-token="${token}" data-regular-url="${escapeHtml(regularUrl)}" data-chips-url="${escapeHtml(chipsUrl)}" data-mode="${escapeHtml(mode)}">
 <main><div id="web-chart"${isWebMode(mode) ? '' : ' hidden'}><iframe id="eastmoney" title="东方财富 ${escapeHtml(symbol)} 专用图表" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
-<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><span id="turnover"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
+<section id="local"${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表"><div class="chart-tools"><span id="quote"></span><span id="turnover"></span><label id="range-label" hidden>显示 <select id="range"><option value="60">60根</option><option value="120">120根</option><option value="180" selected>180根</option></select></label></div><div class="selected-details"><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="average-detail"></p><p id="indicator-detail"></p></div><div class="period-tools" role="group" aria-label="图表周期">${periods}</div>
 <p id="meta"></p><p id="status" role="status" aria-live="polite"></p><div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标"><svg id="svg" viewBox="0 0 1040 500" aria-hidden="true"></svg>
 <div id="indicator-controls" class="indicator-tools" role="group" aria-label="副图指标"><span class="tool-label">副图</span>${indicatorButtons}</div>
 <div id="indicator-chart"><svg id="indicator-svg" viewBox="0 0 1040 220" aria-hidden="true"></svg></div>
 <aside id="indicator-guide" aria-label="指标读图说明"><strong id="indicator-guide-title"></strong><p id="indicator-guide-body"></p><p id="indicator-guide-context"></p></aside>
-<div id="chart-tooltip" hidden></div></div><p id="detail">移动鼠标查看价格、成交量与指标。</p><p id="average-detail"></p><p id="indicator-detail"></p>
-<p class="note" id="indicator-note"></p><p class="note">在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；5日分时按交易日分区，均价与副图指标每日重置，历史日期缺少昨收时涨跌幅显示为空。K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
+<div id="chart-tooltip" hidden></div></div>
+<p class="note" id="indicator-note"></p><p class="note">在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；5日分时按交易日分区，均价与副图指标每日重置，历史日期缺少昨收时涨跌幅显示为空。K线换手率为对应周期值，5日分时显示当日全天换手率（最后一天为数据源最新值），来源东方财富；缺失时显示“—”。K线含 MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 / VMA10，周期按当前K线根数计算。鼠标或左右键定位可同步查看均线、MACD / KDJ / RSI。分钟K线时间为周期结束时间，最后一根可能尚未完成；成交量单位为手，时间为北京时间。可见且交易期间每10秒刷新。</p></section></main>
 <script nonce="${nonce}" src="${escapeHtml(indicators)}"></script><script nonce="${nonce}" src="${escapeHtml(js)}"></script></body></html>`;
 }
 
@@ -199,19 +199,32 @@ class ChartController {
         if (this.cache.size > 40) this.cache.delete(this.cache.keys().next().value);
         if (data.name) state.panel.title = `${data.name} · 行情`;
         this.send(state, { type: 'data', data });
-        // Some chart responses omit the quote snapshot. Fetch it separately without delaying the chart.
-        if (data.turnoverApplicable && data.turnoverRate === null) {
+        const enrich = patch => {
+          if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
+          const enriched = { ...state.data, ...patch };
+          state.data = enriched; this.cache.set(key, { data: enriched, at: state.lastAttempt });
+          this.send(state, { type: 'data', data: enriched });
+        };
+        const tasks = [];
+        // Quote and historical enrichment never delay the first chart render.
+        if (data.turnoverApplicable && data.turnoverRate === null) tasks.push((async () => {
           try {
             const result = await this.quoteProvider.load([state.symbol], abort.signal);
             if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
             const quote = result.quotes.get(state.symbol);
             if (quote && Number.isFinite(quote.turnoverRate) && quote.turnoverRate >= 0) {
-              const enriched = { ...data, turnoverRate: quote.turnoverRate, turnoverTimestamp: quote.timestamp };
-              state.data = enriched; this.cache.set(key, { data: enriched, at: state.lastAttempt });
-              this.send(state, { type: 'data', data: enriched });
+              enrich({ turnoverRate: quote.turnoverRate, turnoverTimestamp: quote.timestamp });
             }
           } catch { /* A quote failure must not prevent the chart from rendering. */ }
-        }
+        })());
+        if (data.turnoverApplicable && mode !== 'intraday' && typeof this.provider.loadHistoricalTurnover === 'function') tasks.push((async () => {
+          try {
+            const rates = await this.provider.loadHistoricalTurnover(data.symbol, mode, abort.signal);
+            if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
+            enrich({ bars: state.data.bars.map(bar => ({ ...bar, historicalTurnover: rates.get(mode === 'intraday5' ? bar.date : bar.time) ?? null })) });
+          } catch { /* Historical data may be unavailable independently of prices. */ }
+        })());
+        await Promise.all(tasks);
       } catch (error) {
         if (!this.disposed && !abort.signal.aborted && state.generation === generation) this.send(state, { type: 'error', mode, message: error.message || '图表获取失败', preserve: Boolean(state.data) });
       } finally {
