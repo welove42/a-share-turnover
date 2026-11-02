@@ -23,6 +23,7 @@
   const amount = value => !Number.isFinite(value) ? '—' : value >= 1e8 ? (value / 1e8).toFixed(2) + '亿元' : value >= 1e4 ? (value / 1e4).toFixed(2) + '万元' : value.toFixed(2) + '元';
   const priceOrDash = value => Number.isFinite(value) ? price(value) : '—';
   const signed = (value, digits = 2) => Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value.toFixed(digits)}` : '—';
+  const percent = value => Number.isFinite(value) ? signed(value) + '%' : '—';
   const clock = timestamp => timestamp ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)} ${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:${timestamp.slice(12, 14)}` : '';
   const guides = {
     macd: ['MACD (12,26,9) · 看趋势与动能', 'DIF是快慢均线之差，DEA是DIF的平滑线；柱值为2×(DIF−DEA)。DIF上穿DEA称金叉，下穿称死叉；零轴上方通常偏强、下方偏弱。柱变长表示两线差扩大，缩短表示差收窄，需结合价格与成交量判断。'],
@@ -240,6 +241,22 @@
     else { $('chart-tooltip').hidden = true; detail(bars.at(-1), all.length - 1); }
   }
   const numberOrDash = value => Number.isFinite(value) ? value.toFixed(4) : '—';
+  function renderDetails(time, groups) {
+    const title = document.createElement('div');
+    title.className = 'detail-time'; title.textContent = time;
+    const grid = document.createElement('div'); grid.className = 'detail-grid';
+    for (const group of groups) {
+      const column = document.createElement('div'); column.className = 'detail-column';
+      for (const [name, value, direction] of group) {
+        const row = document.createElement('div'); row.className = 'detail-row';
+        const label = document.createElement('span'); label.className = 'detail-label'; label.textContent = name + ' ';
+        const number = document.createElement('span'); number.className = 'detail-value' + (direction > 0 ? ' rising' : direction < 0 ? ' falling' : ''); number.textContent = value;
+        row.append(label, number); column.append(row);
+      }
+      grid.append(column);
+    }
+    $('detail').replaceChildren(title, grid);
+  }
   function detail(bar, index) {
     const time = mode === 'intraday' ? `${data.date} ${bar.time.slice(0, 2)}:${bar.time.slice(2)}` : bar.time;
     const previous = mode === 'intraday' ? data.previousClose : mode === 'intraday5' ? bar.previousClose : data.bars[index - 1]?.close;
@@ -254,10 +271,23 @@
     const historicalRate = Number.isFinite(bar.historicalTurnover) ? bar.historicalTurnover.toFixed(2) + '%' : '—';
     const turnover = data.turnoverApplicable && mode !== 'intraday' ? `${mode === 'intraday5' ? (bar.date === data.date ? '当日换手率（最新）' : '当日换手率（全天）') : '换手率'} ${historicalRate}` : '';
     for (const { label, series, format } of legend) label.textContent = `${series.name} ${format(series.values[index])}`;
-    $('detail').textContent = !isIntraday(mode)
-      ? `${time}　开 ${price(bar.open)}　高 ${price(bar.high)}　低 ${price(bar.low)}　收 ${price(bar.close)}　${changes}　振幅 ${signed(amplitude)}%　成交量 ${volume(bar.volume)}`
-      : `${time}　价格 ${price(bar.close)}　${changes}　均价 ${priceOrDash(bar.averagePrice)}　该分钟成交量 ${volume(bar.volume)}　该分钟成交额 ${amount(bar.amount)}　累计成交额 ${amount(bar.cumulativeAmount)}`;
-    if (turnover) $('detail').textContent += `　${turnover}`;
+    const direction = value => Number.isFinite(previous) && previous > 0 && Number.isFinite(value) ? value - previous : 0;
+    const turnLabel = mode === 'intraday5' ? (bar.date === data.date ? '当日换手率（最新）' : '当日换手率（全天）') : '换手率';
+    const groups = !isIntraday(mode) ? [
+      [['开', price(bar.open), direction(bar.open)], ['收', price(bar.close), direction(bar.close)]],
+      [['高', price(bar.high), direction(bar.high)], ['低', price(bar.low), direction(bar.low)]],
+      [['涨跌幅', percent(change), change], ['涨跌', signed(delta, precision), delta]],
+      [['换手率', historicalRate], ['振幅', percent(amplitude)]],
+      [['成交量', volume(bar.volume)], ['前收', priceOrDash(previous)]]
+    ] : [
+      [['价格', price(bar.close), direction(bar.close)], ['均价', priceOrDash(bar.averagePrice)]],
+      [['涨跌幅', percent(change), change], ['涨跌', signed(delta, precision), delta]],
+      [['分钟成交量', volume(bar.volume)], ['累计成交量', Number.isFinite(bar.cumulativeVolume) ? volume(bar.cumulativeVolume) : '—']],
+      [['分钟成交额', amount(bar.amount)], ['累计成交额', amount(bar.cumulativeAmount)]],
+      ...(turnover ? [[[turnLabel, historicalRate]]] : [])
+    ];
+    if (!isIntraday(mode) && !data.turnoverApplicable) groups[3].shift();
+    renderDetails(time, groups);
     $('average-detail').textContent = [...mainAverages, ...volumeValues].join('　');
     $('indicator-detail').textContent = !indicatorData ? '' : indicatorText(indicatorData);
     const rows = isIntraday(mode)

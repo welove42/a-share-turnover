@@ -8,14 +8,15 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
   const advance = ms => { now += ms; for (const [id, t] of [...timers]) if (t.at <= now) { timers.delete(id); t.fn(); } };
   let body;
   function node(id, dataset = {}) {
-    const attrs = new Map(), listeners = new Map();
+    const attrs = new Map(), listeners = new Map(); let ownText = '';
     const value = { tag: id, children: [], dataset, style: {}, classList: { add() {} }, hidden: false,
       setAttribute(key, data) { attrs.set(key, String(data)); }, getAttribute: key => attrs.get(key) ?? null,
-      removeAttribute: key => attrs.delete(key), replaceChildren(...items) { this.children = items; }, append(...items) { this.children.push(...items); },
+      removeAttribute: key => attrs.delete(key), replaceChildren(...items) { ownText = ''; this.children = items; }, append(...items) { this.children.push(...items); },
       dispatch(key, event = {}) { for (const fn of listeners.get(key) || []) fn({ target: value, preventDefault() {}, ...event }); },
       addEventListener(key, fn) { if (!listeners.has(key)) listeners.set(key, []); listeners.get(key).push(fn); },
       click() { for (const fn of listeners.get('click') || []) fn({ target: value }); if (value !== body) body.click(); }
     };
+    Object.defineProperty(value, 'textContent', { get: () => ownText + value.children.map(child => child.textContent || '').join(''), set: text => { ownText = String(text); value.children = []; } });
     Object.defineProperty(value, 'src', { get: () => attrs.get('src'), set: url => { attrs.set('src', url); writes.push(url); } });
     value.getScreenCTM = () => ({ inverse: () => ({}) });
     nodes.set(id, value); return value;
@@ -26,7 +27,7 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
   const buttons = Object.fromEntries(['intraday', 'intraday5', 'm1', 'm5', 'm15', 'm30', 'm60', 'daily', 'weekly', 'monthly'].map(period => [period, node(period, { period })]));
   const indicatorButtons = Object.fromEntries(['macd', 'kdj', 'rsi', 'none'].map(indicator => [indicator, node('button-' + indicator, { indicator })]));
   const document = { body, getElementById: id => nodes.get(id) || node(id),
-    createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
+    createElement: tag => node(tag), createElementNS: (_, tag) => node(tag), createDocumentFragment: () => node('fragment'),
     querySelectorAll: selector => selector === 'button[data-period]' ? Object.values(buttons) : selector === 'button[data-indicator]' ? Object.values(indicatorButtons) : [] };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/chart.js'), 'utf8'), {
     document, marketIndicators: require('../media/indicators'), DOMPoint: class { constructor(x, y) { this.x = x; this.y = y; } matrixTransform() { return this; } }, window: { addEventListener: (event, fn) => { if (event === 'message') receivers.push(fn); } },
@@ -80,6 +81,20 @@ test('五日分时区分历史全天换手率和最后一天的最新值',()=>{
   assert.match(p.nodes.get('detail').textContent,/当日换手率（最新） 1\.30%/);
   p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});
   assert.match(p.nodes.get('detail').textContent,/当日换手率（全天） 4\.20%/);
+});
+
+test('明细按两行分组，价格相对前收着色，缺少前收时不着色',()=>{
+  const p=page({mode:'daily'}); p.receive({type:'select-mode',mode:'daily'});
+  const bars=[{time:'2026-10-29',open:10,close:10,high:11,low:9,volume:100},
+    {time:'2026-10-30',open:11,close:9,high:12,low:8,volume:120,historicalTurnover:2.5}];
+  p.receive({type:'data',data:{symbol:'sh600105',mode:'daily',name:'测试股',source:'腾讯行情',date:'2026-10-30',adjustment:'前复权',bars,turnoverApplicable:true}});
+  const nodes=descendants(p.nodes.get('detail'));
+  const value=(label)=>nodes.find(n=>n.className==='detail-row' && n.children[0].textContent.trim()===label).children[1];
+  assert.equal(value('开').className,'detail-value rising'); assert.equal(value('收').className,'detail-value falling');
+  assert.equal(value('涨跌幅').textContent,'-10.00%'); assert.equal(value('换手率').textContent,'2.50%');
+  p.nodes.get('plot').dispatch('pointermove',{clientX:77,clientY:100});
+  const missing=descendants(p.nodes.get('detail')).find(n=>n.className==='detail-row' && n.children[0].textContent.trim()==='涨跌幅').children[1];
+  assert.equal(missing.textContent,'—'); assert.equal(missing.className,'detail-value');
 });
 
 test('页面副图按钮等待宿主确认再高亮，读图说明在无行情时也可用', () => {
