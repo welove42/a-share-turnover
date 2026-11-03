@@ -1,5 +1,6 @@
 'use strict';
 const vscode = require('vscode');
+const privateUI = require('./privacy-ui');
 const { requestJson, requestBuffer } = require('./http');
 const { stockSession, shanghaiClock, POLL_MS } = require('./market');
 
@@ -77,7 +78,7 @@ class SectorsController {
     this.lastAttempt = -Infinity; this.generation = 0; this.error = ''; this.retryCount = 0; this.rendered = {}; this.visible = false;
     this.item = vscode.window.createStatusBarItem('aShareTurnover.sectors', vscode.StatusBarAlignment.Right, 98);
     this.item.name = 'A股领涨板块'; this.readConfig(); this.restore();
-    this.item.command = 'welove42.aShareTurnover.sectors.refresh';
+    this.item.command = 'welove42.aShareTurnover.sectors.menu';
     this.listener = vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('aShareTurnover.sectors') && !event.affectsConfiguration('aShareTurnover.additionalClosedDates')) return;
       const old = this.category, enabled = this.enabled; this.readConfig();
@@ -111,6 +112,22 @@ class SectorsController {
     this.retryCount = 0; this.provider.resetCooldowns?.();
     return (this.inflight || Promise.resolve()).then(() => this.refresh());
   }
+  async showMenu() {
+    if (this.disposed || this.hidden || !this.enabled) return;
+    const selected = await privateUI.showQuickPick([
+      ...Object.entries(CATEGORIES).map(([category, entry]) => ({ label: `${entry.name}板块`, description: category === this.category ? '当前显示' : '', category })),
+      { label: '$(refresh) 立即刷新', action: 'refresh' }
+    ], { title: '选择板块排行', placeHolder: '切换行业或概念板块，也可以手动刷新' });
+    if (!selected || this.disposed || this.hidden || !this.enabled) return;
+    if (selected.action === 'refresh') return this.retry();
+    if (!CATEGORIES[selected.category] || selected.category === this.category) return;
+    try {
+      const config = vscode.workspace.getConfiguration('aShareTurnover');
+      const inspected = config.inspect?.('sectors.category');
+      const target = inspected?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+      await config.update('sectors.category', selected.category, target);
+    } catch (error) { await privateUI.showErrorMessage(`切换板块失败：${error.message}`); }
+  }
   refresh() {
     if (this.disposed || this.hidden || !this.enabled) return Promise.resolve();
     if (this.inflight) return this.inflight;
@@ -141,7 +158,7 @@ class SectorsController {
     const tip = new vscode.MarkdownString(); tip.isTrusted = false;
     tip.appendText(`${sina ? '新浪概念板块（备用，分类口径与东方财富不同）' : `东方财富${CATEGORIES[this.category].name}板块`} · 涨跌幅前十\n${sina && stamp ? `获取时间：${stamp.date} ${stamp.time}（北京）；页面未提供行情时间，不保证实时` : stamp ? `行情时间：${stamp.date} ${stamp.time}（北京，最早报价）` : '尚无可用行情'}${stale && first ? '\n当前为历史或未更新行情' : ''}${this.error ? `\n获取失败：${this.error}` : ''}\n\n`);
     if (rows) rows.forEach((r, i) => tip.appendText(`${i + 1}. ${r.name} ${format(r.percent)}\n`));
-    tip.appendText(`\n交易期间每${this.category === 'concept' ? 60 : 10}秒自动更新；点击状态栏重新获取。`);
+    tip.appendText(`\n交易期间每${this.category === 'concept' ? 60 : 10}秒自动更新；点击切换板块或刷新。`);
     if (text !== this.rendered.text) this.item.text = text;
     if (tip.value !== this.rendered.tooltip) this.item.tooltip = tip;
     this.rendered = { text, tooltip: tip.value };

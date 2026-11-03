@@ -2,6 +2,21 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const { harness } = require('./vscode-mock');
 const now = new Date('2026-10-30T10:30:30+08:00');
+test('状态栏菜单可切换板块、手动刷新，取消不改变设置', async () => {
+  const h = harness(), { SectorsController, parseSectors } = h.load('../src/sectors');
+  const calls = [];
+  const c = new SectorsController(h.context, { now: () => now, provider: { load: async category => { calls.push(category); return parseSectors(data(), category, now.getTime()); } } });
+  try {
+    await c.refresh();
+    h.api.window.showQuickPick = async items => { assert.equal(items[0].description, '当前显示'); return items.find(item => item.category === 'concept'); };
+    await c.showMenu(); await (c.inflight || Promise.resolve());
+    assert.equal(c.category, 'concept'); assert.equal(h.values.get('aShareTurnover.sectors.category'), 'concept');
+    assert.match(c.item.tooltip.value, /概念板块/); assert.equal(calls.at(-1), 'concept');
+    h.api.window.showQuickPick = async items => items.find(item => item.action === 'refresh');
+    const before = calls.length; await c.showMenu(); assert.equal(calls.length, before + 1);
+    h.api.window.showQuickPick = async () => undefined; await c.showMenu(); assert.equal(c.category, 'concept');
+  } finally { c.dispose(); }
+});
 function data(timestamp = Math.floor(now.getTime() / 1000)) {
   return { rc: 0, data: { diff: Array.from({ length: 10 }, (_, i) => ({ f12: `BK${1000+i}`, f14: `板块${i}`, f3: 10-i, f124: timestamp })) } };
 }
@@ -88,7 +103,7 @@ test('午休首次失败后自动重试，概念类型成功后保存且可从�
     time = new Date(time.getTime()+59000); c.tick(); assert.equal(calls,1);
     fail = false; time = new Date(time.getTime()+1000); c.tick(); await c.inflight;
     assert.equal(calls,2); assert.match(c.item.tooltip.value,/概念板块/); assert.equal(h.store.get('sectorRankings').concept.rows.length,10);
-    await c.retry(); assert.equal(reset,1); assert.equal(calls,3); assert.equal(c.item.command, 'welove42.aShareTurnover.sectors.refresh');
+    await c.retry(); assert.equal(reset,1); assert.equal(calls,3); assert.equal(c.item.command, 'welove42.aShareTurnover.sectors.menu');
   } finally { c.dispose(); }
 });
 test('切换行业与概念时分别恢复对应缓存，不将行业排名冒充概念', async () => {
