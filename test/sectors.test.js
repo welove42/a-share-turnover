@@ -93,7 +93,7 @@ test('状态栏显示第一名与完整前十，刷新不重建相同悬停，�
     await c.refresh(); assert.match(c.item.text, /板块 板块0 \+10.00%/); assert.match(c.item.tooltip.value, /行业板块.*前十/);
     assert.match(c.item.tooltip.value, /10\. 板块9 \+1.00%/); const writes = c.item.writes.tooltip;
     await c.refresh(); assert.equal(c.item.writes.tooltip, writes);
-    failure = true; await c.refresh(); assert.match(c.item.text, /未更新/); assert.match(c.item.tooltip.value, /断网/);
+    failure = true; await c.refresh(); assert.doesNotMatch(c.item.text, /未更新/); assert.match(c.item.tooltip.value, /未更新行情/); assert.match(c.item.tooltip.value, /断网/);
     assert.match(c.item.tooltip.value, /板块9/); time = new Date('2026-10-31T10:30:30+08:00'); c.render(); assert.match(c.item.tooltip.value, /2026-10-30/);
     assert.equal(calls, 3);
   } finally { c.dispose(); }

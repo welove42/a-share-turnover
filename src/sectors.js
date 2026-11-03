@@ -163,7 +163,7 @@ class SectorsController {
     const sina = first?.source === 'sina';
     const stale = Boolean(this.error || !stamp || stamp.date !== clock.date || (clock.polling && this.now().getTime() - oldest * 1000 > 120000));
     const format = p => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
-    const text = first ? `板块 ${first.name} ${format(first.percent)}${sina ? ' · 参考' : ''}${stale ? ' · 未更新' : ''}` : this.error ? '板块 获取失败' : '板块 待获取';
+    const text = first ? `板块 ${first.name} ${format(first.percent)}${sina ? ' · 参考' : ''}` : this.error ? '板块 获取失败' : '板块 待获取';
     const tip = new vscode.MarkdownString(); tip.isTrusted = false;
     tip.appendText(`${sina ? `新浪${CATEGORIES[this.category].name}板块（备用，分类口径与东方财富不同）` : `东方财富${CATEGORIES[this.category].name}板块`} · 涨跌幅前十\n${sina && stamp ? `获取时间：${stamp.date} ${stamp.time}（北京）；页面未提供行情时间，不保证实时` : stamp ? `行情时间：${stamp.date} ${stamp.time}（北京，最早报价）` : '尚无可用行情'}${stale && first ? '\n当前为历史或未更新行情' : ''}${this.error ? `\n获取失败：${this.error}` : ''}\n\n`);
     if (rows) rows.forEach((r, i) => tip.appendText(`${i + 1}. ${r.name} ${format(r.percent)}\n`));
