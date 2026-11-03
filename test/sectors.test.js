@@ -29,11 +29,11 @@ test('概念板块双域名断连后使用独立备用榜，恢复后回归东�
   const p = new SectorProvider(async () => { if (fail) throw new Error('socket hang up'); return data(); }, async () => { pages++; return sinaPage(); });
   const rows = await p.load('concept', undefined, now.getTime());
   assert.equal(rows.length, 10); assert.equal(rows[0].source, 'sina'); assert.equal(rows[0].name, '概念0');
-  await p.load('concept', undefined, now.getTime()+1000); assert.equal(pages, 2);
-  fail = false; const recovered = await p.load('concept', undefined, now.getTime()+31000); assert.equal(recovered[0].name, '板块0'); assert.equal(pages, 2);
+  await p.load('concept', undefined, now.getTime()+1000); assert.equal(pages, 1);
+  fail = false; const recovered = await p.load('concept', undefined, now.getTime()+31000); assert.equal(recovered[0].name, '板块0'); assert.equal(pages, 1);
   assert.throws(() => parseSinaConcept(sinaPage().replace('+12.00%', '--'), now.getTime()), /字段无效/);
   assert.throws(() => parseSinaConcept(sinaPage().replace('+11.00%', '+99.00%'), now.getTime()), /顺序无效/);
-  const abort = new AbortController(); abort.abort(); await assert.rejects(p.load('concept', abort.signal, now.getTime()+60000), /取消/); assert.equal(pages, 2);
+  const abort = new AbortController(); abort.abort(); await assert.rejects(p.load('concept', abort.signal, now.getTime()+60000), /取消/); assert.equal(pages, 1);
 });
 test('概念榜优先使用带原始行情时间的第三节点，三个节点都失败才使用新浪', async () => {
   const h = harness(), { SectorProvider } = h.load('../src/sectors'); const hosts = []; let pages = 0, thirdFails = false;
@@ -69,6 +69,22 @@ test('主接口断连时使用备用域名，冷却期间避免反复请求失�
   const p = new SectorProvider(async url => { const host = new URL(url).hostname; hosts.push(host); if (host === 'push2.eastmoney.com') throw new Error('断连'); return data(); });
   await p.load('industry', undefined, now.getTime()); await p.load('industry', undefined, now.getTime() + 10000);
   assert.deepEqual(hosts, ['push2.eastmoney.com', '82.push2.eastmoney.com', '82.push2.eastmoney.com']);
+});
+test('行业东方财富断连使用新浪行业榜，限频缓存并正确恢复，主源恢复后切回', async () => {
+  const h = harness(), { SectorProvider, SectorsController } = h.load('../src/sectors');
+  let failed = true, pages = 0, time = now;
+  const page = sinaPage().replaceAll('gn_test', 'new_test');
+  const provider = new SectorProvider(async () => { if (failed) throw new Error('socket hang up'); return data(); }, async url => { pages++; assert.match(url, /type=sina/); return page; });
+  const c = new SectorsController(h.context, { provider, now: () => time });
+  try {
+    await c.refresh(); assert.equal(c.rows.length, 10); assert.match(c.item.text, /参考/);
+    assert.match(c.item.tooltip.value, /新浪行业板块.*分类口径/); assert.match(c.item.tooltip.value, /未提供行情时间/);
+    time = new Date(now.getTime()+10000); await c.refresh(); assert.equal(pages, 1);
+    const restored = new SectorsController(h.context, { provider, now: () => time });
+    try { restored.render(); assert.equal(restored.rows.length, 10); assert.match(restored.item.tooltip.value, /新浪行业板块/); } finally { restored.dispose(); }
+    failed = false; time = new Date(now.getTime()+31000); await c.refresh();
+    assert.match(c.item.tooltip.value, /东方财富行业板块/); assert.doesNotMatch(c.item.text, /参考/);
+  } finally { c.dispose(); }
 });
 test('状态栏显示第一名与完整前十，刷新不重建相同悬停，失败保留并标注', async () => {
   const h = harness(), { SectorsController, parseSectors } = h.load('../src/sectors'); let failure = false, calls = 0, time = now;
