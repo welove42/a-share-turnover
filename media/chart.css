@@ -6,7 +6,7 @@ body { margin: 0; color: var(--vscode-foreground, #d9e1ee); background: var(--vs
 #quote { font-size: 16px; font-variant-numeric: tabular-nums; }
 #turnover { color: var(--vscode-descriptionForeground, #9caec5); font-variant-numeric: tabular-nums; }
 select { font: inherit; border: 1px solid var(--vscode-dropdown-border, #49596e); border-radius: 4px; color: var(--vscode-dropdown-foreground, #e6edf6); background: var(--vscode-dropdown-background, #253247); cursor: pointer; }
-select:focus-visible, #plot:focus-visible, .period-tools button:focus-visible, .indicator-tools button:focus-visible { outline: 2px solid var(--vscode-focusBorder, #55b1ef); outline-offset: 2px; }
+select:focus-visible, #plot:focus-visible, .period-tools button:focus-visible, .indicator-tools button:focus-visible, .zoom-tools button:focus-visible { outline: 2px solid var(--vscode-focusBorder, #55b1ef); outline-offset: 2px; }
 .note { color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; line-height: 1.7; }
 main { padding: 0; }
 #web-chart { height: 100vh; overflow: auto; background: var(--vscode-editor-background, #151c28); }
@@ -19,6 +19,11 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) #eastmoney { filter: 
 [hidden] { display: none !important; }
 #local { padding: 14px 20px 20px; max-width: 1500px; margin: auto; }
 .chart-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; min-height: 33px; }
+.chart-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.zoom-tools { display: flex; gap: 4px; }
+.zoom-tools button { font: inherit; font-size: 16px; line-height: 1; width: 30px; height: 28px; color: var(--vscode-foreground, #d9e1ee); background: transparent; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 4px; cursor: pointer; }
+.zoom-tools button:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground, #ffffff14); }
+.zoom-tools button:disabled { opacity: .4; cursor: default; }
 .period-tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 9px 0 5px; }
 .period-tools button { font: inherit; padding: 4px 14px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; color: var(--vscode-foreground, #d9e1ee); background: transparent; }
 .period-tools button:hover { background: var(--vscode-toolbar-hoverBackground, #ffffff14); }
@@ -34,8 +39,6 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) #eastmoney { filter: 
 #indicator-guide-context { color: var(--vscode-descriptionForeground, #9caec5); }
 #indicator-guide-context:empty { display: none; }
 #meta { color: var(--vscode-descriptionForeground, #9caec5); line-height: 1.6; }
-#range-label { white-space: nowrap; }
-select { padding: 4px 8px; }
 #status { min-height: 20px; margin: 5px 0; color: var(--vscode-descriptionForeground, #9caec5); }
 #status.error { color: var(--vscode-errorForeground, #f48771); }
 #plot { position: relative; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 6px; overflow: hidden; background: var(--vscode-editor-background, #151c28); touch-action: pan-y; }

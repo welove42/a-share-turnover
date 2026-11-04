@@ -12,7 +12,7 @@
   const saved = vscode.getState() || {};
   const periodButtons = [...document.querySelectorAll('button[data-period]')];
   const indicatorButtons = [...document.querySelectorAll('button[data-indicator]')];
-  let mode = 'intraday', data = null, range = [60, 120, 180].includes(saved.range) ? saved.range : 180, hover = null;
+  let mode = 'intraday', data = null, range = Number.isInteger(saved.range) && saved.range >= 30 && saved.range <= 240 && saved.range % 30 === 0 ? saved.range : 180, hover = null;
   let webTimer = null, pendingUrl = '', lastWebLoad = -Infinity;
   let indicator = 'macd', indicatorData = null, metrics = {}, averages = [], volumeAverages = [], legend = [];
   const send = (action, extra = {}) => vscode.postMessage({ action, token, ...extra });
@@ -61,7 +61,7 @@
     const changed = mode !== next;
     mode = next;
     for (const button of periodButtons) button.setAttribute('aria-pressed', String(button.dataset.period === mode));
-    $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('range-label').hidden = isIntraday(mode) || isWebMode(mode);
+    $('web-chart').hidden = !isWebMode(mode); $('local').hidden = isWebMode(mode); $('zoom-tools').hidden = isIntraday(mode) || isWebMode(mode);
     if (isWebMode(mode)) {
       loadWeb();
     } else {
@@ -72,12 +72,27 @@
     updateIndicatorControls();
     remember(); if (notify) send('mode-ready', { mode });
   }
-  $('range').value = String(range);
+  function updateZoom() {
+    $('zoom-in').disabled = range <= 30;
+    $('zoom-out').disabled = range >= 240 || (data?.mode === mode && range >= data.bars.length);
+  }
+  function zoom(direction) {
+    if (isIntraday(mode) || isWebMode(mode) || !data || data.mode !== mode) return false;
+    const next = Math.max(30, Math.min(240, range + direction * 30));
+    if (next === range || (direction > 0 && range >= data.bars.length)) return false;
+    range = next; remember(); updateZoom(); draw(); return true;
+  }
+  $('zoom-in').addEventListener('click', () => zoom(-1));
+  $('zoom-out').addEventListener('click', () => zoom(1));
+  $('plot').addEventListener('wheel', event => {
+    if (!event.ctrlKey || isIntraday(mode) || isWebMode(mode) || !data || data.mode !== mode || !event.deltaY) return;
+    if (event.target !== $('plot') && event.target !== $('svg') && event.target !== $('indicator-svg') && event.target.ownerSVGElement !== $('svg') && event.target.ownerSVGElement !== $('indicator-svg')) return;
+    event.preventDefault(); zoom(event.deltaY < 0 ? -1 : 1);
+  }, { passive: false });
   for (const button of periodButtons) button.addEventListener('click', () => send('period', { mode: button.dataset.period }));
   for (const button of indicatorButtons) button.addEventListener('click', () => {
     if (!isWebMode(mode) && button.dataset.indicator !== indicator) send('indicator', { indicator: button.dataset.indicator });
   });
-  $('range').addEventListener('change', () => { range = Number($('range').value); remember(); draw(); });
   const svgNS = 'http://www.w3.org/2000/svg';
   function element(tag, attrs, text) {
     const item = document.createElementNS(svgNS, tag);
@@ -375,6 +390,7 @@
     if (message.type === 'error') { $('status').className = 'error'; $('status').textContent = `${message.message}${message.preserve ? '；保留上次成功数据，等待下次刷新。' : '。可重试或在浏览器打开。'}`; }
     if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
       data = message.data;
+      updateZoom();
       $('status').className = ''; $('status').textContent = '';
       $('history-status').textContent = !data.turnoverApplicable || mode === 'intraday' ? '' : data.historicalStatus === 'loading' ? '历史换手率获取中…' : data.historicalStatus === 'error' ? `${data.historicalError || '历史换手率获取失败'}；可点击右上角刷新重试。` : data.historicalStatus === 'ready' || data.historicalStatus === 'stale' ? `历史换手率：${data.historicalSource || '行情源'}${data.historicalStatus === 'stale' ? '（接口失败，使用缓存）' : ''}${data.historicalFetchedAt ? ` · 获取时间 ${data.historicalFetchedAt}（北京）` : ''}；未覆盖的时间显示“—”。` : '';
       $('meta').textContent = `${data.source} · ${names[mode]} · ${isIntraday(mode) ? '分钟采样' : data.adjustment} · ${mode === 'intraday5' ? `交易日 ${data.dates.length} 天 · ` : ''}数据日期 ${data.date}${data.timestamp ? ` · 报价时间 ${clock(data.timestamp)}` : ''}（北京）`;

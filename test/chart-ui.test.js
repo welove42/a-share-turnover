@@ -54,6 +54,20 @@ test('编辑器切换网页图表合并快速选择，重复选择不重载，�
 const sampleBars = Array.from({ length: 240 }, (_, i) => ({ time: `2026-${String(1 + Math.floor(i / 28)).padStart(2, '0')}-${String(1 + i % 28).padStart(2, '0')}`, open: 10 + i * .01, close: 10 + i * .01 + Math.sin(i) * .2, high: 11 + i * .01, low: 9 + i * .01, volume: 100 + i }));
 const descendants = item => [item, ...item.children.flatMap(descendants)];
 const rendered = p => [...descendants(p.nodes.get('svg')), ...descendants(p.nodes.get('indicator-svg'))];
+test('K线放大缩小按钮与 Ctrl 滚轮调整显示范围，普通滚轮不拦截', () => {
+  const p = page({ mode: 'daily', saved: { range: 60 } });
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({ type: 'data', data: { symbol: 'sh600105', name: '测试股', mode: 'daily', source: '测试', date: '2026-10-28', adjustment: '前复权', bars: sampleBars } });
+  const count = () => descendants(p.nodes.get('svg')).filter(n => n.getAttribute('class') === 'volume-bar').length;
+  const plot = p.nodes.get('plot'); let prevented = 0;
+  assert.equal(count(), 60); p.nodes.get('zoom-in').click(); assert.equal(count(), 30); assert.equal(p.nodes.get('zoom-in').disabled, true);
+  plot.dispatch('wheel', { ctrlKey: false, deltaY: 1, preventDefault: () => prevented++ }); assert.equal(prevented, 0); assert.equal(count(), 30);
+  plot.dispatch('wheel', { ctrlKey: true, deltaY: 1, preventDefault: () => prevented++ }); assert.equal(prevented, 1); assert.equal(count(), 60);
+  p.nodes.get('zoom-out').click(); assert.equal(count(), 90);
+  for (let i = 0; i < 8; i++) p.nodes.get('zoom-out').click();
+  assert.equal(count(), 240); assert.equal(p.nodes.get('zoom-out').disabled, true);
+  p.receive({ type: 'select-mode', mode: 'intraday' }); assert.equal(p.nodes.get('zoom-tools').hidden, true);
+});
 
 test('顶部展示所选K线的历史换手率，独立显示最新报价换手率',()=>{
   const p=page({mode:'daily'}); p.receive({type:'select-mode',mode:'daily'});
@@ -261,7 +275,7 @@ test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期
   for (const mode of ['daily', 'weekly', 'monthly']) {
     p.receive({ type: 'select-mode', mode });
     p.receive({ type: 'data', data: { symbol: 'sh600105', name: '测试股', source: '测试', mode, date: '2026-10-28', adjustment: '前复权', bars: sampleBars } });
-    assert.equal(p.nodes.get('range-label').hidden, false);
+    assert.equal(p.nodes.get('zoom-tools').hidden, false);
     assert.match(p.nodes.get('meta').textContent, new RegExp({ daily: '日K', weekly: '周K', monthly: '月K' }[mode]));
     assert.ok(descendants(p.nodes.get('indicator-svg')).some(n => n.getAttribute('class') === 'indicator-bar'));
     assert.doesNotMatch(JSON.stringify(rendered(p).map(n => n.getAttribute('points'))), /NaN|Infinity/);
@@ -273,7 +287,7 @@ test('日周月均绘制K线与默认MACD，切换指标无需网络，跨周期
   p.nodes.get('plot').dispatch('keydown', { key: 'ArrowLeft' });
   assert.notEqual(p.nodes.get('indicator-detail').textContent, latest);
   const selected = p.nodes.get('indicator-detail').textContent;
-  p.nodes.get('range').value = '60'; p.nodes.get('range').dispatch('change');
+  p.nodes.get('zoom-in').click();
   assert.equal(p.nodes.get('indicator-detail').textContent, selected);
   p.receive({ type: 'select-indicator', indicator: 'none' });
   assert.equal(p.nodes.get('indicator-detail').textContent, ''); assert.equal(p.nodes.get('indicator-chart').hidden, true);
@@ -397,7 +411,7 @@ test('页面周期按钮向宿主发消息，确认后高亮；点击冒泡不�
 
 test('五日分时在页面切换，按交易日分段、悬停日期和每日重置指标', () => {
   const p=page();p.buttons.intraday5.click();assert.equal(p.messages.at(-1).mode,'intraday5');
-  p.receive({type:'select-mode',mode:'intraday5'});assert.equal(p.buttons.intraday5.getAttribute('aria-pressed'),'true');assert.equal(p.nodes.get('range-label').hidden,true);
+  p.receive({type:'select-mode',mode:'intraday5'});assert.equal(p.buttons.intraday5.getAttribute('aria-pressed'),'true');assert.equal(p.nodes.get('zoom-tools').hidden,true);
   const dates=['2026-10-29','2026-10-30'];const bars=dates.flatMap((date,dayIndex)=>[0,1,2].map(i=>({time:`${date} 09:3${i}`,date,dayIndex,previousClose:dayIndex?11:null,open:10+dayIndex+i,close:10+dayIndex+i,high:10+dayIndex+i,low:10+dayIndex+i,volume:100,cumulativeVolume:100*(i+1),amount:100000,cumulativeAmount:100000*(i+1),averagePrice:10+dayIndex})));
   const data={symbol:'sh600105',mode:'intraday5',name:'测试股',source:'测试',date:dates[1],dates,previousClose:11,bars};p.receive({type:'data',data});
   assert.match(p.nodes.get('meta').textContent,/5日分时.*交易日 2 天/);assert.equal(descendants(p.nodes.get('svg')).filter(n=>n.getAttribute('class')==='intraday-price').length,2);
