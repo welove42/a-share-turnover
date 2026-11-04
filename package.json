@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.21.0",
+  "version": "1.21.1",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.21.0.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.21.1.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -300,6 +300,36 @@
       {
         "command": "welove42.aShareTurnover.sectors.menu",
         "title": "A股行情：切换板块排行"
+      },
+      {
+        "command": "welove42.aShareTurnover.stockGroups.create",
+        "title": "自选股：新建 A 股分组",
+        "icon": "$(new-folder)",
+        "enablement": "!aShareTurnover.hidden"
+      },
+      {
+        "command": "welove42.aShareTurnover.stockGroups.rename",
+        "title": "自选股：重命名 A 股分组",
+        "icon": "$(edit)",
+        "enablement": "!aShareTurnover.hidden"
+      },
+      {
+        "command": "welove42.aShareTurnover.stockGroups.remove",
+        "title": "自选股：删除 A 股分组（保留个股）",
+        "icon": "$(trash)",
+        "enablement": "!aShareTurnover.hidden"
+      },
+      {
+        "command": "welove42.aShareTurnover.stockGroups.move",
+        "title": "自选股：移动到 A 股分组",
+        "icon": "$(arrow-swap)",
+        "enablement": "!aShareTurnover.hidden"
+      },
+      {
+        "command": "welove42.aShareTurnover.stockGroups.add",
+        "title": "自选股：添加 A 股到此分组",
+        "icon": "$(add)",
+        "enablement": "!aShareTurnover.hidden"
       }
     ],
     "configuration": {
@@ -641,6 +671,41 @@
           ],
           "default": "industry",
           "description": "状态栏板块涨幅排行类型。东方财富不可用时，概念榜使用新浪备用参考并标注口径。"
+        },
+        "aShareTurnover.stocks.groups": {
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "maxItems": 30,
+          "description": "A 股自定义分组。可在侧栏或插件设置页管理；每只个股只属于一个分组，未归类个股自动显示在未分组。删除分组保留个股。",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "symbols"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][\\w-]{0,63}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 30
+              },
+              "symbols": {
+                "type": "array",
+                "maxItems": 100,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -884,6 +949,36 @@
           "command": "welove42.aShareTurnover.commodities.open",
           "when": "view == welove42.aShareTurnover.commodities && viewItem == aShareCommodity",
           "group": "navigation@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.create",
+          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem == aShareRoot",
+          "group": "inline@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.add",
+          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem == aShareRoot",
+          "group": "inline@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.add",
+          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem =~ /^aShare(CustomGroup|Ungrouped)$/",
+          "group": "inline@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.rename",
+          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem == aShareCustomGroup",
+          "group": "manage@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.remove",
+          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem == aShareCustomGroup",
+          "group": "manage@1"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.move",
+          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem == aShareStock",
+          "group": "manage@0"
         }
       ],
       "commandPalette": [
@@ -914,6 +1009,26 @@
         {
           "command": "welove42.aShareTurnover.chart.selectIndicator",
           "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.create",
+          "when": "!aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.rename",
+          "when": "!aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.remove",
+          "when": "!aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.move",
+          "when": "!aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.stockGroups.add",
+          "when": "!aShareTurnover.hidden"
         }
       ],
       "editor/title": [

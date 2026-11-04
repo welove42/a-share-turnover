@@ -32,3 +32,22 @@ test('长名单筛选名称或代码，删除成功只更新列表不丢失筛�
   p.receive({ type: 'result', key: field.key, ok: true }); p.receive({ type: 'state', groups });
   assert.equal(filter.value, '永鼎'); assert.equal(all().filter(n => n.tag === 'li').length, 0); assert.ok(all().some(n => n.textContent === '没有匹配的名称或代码'));
 });
+
+test('A股分组原位管理、移动失败恢复原分组，折叠和筛选保留', () => {
+  const p = page(), groups = model(), field = groups[0].fields[0];
+  field.stockGroups = [{ id: 'watch', name: '观察', custom: true, symbols: ['sh600105'] }, { id: 'ungrouped', name: '未分组', custom: false, symbols: [] }];
+  p.receive({ type: 'state', groups }); const all = () => descendants(p.nodes.get('sections'));
+  assert.ok(all().some(n => n.textContent === '观察 (1)')); assert.ok(all().some(n => n.textContent === '未分组 (0)'));
+  all().find(n => n.textContent === '+ 新建分组').dispatch('click'); assert.equal(p.sent.at(-1).type, 'stockGroup'); assert.equal(p.sent.at(-1).operation, 'create');
+  p.receive({ type: 'result', key: field.key, ok: true });
+  all().find(n => n.getAttribute('aria-label') === '重命名分组：观察').dispatch('click'); assert.equal(p.sent.at(-1).groupId, 'watch'); assert.equal(p.sent.at(-1).operation, 'rename');
+  p.receive({ type: 'result', key: field.key, ok: true });
+  const select = all().find(n => n.getAttribute('aria-label') === '移动 永鼎股份 到分组'); select.value = 'ungrouped'; select.dispatch('change');
+  assert.equal(p.sent.at(-1).id, 'sh600105'); assert.equal(p.sent.at(-1).groupId, 'ungrouped');
+  p.receive({ type: 'result', key: field.key, ok: false, error: '保存失败' });
+  assert.equal(all().find(n => n.getAttribute('aria-label') === '移动 永鼎股份 到分组').value, 'watch');
+  const details = all().find(n => n.tag === 'details'); details.open = false; details.dispatch('toggle');
+  field.stockGroups[0].name = '重点观察'; p.receive({ type: 'state', groups }); assert.equal(all().find(n => n.tag === 'details').open, false);
+  const filter = all().find(n => n.getAttribute('aria-label') === '筛选A 股自选'); filter.value = '重点观察'; filter.dispatch('input');
+  assert.ok(all().some(n => n.textContent === '永鼎股份')); assert.equal(all().filter(n => n.tag === 'details').length, 1);
+});

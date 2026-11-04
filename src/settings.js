@@ -6,7 +6,7 @@ const manifest = require('../package.json');
 const properties = manifest.contributes.configuration.properties;
 const GROUPS = [
   { id: 'market', title: '状态栏与市场', keys: ['enabled', 'comparisonMode', 'showDifferenceAmount', 'colorMode', 'sectors.enabled', 'sectors.category', 'temperature.enabled', 'temperature.colorize'] },
-  { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.symbols', 'stocks.hkSymbols', 'stocks.usSymbols', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'] },
+  { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.symbols', 'stocks.groups', 'stocks.hkSymbols', 'stocks.usSymbols', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'] },
   { id: 'assets', title: '指数、基金与商品', keys: ['globalIndices.enabled', 'globalIndices.symbols', 'funds.enabled', 'funds.symbols', 'commodities.enabled', 'commodities.symbols'] },
   { id: 'news', title: '财经新闻', keys: ['news.enabled', 'news.refreshIntervalSeconds'] },
   { id: 'risk', title: '涨跌提醒与风险', keys: ['stockAlerts.mode', 'risk.enabled', 'risk.volumePercent', 'risk.dropPercent'] },
@@ -42,7 +42,7 @@ const LISTS = new Set(['stocks.symbols', 'stocks.hkSymbols', 'stocks.usSymbols',
 function schema(key) { return properties['aShareTurnover.' + key]; }
 function validate(key, value, read) {
   const s = schema(key);
-  if (!Object.hasOwn(LABELS, key) || LISTS.has(key)) throw new Error('不支持修改此设置');
+  if (!Object.hasOwn(LABELS, key) || LISTS.has(key) || key === 'stocks.groups') throw new Error('不支持修改此设置');
   if (s.type === 'boolean' && typeof value !== 'boolean' || s.type === 'string' && typeof value !== 'string') throw new Error('设置值格式不正确');
   if (['number', 'integer'].includes(s.type) && (typeof value !== 'number' || !Number.isFinite(value) || s.type === 'integer' && !Number.isInteger(value) || value < s.minimum || value > s.maximum)) throw new Error(`请输入 ${s.minimum}–${s.maximum} 之间的${s.type === 'integer' ? '整数' : '数值'}`);
   if (s.enum && !s.enum.includes(value)) throw new Error('请选择有效选项');
@@ -68,12 +68,13 @@ class SettingsController {
   }
   read(key) { if (LISTS.has(key) && this.lists[key]) return this.lists[key].ids(); return key.startsWith('stocks.') && key !== 'stocks.enabled' && this.stocks ? this.stocks.settings.get(key, schema(key).default) : vscode.workspace.getConfiguration('aShareTurnover').get(key, schema(key).default); }
   model() {
-    return GROUPS.map(group => ({ ...group, actions: (group.actions || []).map(id => ({ id, label: ACTIONS[id] })), fields: group.keys.map(key => {
+    return GROUPS.map(group => ({ ...group, actions: (group.actions || []).map(id => ({ id, label: ACTIONS[id] })), fields: group.keys.filter(key => key !== 'stocks.groups').map(key => {
       const s = schema(key), c = vscode.workspace.getConfiguration('aShareTurnover').inspect?.(key);
       const options = key === 'stocks.statusBarSymbol' ? [...new Set(['sh000001', ...this.read('stocks.symbols')])].map(value => ({ value, label: value === 'sh000001' ? '上证指数' : `${this.lists['stocks.symbols']?.name(value) || this.stocks?.quotes.get(value)?.name || '名称待获取'} · ${value}` }))
         : (s.enum || s.items?.enum || []).map((value, i) => ({ value, label: OPTIONS[key]?.[i] || (s.enumDescriptions || s.items?.enumDescriptions)?.[i] || value }));
       return { key, label: LABELS[key], help: HELP[key] || '', type: LISTS.has(key) ? 'list' : key === 'additionalClosedDates' ? 'dates' : options.length ? s.type === 'array' ? 'checks' : 'select' : s.type, options, min: s.minimum, max: s.maximum, value: this.read(key), workspace: c?.workspaceValue !== undefined,
-        ...(LISTS.has(key) ? { addLabel: ADD_LABELS[key], canEdit: Boolean(this.lists[key]?.edit), items: this.read(key).map(id => ({ id, name: this.lists[key]?.name(id) || '名称待获取' })) } : {}) };
+        ...(LISTS.has(key) ? { addLabel: ADD_LABELS[key], canEdit: Boolean(this.lists[key]?.edit), items: this.read(key).map(id => ({ id, name: this.lists[key]?.name(id) || '名称待获取' })) } : {}),
+        ...(key === 'stocks.symbols' && this.stocks?.grouping ? { stockGroups: this.stocks.grouping.buckets() } : {}) };
     }) }));
   }
   publish(force = false) { if (this.panel && !this.hidden && !this.disposed) { const groups = this.model(), signature = JSON.stringify(groups); if (!force && signature === this.signature) return; this.signature = signature; void this.panel.webview.postMessage({ type: 'state', token: this.token, groups }); } }
@@ -90,7 +91,24 @@ class SettingsController {
       this.queue = this.queue.catch(() => {}).then(async () => {
         if (this.panel !== panel || this.hidden || this.disposed) return;
         try {
-          if (message.type === 'list') {
+          if (message.type === 'stockGroup') {
+            const grouping = this.stocks?.grouping;
+            if (message.key !== 'stocks.symbols' || !grouping) throw new Error('不支持此分组操作');
+            if (message.operation === 'create') await grouping.create();
+            else {
+              const group = typeof message.groupId === 'string' && grouping.bucket(message.groupId);
+              if (!group) throw new Error('分组已不存在，请重试');
+              if (message.operation === 'add') await this.stocks.searchAndAdd('', 'a', group.id);
+              else if (message.operation === 'move') {
+                if (typeof message.id !== 'string' || !this.stocks.config.symbols.includes(message.id)) throw new Error('该股票已不在自选中');
+                await grouping.move(message.id, group.id);
+              } else if (!group.custom) throw new Error('未分组不能重命名、删除或排序');
+              else if (message.operation === 'rename') await grouping.rename(group.id);
+              else if (message.operation === 'remove') await grouping.remove(group.id);
+              else if (message.operation === 'up' || message.operation === 'down') await grouping.shift(group.id, message.operation === 'up' ? -1 : 1);
+              else throw new Error('不支持此分组操作');
+            }
+          } else if (message.type === 'list') {
             const list = LISTS.has(message.key) && this.lists[message.key];
             if (!list || !['add', 'remove', 'edit'].includes(message.operation) || typeof list[message.operation] !== 'function') throw new Error('不支持此列表操作');
             if (message.operation !== 'add' && (typeof message.id !== 'string' || !list.ids().includes(message.id))) throw new Error('该项目已不在列表中，请重试');

@@ -6,6 +6,7 @@ const { INDEX_SYMBOL, normalizeSymbol, normalizeSymbols, isQuote, signed, percen
 const { quoteClock } = require('./view');
 const { StockSearch } = require('./stock-search');
 const { StockSettings } = require('./stock-settings');
+const { StockGroups, normalizeGroups, UNGROUPED } = require('./stock-groups');
 const { trendIcon } = require('./trend-icon');
 const { OverseasWatchlist } = require('./overseas-watchlist');
 const { normalizeOverseas } = require('./overseas-symbols');
@@ -28,7 +29,7 @@ class WatchlistController {
     const stored = context.globalState.get('stockQuotes', []);
     if (Array.isArray(stored)) for (const q of stored) if (isQuote(q)) this.quotes.set(q.symbol, q);
     this.emitter = new vscode.EventEmitter(); this.onDidChangeTreeData = this.emitter.event;
-    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.marketWatch', { treeDataProvider: this, showCollapseAll: true, dragAndDropController: {
+    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.marketWatch', { treeDataProvider: this, showCollapseAll: true, canSelectMany: true, dragAndDropController: {
       dragMimeTypes: [WATCHLIST_MIME], dropMimeTypes: [WATCHLIST_MIME],
       handleDrag: (source, transfer, token) => this.handleDrag(source, transfer, token),
       handleDrop: (target, transfer, token) => this.handleDrop(target, transfer, token)
@@ -37,6 +38,7 @@ class WatchlistController {
     this.status.name = '上证指数 / 自选股'; this.status.command = 'welove42.aShareTurnover.stocks.selectStatus';
     this.statusVisible = false; this.statusRendered = {};
     this.config = this.readConfig();
+    this.grouping = new StockGroups(this);
     this.overseas = new OverseasWatchlist(this);
     this.phaseKey = '';
     this.listener = vscode.workspace.onDidChangeConfiguration(event => {
@@ -49,8 +51,9 @@ class WatchlistController {
         if (!this.config.enabled) for (const abort of Object.values(this.overseas.abort)) abort?.abort();
         else if (!this.paused) void Promise.all(Object.values(this.overseas.inflight)).then(() => this.overseas.refreshAll());
       }
-      const structural = overseasChanged || previous.enabled !== this.config.enabled || JSON.stringify(previous.symbols) !== JSON.stringify(this.config.symbols) || previous.sortBy !== this.config.sortBy;
-      const reload = previous.enabled !== this.config.enabled || structural || previous.selected !== this.config.selected;
+      const symbolsChanged = JSON.stringify(previous.symbols) !== JSON.stringify(this.config.symbols);
+      const structural = overseasChanged || previous.enabled !== this.config.enabled || symbolsChanged || previous.sortBy !== this.config.sortBy || JSON.stringify(previous.groups) !== JSON.stringify(this.config.groups);
+      const reload = previous.enabled !== this.config.enabled || symbolsChanged || previous.selected !== this.config.selected;
       if (reload) { this.generation++; this.abort?.abort(); }
       this.publish(structural);
       if (reload && this.config.enabled && !this.paused) {
@@ -65,7 +68,7 @@ class WatchlistController {
     try { selected = normalizeSymbol(this.settings.get('stocks.statusBarSymbol', INDEX_SYMBOL)); } catch { error ||= '状态栏代码无效，已使用上证指数'; }
     // A removed watchlist item cannot remain secretly selected in the status bar.
     if (selected !== INDEX_SYMBOL && !symbols.includes(selected)) selected = INDEX_SYMBOL;
-    return { enabled: c.get('stocks.enabled', true), symbols, selected, error,
+    return { enabled: c.get('stocks.enabled', true), symbols, selected, error, groups: normalizeGroups(this.settings.get('stocks.groups', []), symbols),
       sortBy: this.settings.get('stocks.sortBy', 'manual'), closedDates: c.get('additionalClosedDates', []) };
   }
   start() {
@@ -103,14 +106,19 @@ class WatchlistController {
     if (!this.config.enabled) return [];
     if (!element) return [this.group, ...this.overseas.getGroups()];
     if (element.kind === 'overseasGroup') return this.overseas.getChildren(element);
+    if (element.kind === 'stockGroup') return this.grouping.children(element.id);
     if (element.kind !== 'group') return [];
+    if (this.config.groups.length) return this.grouping.buckets().map(g => this.grouping.element(g.id));
     return orderedSymbols(this.config.symbols, this.quotes, this.config.sortBy).map(symbol => this.element(symbol));
   }
   element(symbol) {
     if (!this.elements.has(symbol)) this.elements.set(symbol, { kind: 'stock', symbol });
     return this.elements.get(symbol);
   }
-  getParent(element) { return element.kind === 'stock' ? this.group : element.kind === 'overseasStock' ? this.overseas.groups[element.market] : undefined; }
+  getParent(element) {
+    if (element.kind === 'stock') return this.config.groups.length ? this.grouping.element(this.grouping.idFor(element.symbol)) : this.group;
+    return element.kind === 'stockGroup' ? this.group : element.kind === 'overseasStock' ? this.overseas.groups[element.market] : undefined;
+  }
   getTreeItem(element) {
     if (element.kind === 'debugPlaceholder') {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
@@ -120,9 +128,10 @@ class WatchlistController {
     }
     if (this.hidden) return new vscode.TreeItem('', vscode.TreeItemCollapsibleState.None);
     if (element.kind === 'overseasGroup' || element.kind === 'overseasStock') return this.overseas.getTreeItem(element);
+    if (element.kind === 'stockGroup') return this.grouping.treeItem(element);
     if (element.kind === 'group') {
       const item = new vscode.TreeItem(`A Stock (${this.config.symbols.length})`, vscode.TreeItemCollapsibleState.Expanded);
-      item.id = 'a-share-watchlist'; item.description = '涨跌幅 · 现价 · 名称'; item.tooltip = '拖动个股到另一只个股可调整顺序；拖到本分组可移至末尾。'; return item;
+      item.id = 'a-share-watchlist'; item.contextValue = 'aShareRoot'; item.description = '涨跌幅 · 现价 · 名称'; item.tooltip = '点击新建分组可分类管理 A 股；拖动个股可排序或移动分组。拖到 A 股标题会移至未分组末尾。'; return item;
     }
     const q = this.quotes.get(element.symbol), stale = this.stale(element.symbol);
     const label = q ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]` : `—   —   [${element.symbol}]`;
@@ -143,7 +152,8 @@ class WatchlistController {
     if (this.paused) tip.appendText('\n自动刷新已暂停。');
     if (this.stale(symbol)) tip.appendText('\n当前为缓存、非当日行情或行情未更新，请核对行情时间。');
     if (this.errors.has(symbol)) tip.appendText('\n' + this.errors.get(symbol));
-    tip.appendText('\n拖动可调整顺序；点击查看详细图表，右键可删除自选或在底部显示。');
+    if (this.config.groups.length && this.config.symbols.includes(symbol)) tip.appendText('\n分组：' + this.grouping.bucket(this.grouping.idFor(symbol)).name);
+    tip.appendText('\n拖动可排序或移动分组；点击查看详细图表，右键可移动分组、删除自选或在底部显示。');
     return tip;
   }
   publish(structural = false) {
@@ -215,7 +225,7 @@ class WatchlistController {
     })();
     return this.inflight;
   }
-  async add(input) {
+  async add(input, groupId) {
     // View-title actions can pass the focused tree item instead of stock input.
     if (typeof input !== 'string' && !Array.isArray(input)) return this.searchAndAdd();
     let additions;
@@ -223,15 +233,22 @@ class WatchlistController {
       try { additions = normalizeSymbols(input); }
       catch (error) {
         if (typeof input !== 'string' || !input.trim() || /[,，;；]/.test(input)) throw error;
-        return this.searchAndAdd(input);
+        return this.searchAndAdd(input, groupId ? 'a' : undefined, groupId);
       }
     }
     catch (e) { return privateUI.showErrorMessage(e.message); }
     return this.enqueueSettings(async () => {
+      if (this.disposed || this.hidden) return;
+      if (groupId !== undefined && !this.grouping.bucket(groupId)) throw new Error('目标分组已删除，请重新选择。');
       let symbols;
       try { symbols = normalizeSymbols([...this.config.symbols, ...additions]); }
       catch (e) { return privateUI.showErrorMessage(e.message); }
-      await this.writeSetting('stocks.symbols', symbols);
+      if (groupId === undefined) await this.writeSetting('stocks.symbols', symbols);
+      else {
+        const adding = new Set(additions);
+        const groups = this.config.groups.map(g => ({ ...g, symbols: [...g.symbols.filter(s => !adding.has(s)), ...(g.id === groupId ? additions : [])] }));
+        await this.writeSettings([['stocks.symbols', symbols], ['stocks.groups', normalizeGroups(groups, symbols)]], JSON.stringify(symbols) !== JSON.stringify(this.config.symbols));
+      }
     });
   }
   enqueueSettings(operation) {
@@ -241,14 +258,27 @@ class WatchlistController {
   }
   updateSetting(key, value) { return this.enqueueSettings(() => this.writeSetting(key, value)); }
   async writeSetting(key, value) {
+    const entries = [[key, value]];
+    if (key === 'stocks.symbols' && this.config.groups.length) entries.push(['stocks.groups', normalizeGroups(this.config.groups, value)]);
+    return this.writeSettings(entries, key !== 'stocks.groups');
+  }
+  async writeSettings(entries, reload = true) {
     this.writingSettings = (this.writingSettings || 0) + 1;
-    try { await this.settings.set(key, value); } finally { this.writingSettings--; }
-    if (this.disposed) return;
-    this.generation++; this.abort?.abort(); this.config = this.readConfig(); this.syncOverseas(); this.publish(true);
-    if (this.config.enabled && !this.paused) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && this.config.enabled && !this.paused) return this.refresh(); });
+    try { for (const [key, value] of entries) await this.settings.set(key, value); }
+    finally {
+      this.writingSettings--;
+      if (!this.disposed) {
+        if (reload) { this.generation++; this.abort?.abort(); }
+        this.config = this.readConfig(); this.syncOverseas(); this.publish(true);
+        if (reload && this.config.enabled && !this.paused) void (this.inflight || Promise.resolve()).then(() => { if (!this.disposed && this.config.enabled && !this.paused) return this.refresh(); });
+      }
+    }
   }
   handleDrag(source, transfer, token) {
-    if (this.disposed || token.isCancellationRequested || !Array.isArray(source) || !source.length) return;
+    if (this.disposed || this.hidden || !this.config.enabled || token.isCancellationRequested || !Array.isArray(source) || !source.length) return;
+    if (source.every(item => item?.kind === 'stockGroup' && this.config.groups.some(g => g.id === item.id))) {
+      transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, groupIds: source.map(item => item.id) })); return;
+    }
     if (source.every(item => item?.kind === 'overseasStock' && item.market === source[0].market && this.overseas.symbols[item.market]?.includes(item.symbol))) {
       transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, market:source[0].market, symbols:source.map(item => item.symbol) })); return;
     }
@@ -257,10 +287,22 @@ class WatchlistController {
   }
   handleDrop(target, transfer, token) {
     const payload = transfer.get(WATCHLIST_MIME)?.value;
-    if (this.disposed || token.isCancellationRequested || payload?.owner !== this.dragIdentity || !Array.isArray(payload.symbols)) return;
+    if (this.disposed || this.hidden || !this.config.enabled || token.isCancellationRequested || payload?.owner !== this.dragIdentity) return;
+    if (Array.isArray(payload.groupIds)) {
+      if (target && !['group', 'stockGroup'].includes(target.kind)) return;
+      return this.grouping.reorder(payload.groupIds, target?.kind === 'stockGroup' ? target.id : undefined, token);
+    }
+    if (!Array.isArray(payload.symbols)) return;
     if (payload.market) return this.overseas.reorder(payload, target, token);
     return this.enqueueSettings(async () => {
       if (this.disposed || token.isCancellationRequested || !this.config.enabled) return;
+      if (this.hidden) return;
+      if (this.config.groups.length) {
+        if (target && !['group', 'stockGroup', 'stock'].includes(target.kind)) return;
+        const id = target?.kind === 'stockGroup' ? target.id : target?.kind === 'stock' ? this.grouping.idFor(target.symbol) : UNGROUPED;
+        if (!this.grouping.bucket(id) || payload.symbols.some(s => !this.config.symbols.includes(s))) return;
+        return this.grouping.moveNow(payload.symbols, id, target?.kind === 'stock' ? target.symbol : undefined);
+      }
       const visible = orderedSymbols(this.config.symbols, this.quotes, this.config.sortBy);
       const moving = new Set(payload.symbols);
       if (!moving.size || [...moving].some(symbol => !visible.includes(symbol))) return;
@@ -287,10 +329,16 @@ class WatchlistController {
       }
     });
   }
-  searchAndAdd(initial = '', marketFilter) {
+  searchAndAdd(initial = '', marketFilter, groupId) {
+    if (this.disposed || this.hidden) return Promise.resolve();
+    if (groupId !== undefined) {
+      if (!this.grouping.bucket(groupId)) return Promise.reject(new Error('目标分组已删除，请重新选择。'));
+      marketFilter = 'a';
+    }
     const picker = vscode.window.createQuickPick();
     picker.title = '搜索并添加自选股'; picker.placeholder = '搜索A股、港股、美股：例如 贵州茅台 / 腾讯 / 苹果 / 00700 / AAPL';
     if (marketFilter === 'a') { picker.title = '添加 A 股自选'; picker.placeholder = '输入 A 股名称、拼音或代码，例如 贵州茅台 / gzmt / 600519'; }
+    if (groupId !== undefined) picker.title = `添加 A 股到「${this.grouping.bucket(groupId).name}」`;
     picker.matchOnDescription = true; picker.matchOnDetail = true; picker.ignoreFocusOut = true;
     let timer, abort, generation = 0, closed = false, accepting = false;
     const update = async value => {
@@ -334,7 +382,7 @@ class WatchlistController {
         accepting = true;
         try {
           if (item.market === 'hk' || item.market === 'us') await this.overseas.mutate(item.market, list => [...list, ...item.symbols]);
-          else await this.add(item.symbols);
+          else await this.add(item.symbols, groupId);
           picker.hide();
         } catch (e) { accepting = false; void privateUI.showErrorMessage(e.message); }
       }), picker.onDidHide(() => {

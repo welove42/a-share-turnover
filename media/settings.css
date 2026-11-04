@@ -43,6 +43,18 @@ fieldset { margin: 0; padding: 0; border: 0; } .check { display: flex; align-ite
 .watch-remove { font-size: 20px; width: 30px; height: 30px; padding: 0; flex: none; background: transparent; color: var(--vscode-descriptionForeground); }
 .watch-remove:hover { color: var(--vscode-errorForeground); background: var(--vscode-toolbar-hoverBackground); }
 .watch-edit { background: transparent; color: var(--vscode-textLink-foreground); }
+.watch-tools { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.watch-groups { display: block; max-height: 540px; }
+.stock-group { margin: 0 0 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 8px 10px; }
+.stock-group summary { display: flex; align-items: center; gap: 8px; cursor: pointer; min-height: 30px; }
+.stock-group summary::before { content: '›'; width: 10px; flex: none; }
+.stock-group details[open] > summary::before { content: '⌄'; }
+.stock-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.stock-group-buttons { display: flex; gap: 2px; flex: none; }
+.group-button { background: transparent; color: var(--vscode-descriptionForeground); padding: 3px 5px; min-width: 25px; }
+.group-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.stock-group-list { max-height: none; margin-top: 5px; scrollbar-gutter: auto; }
+.watch-group-select { max-width: 100px; font-size: 12px; padding: 4px; }
 .watch-empty { color: var(--vscode-descriptionForeground); margin: 12px 0 2px; }
 .error { grid-column: 1 / -1; color: var(--vscode-errorForeground); margin: 0; } .error:empty { display: none; }
 [hidden] { display: none !important; } .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

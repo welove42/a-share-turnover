@@ -82,3 +82,26 @@ test('报价补齐名称时更新设置名单，相同名称不会反复重绘�
     c.setHidden(true); await send({ type: 'list', key: 'stocks.usSymbols', operation: 'add' }); assert.equal(calls, 0);
   } finally { c.dispose(); emitter.dispose(); }
 });
+
+test('设置页分组操作写入实际自选，拒绝越界分组、港股和直接覆盖分组配置', async () => {
+  const h = harness({ 'aShareTurnover.stocks.symbols': ['sh600105', 'sh600519'] });
+  const { WatchlistController } = h.load('../src/watchlist'), stocks = new WatchlistController(h.context); stocks.paused = true;
+  const { SettingsController } = h.load('../src/settings'), c = new SettingsController(h.context, { stocks, sources: [stocks], lists: { 'stocks.symbols': { ids: () => stocks.config.symbols, name: () => '示例股票' } } });
+  c.open(); const panel = h.panels[0], token = panel.webview.html.match(/data-token="([a-f0-9]+)"/)[1];
+  const send = async m => { panel.webview.receive.fire({ token, ...m }); await c.queue; };
+  try {
+    const id = await stocks.grouping.create('观察'); await send({ type: 'ready' });
+    const fields = panel.webview.messages.at(-1).groups.find(g => g.id === 'stocks').fields;
+    assert.equal(fields.some(f => f.key === 'stocks.groups'), false); assert.equal(fields.find(f => f.key === 'stocks.symbols').stockGroups[0].name, '观察');
+    await send({ type: 'stockGroup', key: 'stocks.symbols', operation: 'move', groupId: id, id: 'sh600105' }); assert.deepEqual(stocks.grouping.bucket(id).symbols, ['sh600105']);
+    for (const m of [
+      { type: 'stockGroup', key: 'stocks.symbols', operation: 'move', groupId: id, id: 'hk00700' },
+      { type: 'stockGroup', key: 'stocks.symbols', operation: 'move', groupId: 'missing', id: 'sh600105' },
+      { type: 'stockGroup', key: 'stocks.symbols', operation: 'remove', groupId: 'ungrouped' },
+      { type: 'stockGroup', key: 'stocks.hkSymbols', operation: 'create' },
+      { type: 'save', key: 'stocks.groups', value: [] }
+    ]) { await send(m); assert.equal(panel.webview.messages.at(-1).ok, false); }
+    await send({ type: 'stockGroup', key: 'stocks.symbols', operation: 'remove', groupId: id }); assert.equal(stocks.config.groups.length, 0); assert.equal(stocks.config.symbols.length, 2);
+    c.setHidden(true); await send({ type: 'stockGroup', key: 'stocks.symbols', operation: 'create' }); assert.equal(stocks.config.groups.length, 0);
+  } finally { c.dispose(); stocks.dispose(); }
+});
