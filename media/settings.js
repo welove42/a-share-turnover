@@ -9,7 +9,7 @@
     let visible = 0;
     for (const [id, section] of sections) {
       let count = 0;
-      for (const row of section.rows) { row.element.hidden = (selected !== 'all' && selected !== id) || !`${section.title} ${row.field.label} ${row.field.help}`.toLowerCase().includes(search); if (!row.element.hidden) count++; }
+      for (const row of section.rows) { row.element.hidden = (selected !== 'all' && selected !== id) || !`${section.title} ${row.field.label} ${row.field.help} ${(row.field.items || []).map(item => item.name + ' ' + item.id).join(' ')}`.toLowerCase().includes(search); if (!row.element.hidden) count++; }
       section.element.hidden = !count; visible += count;
     }
     $('empty').hidden = visible > 0;
@@ -20,12 +20,46 @@
     const f = row.field;
     if (f.type === 'boolean') row.input.checked = value;
     else if (f.type === 'checks') for (const input of row.inputs) input.checked = value.includes(input.value);
-    else if (f.type === 'list') {
-      row.input.replaceChildren(...(value.length ? value.map(v => node('span', v, 'chip')) : [node('span', '尚未添加', 'muted')]));
-    } else row.input.value = f.type === 'dates' ? value.join('\n') : value;
+    else if (f.type === 'list') renderList(row);
+    else row.input.value = f.type === 'dates' ? value.join('\n') : value;
   }
   function busy(row, value) { row.pending = value; for (const c of row.controls) c.disabled = value; }
+  function listAction(row, operation, id) {
+    if (row.pending) return;
+    row.error.textContent = ''; busy(row, true); $('save-status').textContent = operation === 'remove' ? '正在移除…' : '等待操作…';
+    send({ type: 'list', key: row.field.key, operation, id });
+  }
+  function renderList(row) {
+    const items = row.field.items || [], signature = JSON.stringify([items, row.query.value]);
+    if (signature === row.signature) return;
+    row.signature = signature; row.count.textContent = String(items.length);
+    row.query.hidden = items.length < 8 && !row.query.value;
+    row.controls = [row.add];
+    const query = row.query.value.trim().toLowerCase(), visible = items.filter(item => `${item.name} ${item.id}`.toLowerCase().includes(query));
+    row.input.replaceChildren();
+    for (const item of visible) {
+      const line = node('li', '', 'watch-item'), identity = node('div', '', 'watch-identity');
+      const name = node('span', item.name, 'watch-name'); name.title = item.name;
+      identity.append(name, node('span', item.id, 'watch-code')); line.append(identity);
+      if (row.field.canEdit) { const edit = node('button', '持仓', 'watch-edit'); edit.type = 'button'; edit.setAttribute('aria-label', `设置 ${item.name} 持仓`); edit.addEventListener('click', () => listAction(row, 'edit', item.id)); line.append(edit); row.controls.push(edit); }
+      const remove = node('button', '×', 'watch-remove'); remove.type = 'button'; remove.title = `移除 ${item.name}`; remove.setAttribute('aria-label', `移除 ${item.name} ${item.id}`);
+      remove.addEventListener('click', () => listAction(row, 'remove', item.id)); line.append(remove); row.controls.push(remove); row.input.append(line);
+    }
+    row.empty.hidden = visible.length > 0; row.empty.textContent = items.length ? '没有匹配的名称或代码' : '尚未添加，点击右上角按钮开始添加。';
+  }
+  function makeList(field) {
+    const element = node('article', '', 'watch-setting'), header = node('div', '', 'watch-header'), title = node('h3', field.label), count = node('span', '0', 'watch-count');
+    const add = node('button', '+ ' + field.addLabel, 'watch-add'); add.type = 'button';
+    title.append(count); header.append(title, add);
+    const query = node('input', '', 'watch-filter'); query.type = 'search'; query.value = ''; query.placeholder = '按名称或代码筛选'; query.setAttribute('aria-label', `筛选${field.label}`); query.hidden = true;
+    const input = node('ul', '', 'watch-list'); input.setAttribute('aria-label', field.label);
+    const empty = node('p', '', 'watch-empty'), error = node('p', '', 'error'); error.setAttribute('role', 'alert');
+    const row = { element, field, input, query, count, add, empty, error, controls: [add], pending: false };
+    add.addEventListener('click', () => listAction(row, 'add')); query.addEventListener('input', () => renderList(row));
+    element.append(header, query, input, empty, error); rows.set(field.key, row); return row;
+  }
   function makeField(field) {
+    if (field.type === 'list') return makeList(field);
     const element = node('article', '', 'setting'), text = node('div', '', 'setting-copy'), title = node('label', field.label), help = node('p', field.help);
     title.htmlFor = 'field-' + field.key; text.append(title, help);
     const control = node('div', '', 'control'), error = node('p', '', 'error'); error.setAttribute('role', 'alert');
@@ -35,7 +69,6 @@
       for (const opt of field.options) { const label = node('label', '', 'check'); const box = node('input'); box.type = 'checkbox'; box.value = opt.value; label.append(box, node('span', opt.label)); input.append(label); inputs.push(box); }
     } else if (field.type === 'select') { input = node('select'); }
     else if (field.type === 'dates') { input = node('textarea'); input.rows = 3; input.placeholder = 'YYYY-MM-DD'; }
-    else if (field.type === 'list') { input = node('div', '', 'chips'); }
     else { input = node('input'); input.type = field.type === 'boolean' ? 'checkbox' : 'number'; if (input.type === 'number') { input.min = field.min; input.max = field.max; input.step = field.type === 'integer' ? '1' : 'any'; input.required = true; } }
     input.id = title.htmlFor; input.setAttribute('aria-label', field.label);
     help.id = 'help-' + field.key; input.setAttribute('aria-describedby', help.id);
@@ -66,7 +99,7 @@
       const sectionRows = group.fields.map(f => makeField(f)); sectionRows.forEach(row => section.append(row.element));
       sections.set(group.id, { element: section, rows: sectionRows, title: group.title }); $('sections').append(section);
     }
-    for (const b of $('categories').children) b.addEventListener('click', () => { selected = b.dataset.id; filter(); });
+    for (const b of $('categories').children) b.addEventListener('click', () => { selected = b.dataset.id; search = ''; $('search').value = ''; filter(); });
   }
   window.addEventListener('message', e => {
     const m = e.data; if (!m || m.token !== token) return;

@@ -16,6 +16,18 @@ function setup(extra={},load) {
 function dragController(h) {
   return h.trees.get('welove42.aShareTurnover.marketWatch').dragAndDropController;
 }
+test('设置页的添加A股入口只搜索A股，不把港美股加入错误分组', async () => {
+  const h = setup(); let pending;
+  try {
+    h.c.search.searchAll = async () => [{ symbol: 'sh600105', name: '永鼎股份', market: 'a' }, { symbol: 'hk00700', name: '腾讯', market: 'hk' }, { symbol: 'usAAPL', name: '苹果', market: 'us' }];
+    pending = h.c.searchAndAdd('', 'a'); const picker = h.pickers.at(-1);
+    assert.match(picker.title, /A 股/); picker.change('00700');
+    assert.equal(picker.items.length, 0);
+    await new Promise(resolve => setTimeout(resolve, 350));
+    assert.deepEqual(picker.items.map(item => item.market), ['a']);
+    picker.hide(); await pending;
+  } finally { h.c.dispose(); }
+});
 function drag(h, symbols) {
   const controller = dragController(h), transfer = new Map();
   controller.handleDrag(symbols.map(s => h.c.element(s)), transfer, { isCancellationRequested: false });

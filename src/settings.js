@@ -6,8 +6,8 @@ const manifest = require('../package.json');
 const properties = manifest.contributes.configuration.properties;
 const GROUPS = [
   { id: 'market', title: '状态栏与市场', keys: ['enabled', 'comparisonMode', 'showDifferenceAmount', 'colorMode', 'sectors.enabled', 'sectors.category', 'temperature.enabled', 'temperature.colorize'] },
-  { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.symbols', 'stocks.hkSymbols', 'stocks.usSymbols', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'], actions: ['stocks.add', 'stocks.remove', 'overseas.remove'] },
-  { id: 'assets', title: '指数、基金与商品', keys: ['globalIndices.enabled', 'globalIndices.symbols', 'funds.enabled', 'funds.symbols', 'commodities.enabled', 'commodities.symbols'], actions: ['globalIndices.add', 'globalIndices.remove', 'funds.add', 'funds.remove', 'funds.editHolding', 'commodities.add', 'commodities.remove'] },
+  { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.symbols', 'stocks.hkSymbols', 'stocks.usSymbols', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'] },
+  { id: 'assets', title: '指数、基金与商品', keys: ['globalIndices.enabled', 'globalIndices.symbols', 'funds.enabled', 'funds.symbols', 'commodities.enabled', 'commodities.symbols'] },
   { id: 'news', title: '财经新闻', keys: ['news.enabled', 'news.source', 'news.refreshIntervalSeconds'], actions: ['news.setToken'] },
   { id: 'risk', title: '涨跌提醒与风险', keys: ['stockAlerts.mode', 'risk.enabled', 'risk.volumePercent', 'risk.dropPercent'] },
   { id: 'events', title: '大事提醒与休市', keys: ['reminders.enabled', 'reminders.notifications', 'reminders.categories', 'additionalClosedDates'] }
@@ -37,7 +37,8 @@ const OPTIONS = {
   'charts.defaultMode': ['内置分时', '内置五日分时', '1 分钟 K 线', '5 分钟 K 线', '15 分钟 K 线', '30 分钟 K 线', '60 分钟 K 线', '日 K', '周 K', '月 K', '东方财富图表', '东方财富筹码盘口'],
   'news.source': ['东方财富', '选股宝']
 };
-const ACTIONS = { 'stocks.add': '添加股票', 'stocks.remove': '移除 A 股', 'overseas.remove': '移除港美股', 'globalIndices.add': '添加指数', 'globalIndices.remove': '移除指数', 'funds.add': '添加基金', 'funds.remove': '移除基金', 'funds.editHolding': '设置基金持仓', 'commodities.add': '添加商品', 'commodities.remove': '移除商品', 'news.setToken': '设置选股宝登录 Token' };
+const ACTIONS = { 'news.setToken': '设置选股宝登录 Token' };
+const ADD_LABELS = { 'stocks.symbols': '添加 A 股', 'stocks.hkSymbols': '添加港股', 'stocks.usSymbols': '添加美股', 'globalIndices.symbols': '添加指数', 'funds.symbols': '添加基金', 'commodities.symbols': '添加商品' };
 const LISTS = new Set(['stocks.symbols', 'stocks.hkSymbols', 'stocks.usSymbols', 'globalIndices.symbols', 'funds.symbols', 'commodities.symbols']);
 function schema(key) { return properties['aShareTurnover.' + key]; }
 function validate(key, value, read) {
@@ -61,34 +62,41 @@ function settingsHtml(webview, context, token) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';"><link rel="stylesheet" href="${uri('settings.css')}"><title>行情设置</title></head><body data-token="${token}"><header><div><h1>行情设置</h1><p>按你的习惯安排看盘。</p></div><span id="save-status" role="status" aria-live="polite">正在加载…</span></header><div class="layout"><nav id="categories" aria-label="设置分类"></nav><main><label class="search"><span>搜索设置</span><input id="search" type="search" placeholder="搜索设置，例如：板块、图表、提醒" autocomplete="off"></label><p class="hint">修改自动保存 · 老板键 Ctrl+Shift+; 可隐藏行情和设置页</p><p id="dependencies" role="status"></p><div id="sections"></div><p id="empty" hidden>没有匹配的设置</p></main></div><script nonce="${nonce}" src="${uri('settings.js')}"></script></body></html>`;
 }
 class SettingsController {
-  constructor(context, { stocks, actions = {} } = {}) {
-    this.context = context; this.stocks = stocks; this.actions = actions; this.queue = Promise.resolve();
+  constructor(context, { stocks, actions = {}, lists = {}, sources = [] } = {}) {
+    this.context = context; this.stocks = stocks; this.actions = actions; this.lists = lists; this.queue = Promise.resolve();
     this.listener = vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('aShareTurnover')) this.publish(); });
+    this.listListeners = sources.map(source => source.onDidChangeTreeData(() => this.publish()));
   }
-  read(key) { return key.startsWith('stocks.') && key !== 'stocks.enabled' && this.stocks ? this.stocks.settings.get(key, schema(key).default) : vscode.workspace.getConfiguration('aShareTurnover').get(key, schema(key).default); }
+  read(key) { if (LISTS.has(key) && this.lists[key]) return this.lists[key].ids(); return key.startsWith('stocks.') && key !== 'stocks.enabled' && this.stocks ? this.stocks.settings.get(key, schema(key).default) : vscode.workspace.getConfiguration('aShareTurnover').get(key, schema(key).default); }
   model() {
     return GROUPS.map(group => ({ ...group, actions: (group.actions || []).map(id => ({ id, label: ACTIONS[id] })), fields: group.keys.map(key => {
       const s = schema(key), c = vscode.workspace.getConfiguration('aShareTurnover').inspect?.(key);
-      const options = key === 'stocks.statusBarSymbol' ? [...new Set(['sh000001', ...this.read('stocks.symbols')])].map(value => ({ value, label: value === 'sh000001' ? '上证指数' : `${this.stocks?.quotes.get(value)?.name || value} · ${value}` }))
+      const options = key === 'stocks.statusBarSymbol' ? [...new Set(['sh000001', ...this.read('stocks.symbols')])].map(value => ({ value, label: value === 'sh000001' ? '上证指数' : `${this.lists['stocks.symbols']?.name(value) || this.stocks?.quotes.get(value)?.name || '名称待获取'} · ${value}` }))
         : (s.enum || s.items?.enum || []).map((value, i) => ({ value, label: OPTIONS[key]?.[i] || (s.enumDescriptions || s.items?.enumDescriptions)?.[i] || value }));
-      return { key, label: LABELS[key], help: HELP[key] || '通过上方按钮添加或移除；也可以在侧栏管理。', type: LISTS.has(key) ? 'list' : key === 'additionalClosedDates' ? 'dates' : options.length ? s.type === 'array' ? 'checks' : 'select' : s.type, options, min: s.minimum, max: s.maximum, value: this.read(key), workspace: c?.workspaceValue !== undefined };
+      return { key, label: LABELS[key], help: HELP[key] || '', type: LISTS.has(key) ? 'list' : key === 'additionalClosedDates' ? 'dates' : options.length ? s.type === 'array' ? 'checks' : 'select' : s.type, options, min: s.minimum, max: s.maximum, value: this.read(key), workspace: c?.workspaceValue !== undefined,
+        ...(LISTS.has(key) ? { addLabel: ADD_LABELS[key], canEdit: Boolean(this.lists[key]?.edit), items: this.read(key).map(id => ({ id, name: this.lists[key]?.name(id) || '名称待获取' })) } : {}) };
     }) }));
   }
-  publish() { if (this.panel && !this.hidden && !this.disposed) void this.panel.webview.postMessage({ type: 'state', token: this.token, groups: this.model() }); }
+  publish(force = false) { if (this.panel && !this.hidden && !this.disposed) { const groups = this.model(), signature = JSON.stringify(groups); if (!force && signature === this.signature) return; this.signature = signature; void this.panel.webview.postMessage({ type: 'state', token: this.token, groups }); } }
   open() {
     if (this.hidden || this.disposed) return;
-    if (this.panel) { this.panel.reveal(vscode.ViewColumn.Active); this.publish(); return; }
+    if (this.panel) { this.panel.reveal(vscode.ViewColumn.Active); this.publish(true); return; }
     const panel = this.panel = vscode.window.createWebviewPanel('welove42.aShareTurnover.settings', '行情设置', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')] });
     const token = this.token = randomBytes(24).toString('hex');
     panel.webview.html = settingsHtml(panel.webview, this.context, token);
     panel.onDidDispose(() => { if (this.panel === panel) this.panel = null; });
     panel.webview.onDidReceiveMessage(message => {
       if (!message || message.token !== token || this.panel !== panel || this.hidden || this.disposed) return;
-      if (message.type === 'ready') { this.publish(); return; }
+      if (message.type === 'ready') { this.publish(true); return; }
       this.queue = this.queue.catch(() => {}).then(async () => {
         if (this.panel !== panel || this.hidden || this.disposed) return;
         try {
-          if (message.type === 'action') {
+          if (message.type === 'list') {
+            const list = LISTS.has(message.key) && this.lists[message.key];
+            if (!list || !['add', 'remove', 'edit'].includes(message.operation) || typeof list[message.operation] !== 'function') throw new Error('不支持此列表操作');
+            if (message.operation !== 'add' && (typeof message.id !== 'string' || !list.ids().includes(message.id))) throw new Error('该项目已不在列表中，请重试');
+            await list[message.operation](message.operation === 'add' ? undefined : message.id);
+          } else if (message.type === 'action') {
             if (!Object.hasOwn(ACTIONS, message.action) || typeof this.actions[message.action] !== 'function') throw new Error('未知操作');
             await this.actions[message.action]();
           } else if (message.type === 'save' || message.type === 'reset') {
@@ -100,12 +108,12 @@ class SettingsController {
               await c.update(message.key, value, target);
             }
           } else return;
-          if (this.panel === panel && !this.hidden) { await panel.webview.postMessage({ type: 'result', token, key: message.key, action: message.action, ok: true }); this.publish(); }
+          if (this.panel === panel && !this.hidden) { await panel.webview.postMessage({ type: 'result', token, key: message.key, action: message.action, ok: true }); this.publish(true); }
         } catch (error) { if (this.panel === panel && !this.hidden) void panel.webview.postMessage({ type: 'result', token, key: message.key, action: message.action, ok: false, error: error.message || '保存失败，请重试' }); }
       });
     });
   }
   setHidden(hidden) { this.hidden = hidden; if (hidden) this.panel?.dispose(); }
-  dispose() { this.disposed = true; this.panel?.dispose(); this.listener.dispose(); }
+  dispose() { this.disposed = true; this.panel?.dispose(); this.listener.dispose(); for (const listener of this.listListeners) listener.dispose(); }
 }
 module.exports = { SettingsController, validate, GROUPS, LISTS };

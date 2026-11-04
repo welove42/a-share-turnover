@@ -28,7 +28,23 @@ h2 { font-size: 17px; margin: 0 0 12px; } section { margin-top: 28px; }
 .control { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; max-width: 350px; }
 .reset { background: transparent; color: var(--vscode-textLink-foreground); font-size: 12px; padding: 4px; }
 fieldset { margin: 0; padding: 0; border: 0; } .check { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
-.chips { display: flex; flex-wrap: wrap; gap: 5px; } .chip { padding: 3px 7px; border-radius: 4px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.watch-setting { margin: 16px 0; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 14px; }
+.watch-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.watch-header h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 0; }
+.watch-count { color: var(--vscode-descriptionForeground); font-size: 12px; font-weight: 400; }
+.watch-add { color: var(--vscode-button-foreground); background: var(--vscode-button-background); white-space: nowrap; }
+.watch-add:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
+.watch-filter { width: 100%; margin-bottom: 10px; }
+.watch-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; padding: 0; margin: 0; max-height: 340px; overflow: auto; scrollbar-gutter: stable; list-style: none; }
+.watch-item { display: flex; align-items: center; gap: 8px; padding: 9px 0; min-width: 0; border-bottom: 1px solid var(--vscode-panel-border); }
+.watch-identity { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.watch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-code { color: var(--vscode-descriptionForeground); font-size: 12px; font-variant-numeric: tabular-nums; }
+.watch-remove { font-size: 20px; width: 30px; height: 30px; padding: 0; flex: none; background: transparent; color: var(--vscode-descriptionForeground); }
+.watch-remove:hover { color: var(--vscode-errorForeground); background: var(--vscode-toolbar-hoverBackground); }
+.watch-edit { background: transparent; color: var(--vscode-textLink-foreground); }
+.watch-empty { color: var(--vscode-descriptionForeground); margin: 12px 0 2px; }
 .error { grid-column: 1 / -1; color: var(--vscode-errorForeground); margin: 0; } .error:empty { display: none; }
 [hidden] { display: none !important; } .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (max-width: 750px) { header { padding: 20px; } .layout { display: block; } nav { position: static; display: flex; overflow-x: auto; padding: 12px; } nav button { width: auto; white-space: nowrap; } main { padding: 12px 20px 40px; } .setting { grid-template-columns: 1fr; } .control { justify-content: flex-start; max-width: 100%; } }
+@media (max-width: 500px) { .watch-list { grid-template-columns: 1fr; } }

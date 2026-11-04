@@ -2,9 +2,9 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const { harness } = require('./vscode-mock');
 const manifest = require('../package.json');
-function setup() {
+function setup(options = {}) {
   const h = harness(), { SettingsController, validate, GROUPS } = h.load('../src/settings');
-  const c = new SettingsController(h.context); c.open(); const panel = h.panels[0];
+  const c = new SettingsController(h.context, options); c.open(); const panel = h.panels[0];
   const token = panel.webview.html.match(/data-token="([a-f0-9]+)"/)[1];
   const send = async message => { panel.webview.receive.fire({ token, ...message }); await c.queue; };
   return { h, c, panel, send, validate, GROUPS };
@@ -44,4 +44,29 @@ test('写入错误留在页面，不返回成功；已有工作区覆盖写入�
     await send({ type: 'save', key: 'sectors.category', value: 'industry' });
     assert.equal(target, 2); assert.match(panel.webview.messages.at(-1).error, /只读/);
   } finally { c.dispose(); }
+});
+test('分组名单显示名称和代码，直接移除所选项目，拒绝跨组或过期项目', async () => {
+  let ids = ['sh600105', 'sh600519'], added = 0;
+  const removed = [];
+  const { c, panel, send } = setup({ lists: { 'stocks.symbols': { ids: () => ids, name: id => id === 'sh600105' ? '永鼎股份' : '贵州茅台', add: () => { added++; }, remove: id => { removed.push(id); ids = ids.filter(s => s !== id); } } } });
+  try {
+    await send({ type: 'ready' });
+    const field = panel.webview.messages.at(-1).groups.find(g => g.id === 'stocks').fields.find(f => f.key === 'stocks.symbols');
+    assert.deepEqual(field.items, [{ id: 'sh600105', name: '永鼎股份' }, { id: 'sh600519', name: '贵州茅台' }]); assert.equal(field.addLabel, '添加 A 股');
+    await send({ type: 'list', key: 'stocks.symbols', operation: 'add' }); assert.equal(added, 1);
+    await send({ type: 'list', key: 'stocks.symbols', operation: 'remove', id: 'sh600105' }); assert.deepEqual(removed, ['sh600105']); assert.deepEqual(ids, ['sh600519']);
+    for (const id of ['sh600105', 'hk00700', '__proto__']) { await send({ type: 'list', key: 'stocks.symbols', operation: 'remove', id }); assert.equal(panel.webview.messages.at(-1).ok, false); }
+    await send({ type: 'list', key: 'stocks.hkSymbols', operation: 'remove', id: 'sh600519' }); assert.equal(panel.webview.messages.at(-1).ok, false); assert.deepEqual(ids, ['sh600519']);
+  } finally { c.dispose(); }
+});
+test('报价补齐名称时更新设置名单，相同名称不会反复重绘，隐藏后忽略名单操作', async () => {
+  const h = harness(), emitter = new h.api.EventEmitter(); let name, calls = 0;
+  const { c, panel, send } = setup({ sources: [{ onDidChangeTreeData: emitter.event }], lists: { 'stocks.usSymbols': { ids: () => ['usAAPL'], name: () => name, add: () => calls++ } } });
+  try {
+    await send({ type: 'ready' }); const before = panel.webview.messages.length;
+    emitter.fire(); assert.equal(panel.webview.messages.length, before);
+    name = '苹果'; emitter.fire(); assert.equal(panel.webview.messages.length, before + 1);
+    assert.equal(panel.webview.messages.at(-1).groups.find(g => g.id === 'stocks').fields.find(f => f.key === 'stocks.usSymbols').items[0].name, '苹果');
+    c.setHidden(true); await send({ type: 'list', key: 'stocks.usSymbols', operation: 'add' }); assert.equal(calls, 0);
+  } finally { c.dispose(); emitter.dispose(); }
 });

@@ -287,9 +287,10 @@ class WatchlistController {
       }
     });
   }
-  searchAndAdd(initial = '') {
+  searchAndAdd(initial = '', marketFilter) {
     const picker = vscode.window.createQuickPick();
     picker.title = '搜索并添加自选股'; picker.placeholder = '搜索A股、港股、美股：例如 贵州茅台 / 腾讯 / 苹果 / 00700 / AAPL';
+    if (marketFilter === 'a') { picker.title = '添加 A 股自选'; picker.placeholder = '输入 A 股名称、拼音或代码，例如 贵州茅台 / gzmt / 600519'; }
     picker.matchOnDescription = true; picker.matchOnDetail = true; picker.ignoreFocusOut = true;
     let timer, abort, generation = 0, closed = false, accepting = false;
     const update = async value => {
@@ -303,6 +304,7 @@ class WatchlistController {
       } else if (!direct && /^(?:us[A-Z][A-Z0-9.]{0,13}|[A-Z][A-Z0-9]{0,9}(?:\.[A-Z]{1,3})?)$/.test(value.trim())) {
         direct = [normalizeOverseas(value, 'us')]; directMarket = 'us';
       }
+      if (marketFilter && directMarket !== marketFilter) direct = undefined;
       if (direct?.length) {
         picker.items = [{ label: direct.length === 1 ? `添加 ${direct[0]}` : `批量添加 ${direct.length} 个代码`, description: `${directMarket === 'hk' ? '港股' : directMarket === 'us' ? '美股' : 'A股'} · ${direct.join(', ')}`, market:directMarket, symbols: direct, alwaysShow: true }];
         picker.activeItems = [picker.items[0]];
@@ -314,7 +316,7 @@ class WatchlistController {
           if (direct?.length > 1) return;
           const result = await (this.search.searchAll ? this.search.searchAll(value.trim(), request.signal) : this.search.search(value.trim(), request.signal));
           if (closed || this.disposed || request.signal.aborted || current !== generation) return;
-          const entries = result.map(item => {
+          const entries = result.filter(item => !marketFilter || (item.market || 'a') === marketFilter).map(item => {
             const market = item.market || 'a', selected = market === 'a' ? this.config.symbols : this.overseas.symbols[market];
             return { label:item.name, description:`${market === 'hk' ? '港股' : market === 'us' ? '美股' : 'A股'} · ${item.symbol}`,
               detail:`${item.pinyin || ''}${selected?.includes(item.symbol) ? ' · 已在自选' : ''}`, market, symbols:[item.symbol], alwaysShow:true };

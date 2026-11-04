@@ -11,6 +11,7 @@ const { ChartController } = require('./charts');
 const { GlobalIndicesController } = require('./global-indices');
 const { FundsController } = require('./funds');
 const { CommoditiesController } = require('./commodities');
+const { entryFor: commodityEntry } = require('./commodity-data');
 const { warnLegacy } = require('./legacy');
 const { marketRisk } = require('./risk');
 const { marketTemperature, temperatureView } = require('./temperature');
@@ -303,12 +304,13 @@ function activate(context) {
   const sectors = new SectorsController(context);
   const reminders = new ReminderController(context);
   const alerts = new StockAlerts(context, stocks);
-  const settings = new SettingsController(context, { stocks, actions: {
-    'stocks.add': () => stocks.add(), 'stocks.remove': () => stocks.remove(),
-    'overseas.remove': async () => { const chosen = await privateUI.showQuickPick([...stocks.overseas.symbols.hk, ...stocks.overseas.symbols.us].map(symbol => ({ label: stocks.overseas.quotes.get(symbol)?.name || symbol, description: symbol, symbol })), { title: '移除港美股自选' }); if (chosen && !privateUI.isHidden()) return stocks.overseas.remove(stocks.overseas.element(chosen.symbol)); },
-    'globalIndices.add': () => globals.add(), 'globalIndices.remove': () => globals.remove(),
-    'funds.add': () => funds.add(), 'funds.remove': () => funds.remove(), 'funds.editHolding': () => funds.editHolding(),
-    'commodities.add': () => commodities.add(), 'commodities.remove': () => commodities.remove(), 'news.setToken': () => news.setToken()
+  const settings = new SettingsController(context, { stocks, sources: [stocks, globals, funds, commodities], actions: { 'news.setToken': () => news.setToken() }, lists: {
+    'stocks.symbols': { ids: () => stocks.config.symbols, name: id => stocks.quotes.get(id)?.name || (id === 'sh000001' ? '上证指数' : ''), add: () => stocks.searchAndAdd('', 'a'), remove: id => stocks.remove(id) },
+    'stocks.hkSymbols': { ids: () => stocks.overseas.symbols.hk, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'hk' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },
+    'stocks.usSymbols': { ids: () => stocks.overseas.symbols.us, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'us' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },
+    'globalIndices.symbols': { ids: () => globals.selectedIds, name: id => globals.catalog.get(id)?.name, add: () => globals.add(), remove: id => globals.remove(id) },
+    'funds.symbols': { ids: () => funds.symbols, name: id => funds.quotes.get(id)?.name, add: () => funds.add(), remove: id => funds.remove(id), edit: id => funds.editHolding(id) },
+    'commodities.symbols': { ids: () => commodities.codes, name: id => commodityEntry(id)?.name, add: () => commodities.add(), remove: id => commodities.remove(id) }
   } });
   const bossKey = new BossKey(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts });
   const bind = (command, callback) => vscode.commands.registerCommand(command, (...args) => bossKey.hidden ? undefined : callback(...args));
