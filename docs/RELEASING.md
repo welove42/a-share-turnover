@@ -33,9 +33,13 @@ git push origin v1.21.0
 
 到仓库 [Actions 页面](https://github.com/welove42/a-share-turnover/actions/workflows/publish.yml) 查看结果。打包成功后，VSIX 会保存在该次运行的 Artifacts 中 90 天；上传市场失败也能下载包手动处理。市场完成自身校验后，新版本才会对用户可见。
 
-## 只检查打包，不发布
+## 测试打包和发布授权
 
-在 Actions 中打开 **Package and publish extension → Run workflow**，选择 `main`。手动运行只测试和打包，始终跳过上传市场。
+在 Actions 中打开 **Package and publish extension → Run workflow**，选择 `main`，保留勾选 **验证 Marketplace 可信发布授权（不上传插件）**，然后运行。
+
+测试、打包以及 **Verify Marketplace trusted publishing (no upload)** 均显示成功，即表示构建正常、GitHub 已能通过可信策略取得市场发布凭证。**Publish to VS Code Marketplace** 显示跳过是正常的；手动测试不上传插件、不修改版本、不创建标签。
+
+尚未配置可信策略时，可以取消勾选，只检查打包。授权验证通过不等于完成实际上传；完整发布仍由下次推送新版本标签触发。
 
 ## 常见情况
 

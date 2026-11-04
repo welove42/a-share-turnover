@@ -4,8 +4,13 @@ on:
   push:
     tags:
       - 'v*'
-  # Manual runs only test and package; they never publish to the Marketplace.
+  # Manual runs test, package and optionally verify auth; they never publish.
   workflow_dispatch:
+    inputs:
+      verify_auth:
+        description: '验证 Marketplace 可信发布授权（不上传插件）'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -78,6 +83,18 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 90
+
+      - name: Verify Marketplace trusted publishing (no upload)
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_auth
+        run: |
+          node <<'NODE'
+          // vsce 4.1.0 verify-pat has no --oidc option. Use the same exchange as publish --oidc.
+          const { getOIDCCredential } = require('@vscode/vsce/out/oidc');
+          (async () => {
+            await getOIDCCredential(require('./package.json').publisher);
+            console.log('Trusted Publishing verification succeeded for welove42. No extension was uploaded.');
+          })().catch(error => { console.error(error.message); process.exitCode = 1; });
+          NODE
 
       - name: Publish to VS Code Marketplace
         if: github.event_name == 'push' && github.ref_type == 'tag'
