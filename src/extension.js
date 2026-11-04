@@ -20,6 +20,8 @@ const { SectorsController } = require('./sectors');
 const { ReminderController } = require('./reminders');
 const { BossKey } = require('./boss-key');
 const { DebugCoverProvider } = require('./debug-cover');
+const { SettingsController } = require('./settings');
+const { StockAlerts } = require('./stock-alerts');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -253,11 +255,10 @@ class TurnoverController {
       { label: '$(arrow-swap) 切换比较口径', command: 'welove42.aShareTurnover.switchComparison' },
       { label: '$(dashboard) 市场温度走势图', command: 'welove42.aShareTurnover.showTemperature' },
       { label: this.state.paused ? '$(play) 恢复自动刷新' : '$(debug-pause) 暂停自动刷新', command: 'welove42.aShareTurnover.togglePause' },
-      { label: '$(settings-gear) 插件设置', command: 'settings' },
+      { label: '$(settings-gear) 插件设置', command: 'welove42.aShareTurnover.settings.open' },
       { label: '$(output) 查看请求日志', command: 'welove42.aShareTurnover.showLog' }
     ], { title: '沪深 A 股成交额', placeHolder: this.item.accessibilityInformation?.label });
     if (!selected) return;
-    if (selected.command === 'settings') return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:welove42.a-share-turnover');
     return vscode.commands.executeCommand(selected.command);
   }
 
@@ -301,7 +302,15 @@ function activate(context) {
   const commodities = new CommoditiesController(context, { log: message => controller.log(message) });
   const sectors = new SectorsController(context);
   const reminders = new ReminderController(context);
-  const bossKey = new BossKey(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders });
+  const alerts = new StockAlerts(context, stocks);
+  const settings = new SettingsController(context, { stocks, actions: {
+    'stocks.add': () => stocks.add(), 'stocks.remove': () => stocks.remove(),
+    'overseas.remove': async () => { const chosen = await privateUI.showQuickPick([...stocks.overseas.symbols.hk, ...stocks.overseas.symbols.us].map(symbol => ({ label: stocks.overseas.quotes.get(symbol)?.name || symbol, description: symbol, symbol })), { title: '移除港美股自选' }); if (chosen && !privateUI.isHidden()) return stocks.overseas.remove(stocks.overseas.element(chosen.symbol)); },
+    'globalIndices.add': () => globals.add(), 'globalIndices.remove': () => globals.remove(),
+    'funds.add': () => funds.add(), 'funds.remove': () => funds.remove(), 'funds.editHolding': () => funds.editHolding(),
+    'commodities.add': () => commodities.add(), 'commodities.remove': () => commodities.remove(), 'news.setToken': () => news.setToken()
+  } });
+  const bossKey = new BossKey(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts });
   const bind = (command, callback) => vscode.commands.registerCommand(command, (...args) => bossKey.hidden ? undefined : callback(...args));
   context.subscriptions.push(controller,
     bossKey, vscode.commands.registerCommand('welove42.aShareTurnover.toggleHidden', () => bossKey.toggle()),
@@ -317,7 +326,8 @@ function activate(context) {
     bind('welove42.aShareTurnover.sectors.refresh', () => sectors.retry()),
     bind('welove42.aShareTurnover.sectors.menu', () => sectors.showMenu()),
     bind('welove42.aShareTurnover.reminders.show', () => reminders.show()),
-    stocks, news, charts, globals, funds, commodities, sectors, reminders,
+    stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts,
+    bind('welove42.aShareTurnover.settings.open', () => settings.open()),
     bind('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
     bind('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),
     bind('welove42.aShareTurnover.commodities.refresh', () => commodities.refresh()),
@@ -359,6 +369,7 @@ function activate(context) {
     bind('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
   );
   controller.start(); stocks.start(); news.start(); globals.start(); funds.start(); commodities.start(); sectors.start(); reminders.start();
+  alerts.start();
   if (!bossKey.hidden) void warnLegacy(context).catch(error => controller.log('旧版检测：' + error.message));
   return { getWatchlist: () => [...stocks.config.symbols], getSelectedSymbol: () => stocks.config.selected,
     getMarketTemperature: () => controller.temperatureResult ? { ...controller.temperatureResult } : undefined,
