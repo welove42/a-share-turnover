@@ -21,15 +21,15 @@
 ## 发布大版本
 
 1. 更新 `package.json`、`package-lock.json` 中的版本号，以及 `package.json` 的打包文件名。
-2. 在 `CHANGELOG.md` 中补上对应版本的更新说明，例如 `## 1.21.0`。
+2. 在 `CHANGELOG.md` 中补上对应版本的更新说明，例如 `## 1.22.0`。
 3. 提交并推送代码，再创建同名版本标签：
 
 ```sh
-git tag v1.21.0
-git push origin v1.21.0
+git tag v1.22.0
+git push origin v1.22.0
 ```
 
-`1.21.0` 只是示例，请替换成实际版本。标签与 `package.json` 不一致、缺少更新说明或测试失败时，流程会停止，不会上传市场。
+`1.22.0` 只是示例，请替换成实际版本。标签与 `package.json` 不一致、缺少更新说明或测试失败时，流程会停止，不会上传市场。
 
 到仓库 [Actions 页面](https://github.com/welove42/a-share-turnover/actions/workflows/publish.yml) 查看结果。打包成功后，VSIX 会保存在该次运行的 Artifacts 中 90 天；上传市场失败也能下载包手动处理。市场完成自身校验后，新版本才会对用户可见。
 
