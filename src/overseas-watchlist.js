@@ -7,6 +7,7 @@ const { trendIcon } = require('./trend-icon');
 const { normalizeDate, timeToMinute } = require('./market');
 const { normalizeOverseas } = require('./overseas-symbols');
 const { parseMarketSuggestions } = require('./stock-search');
+const { StockGroups, normalizeGroups, UNGROUPED } = require('./stock-groups');
 
 function parseOverseasSearch(text, market) {
   return parseMarketSuggestions(text).filter(item => item.market === market).map(({symbol,name,pinyin})=>({symbol,name,pinyin}));
@@ -44,27 +45,32 @@ class OverseasWatchlist {
     const stored = parent.context.globalState.get('overseasQuotes', []);
     if (Array.isArray(stored)) for (const q of stored) if (this.validQuote(q)) this.quotes.set(q.symbol,q);
     this.cached = new Set(this.quotes.keys()); this.signatures = new Map(); this.cacheWrite = Promise.resolve(); this.read();
+    this.grouping = { hk: new StockGroups(parent, 'hk'), us: new StockGroups(parent, 'us') };
   }
   validQuote(q) {
     try { const market = q.symbol?.slice(0,2); return ['hk','us'].includes(market) && normalizeOverseas(q.symbol,market) === q.symbol && typeof q.name === 'string' && /^\d{14}$/.test(q.timestamp) && normalizeDate(q.timestamp.slice(0,8)) === q.date && timeToMinute(q.timestamp.slice(8,12)) >= 0 && Number(q.timestamp.slice(12,14)) < 60 && typeof q.priceText === 'string' && /^\d+(?:\.\d+)?$/.test(q.priceText) && Number.isFinite(q.price) && q.price > 0 && Number.isFinite(q.previousClose) && q.previousClose > 0 && [q.percent,q.delta].every(Number.isFinite) && [q.high,q.low].every(v => v === null || Number.isFinite(v)); } catch { return false; }
   }
   read() {
-    this.symbols = {};
+    this.symbols = {}; this.stockGroups = {};
     for (const market of ['hk','us']) {
       const raw = this.parent.settings.get(`stocks.${market}Symbols`, []);
       try { if (!Array.isArray(raw) || raw.length > 100) throw new Error(); this.symbols[market] = [...new Set(raw.map(s=>normalizeOverseas(s,market)))]; }
       catch { this.symbols[market] = []; }
+      this.stockGroups[market] = normalizeGroups(this.parent.settings.get(`stocks.${market}Groups`, []), this.symbols[market], s => normalizeOverseas(s, market));
     }
   }
   changed() { this.generation++; for (const c of Object.values(this.abort)) c?.abort(); this.read(); }
   getGroups() { return [this.groups.hk,this.groups.us]; }
   element(symbol) { if (!this.elements.has(symbol)) this.elements.set(symbol, {kind:'overseasStock',market:symbol.slice(0,2),symbol}); return this.elements.get(symbol); }
-  getChildren(group) { return orderedSymbols(this.symbols[group.market] || [], this.quotes, this.parent.config.sortBy).map(s=>this.element(s)); }
+  getChildren(group) {
+    const grouping = this.grouping[group.market];
+    return grouping.groups.length ? grouping.buckets().map(g => grouping.element(g.id)) : orderedSymbols(this.symbols[group.market] || [], this.quotes, this.parent.config.sortBy).map(s=>this.element(s));
+  }
   getTreeItem(element) {
     if (element.kind === 'overseasGroup') {
       const label = element.market === 'hk' ? '港股' : '美股';
       const item = new vscode.TreeItem(`${label} (${this.symbols[element.market].length})`, vscode.TreeItemCollapsibleState.Collapsed);
-      item.id = `overseas:${element.market}`; item.contextValue = 'aShareOverseasGroup'; item.description = '涨跌幅 · 现价 · 名称'; item.tooltip = `点击行尾＋添加${label}，可输入名称或代码。`; return item;
+      item.id = `overseas:${element.market}`; item.contextValue = 'aShareOverseasGroup'; item.description = '涨跌幅 · 现价 · 名称'; item.tooltip = `点击行尾＋添加${label}；文件夹图标新建分组。拖动个股可排序或移动分组，拖回此标题进入未分组。`; return item;
     }
     const q = this.quotes.get(element.symbol), stale = this.stale(element.symbol);
     const item = new vscode.TreeItem(q ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]` : `—   —   [${element.symbol}]`, vscode.TreeItemCollapsibleState.None);
@@ -75,6 +81,8 @@ class OverseasWatchlist {
     tip.appendText(q ? `${q.name}（${element.symbol}）\n现价：${q.priceText}　涨跌幅：${percentText(q.percent)}\n涨跌额：${signed(q.delta,3)}　昨收：${q.previousClose}\n行情时间：${q.date} ${q.timestamp.slice(8,10)}:${q.timestamp.slice(10,12)}:${q.timestamp.slice(12,14)}（${element.market === 'hk' ? '香港' : '美东'}时间）\n腾讯行情，可能延迟。` : `${element.symbol}\n尚未获取行情`);
     if (stale) tip.appendText('\n当前为缓存或未更新行情，请核对时间。');
     if (this.errors.has(element.symbol)) tip.appendText(`\n${this.errors.get(element.symbol)}`);
+    const grouping = this.grouping[element.market];
+    if (grouping.groups.length) tip.appendText(`\n分组：${grouping.bucket(grouping.idFor(element.symbol)).name}`);
     tip.appendText('\n点击在浏览器查看行情，行尾可删除。'); item.tooltip = tip; return item;
   }
   stale(symbol) {
@@ -107,9 +115,11 @@ class OverseasWatchlist {
     })(); return this.inflight[m];
   }
   refreshAll(force = false) { return Promise.all(['hk','us'].map(m=>this.refresh(m,force))); }
-  async add(element) {
-    const market = element?.market; if (!['hk','us'].includes(market)) return;
+  async add(element, groupId) {
+    const market = element?.market; if (!['hk','us'].includes(market) || this.parent.hidden || this.parent.disposed) return;
+    if (groupId !== undefined && !this.grouping[market].bucket(groupId)) throw new Error('目标分组已删除，请重新选择。');
     const picker = vscode.window.createQuickPick(); picker.title = `添加${market === 'hk' ? '港股' : '美股'}`; picker.placeholder = market === 'hk' ? '输入名称或代码，例如 腾讯 / 00700' : '输入名称或代码，例如 苹果 / AAPL'; picker.matchOnDescription=true; picker.ignoreFocusOut=true;
+    if (groupId !== undefined) picker.title += `到「${this.grouping[market].bucket(groupId).name}」`;
     let timer, abort, generation=0, closed=false, accepting=false;
     const update = value=>{
       generation++; const current=generation; abort?.abort(); clearTimeout(timer); picker.items=[]; picker.activeItems=[]; picker.busy=false;
@@ -126,30 +136,33 @@ class OverseasWatchlist {
       },300);
     };
     return new Promise(resolve=>{ const listeners=[picker.onDidChangeValue(update),picker.onDidAccept(async()=>{ const item=picker.selectedItems[0]||picker.activeItems?.[0]; if(!item?.symbol||accepting)return; accepting=true;
-      try { await this.mutate(market, list => [...list,item.symbol]); picker.hide(); } catch(e) { accepting=false; void privateUI.showErrorMessage(e.message); }
+      try { await this.mutate(market, list => [...list,item.symbol], groupId, [item.symbol]); picker.hide(); } catch(e) { accepting=false; void privateUI.showErrorMessage(e.message); }
     }),picker.onDidHide(()=>{ closed=true;abort?.abort();clearTimeout(timer);for(const l of listeners)l.dispose();picker.dispose();if(this.picker===picker)this.picker=null;resolve(); })]; this.picker?.hide();this.picker=picker;picker.show(); });
   }
-  async mutate(market, change) {
+  async mutate(market, change, groupId, additions = []) {
+    if (!['hk','us'].includes(market)) return;
     await this.parent.enqueueSettings(async()=>{
+      if (this.parent.hidden || this.parent.disposed) return;
+      const grouping = this.grouping[market];
+      if (groupId !== undefined && !grouping.bucket(groupId)) throw new Error('目标分组已删除，请重新选择。');
       const unique=[...new Set(change([...this.symbols[market]]).map(s=>normalizeOverseas(s,market)))];
       if(unique.length>100)throw new Error('每个市场最多100只股票');
-      await this.parent.writeSetting(`stocks.${market}Symbols`,unique);
+      const members = new Set(additions.map(s => normalizeOverseas(s, market)));
+      let groups = normalizeGroups(grouping.groups, unique, s => normalizeOverseas(s, market));
+      if (groupId !== undefined) groups = groups.map(g => ({ ...g, symbols: [...g.symbols.filter(s => !members.has(s)), ...(g.id === groupId ? unique.filter(s => members.has(s)) : [])] }));
+      await this.parent.writeSettings([[grouping.symbolsKey, unique], [grouping.groupsKey, groups]], false);
     });
   }
   async remove(element) { if(!element || element.kind!=='overseasStock')return; await this.mutate(element.market,list=>list.filter(s=>s!==element.symbol)); }
   reorder(payload, target, token) {
     const market=payload.market;
-    if (!['hk','us'].includes(market) || !target || target.market !== market || !['overseasGroup','overseasStock'].includes(target.kind)) return;
+    if (!['hk','us'].includes(market) || target && (target.market !== market || !['overseasGroup','overseasStock','stockGroup'].includes(target.kind))) return;
     return this.parent.enqueueSettings(async()=>{
-      if(this.parent.disposed || token.isCancellationRequested || !this.parent.config.enabled)return;
-      const visible=orderedSymbols(this.symbols[market],this.quotes,this.parent.config.sortBy), moving=new Set(payload.symbols);
-      if(!moving.size || [...moving].some(s=>!visible.includes(s)) || (target.kind==='overseasStock' && (!visible.includes(target.symbol) || moving.has(target.symbol))))return;
-      const selected=visible.filter(s=>moving.has(s)), rest=visible.filter(s=>!moving.has(s)); let at=rest.length;
-      if(target.kind==='overseasStock') { at=rest.indexOf(target.symbol); if(visible.indexOf(selected[0])<visible.indexOf(target.symbol))at++; }
-      const next=[...rest.slice(0,at),...selected,...rest.slice(at)]; if(next.every((s,i)=>s===visible[i]))return;
-      this.parent.writingSettings=(this.parent.writingSettings||0)+1;
-      try { await this.parent.settings.set(`stocks.${market}Symbols`,next); if(this.parent.config.sortBy!=='manual')await this.parent.settings.set('stocks.sortBy','manual'); }
-      finally { this.parent.writingSettings--; if(!this.parent.disposed){this.parent.config=this.parent.readConfig();this.read();this.parent.publish(true);} }
+      if(this.parent.disposed || this.parent.hidden || token?.isCancellationRequested || !this.parent.config.enabled)return;
+      const grouping = this.grouping[market];
+      const id = target?.kind === 'stockGroup' ? target.id : target?.kind === 'overseasStock' ? grouping.idFor(target.symbol) : UNGROUPED;
+      if (!grouping.bucket(id) || payload.symbols.some(s => !this.symbols[market].includes(s))) return;
+      return grouping.moveNow(payload.symbols, id, target?.kind === 'overseasStock' ? target.symbol : undefined);
     });
   }
   async open(element) {

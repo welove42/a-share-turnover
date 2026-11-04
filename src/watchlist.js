@@ -78,13 +78,25 @@ class WatchlistController {
     if (this.config.enabled && !this.paused) void this.overseas.refreshAll();
   }
   syncOverseas() {
-    const previous = JSON.stringify(this.overseas.symbols); this.overseas.read();
-    if (previous !== JSON.stringify(this.overseas.symbols)) {
+    const previous = JSON.stringify([this.overseas.symbols, this.overseas.stockGroups]);
+    const membership = () => JSON.stringify(['hk', 'us'].map(m => [...this.overseas.symbols[m]].sort()));
+    const previousMembership = membership(); this.overseas.read();
+    if (previousMembership !== membership()) {
       const running = Object.values(this.overseas.inflight); this.overseas.changed();
       void Promise.all(running).then(() => { if (!this.disposed && !this.paused && this.config.enabled) return this.overseas.refreshAll(); });
-      return true;
     }
-    return false;
+    return previous !== JSON.stringify([this.overseas.symbols, this.overseas.stockGroups]);
+  }
+  groupingFor(market = 'a') { return market === 'a' ? this.grouping : this.overseas.grouping[market]; }
+  async groupCommand(operation, element) {
+    if (this.hidden || this.disposed) return;
+    let market = element ? element.market || 'a' : undefined;
+    if (!market) market = (await privateUI.showQuickPick([{ label: 'A 股', market: 'a' }, { label: '港股', market: 'hk' }, { label: '美股', market: 'us' }], { title: '选择自选市场' }))?.market;
+    const grouping = market && this.groupingFor(market);
+    if (!grouping || this.hidden || this.disposed) return;
+    if (operation === 'create') return grouping.create();
+    if (operation === 'add') return grouping.add(element?.kind === 'stockGroup' ? element.id : UNGROUPED);
+    if (['rename', 'remove', 'move'].includes(operation)) return grouping[operation](element);
   }
   clock() { return stockSession(this.now(), this.config.closedDates); }
   tick() {
@@ -106,7 +118,7 @@ class WatchlistController {
     if (!this.config.enabled) return [];
     if (!element) return [this.group, ...this.overseas.getGroups()];
     if (element.kind === 'overseasGroup') return this.overseas.getChildren(element);
-    if (element.kind === 'stockGroup') return this.grouping.children(element.id);
+    if (element.kind === 'stockGroup') return this.groupingFor(element.market)?.children(element.id) || [];
     if (element.kind !== 'group') return [];
     if (this.config.groups.length) return this.grouping.buckets().map(g => this.grouping.element(g.id));
     return orderedSymbols(this.config.symbols, this.quotes, this.config.sortBy).map(symbol => this.element(symbol));
@@ -117,7 +129,9 @@ class WatchlistController {
   }
   getParent(element) {
     if (element.kind === 'stock') return this.config.groups.length ? this.grouping.element(this.grouping.idFor(element.symbol)) : this.group;
-    return element.kind === 'stockGroup' ? this.group : element.kind === 'overseasStock' ? this.overseas.groups[element.market] : undefined;
+    if (element.kind === 'stockGroup') return !element.market || element.market === 'a' ? this.group : this.overseas.groups[element.market];
+    if (element.kind === 'overseasStock') { const grouping = this.groupingFor(element.market); return grouping.groups.length ? grouping.element(grouping.idFor(element.symbol)) : this.overseas.groups[element.market]; }
+    return undefined;
   }
   getTreeItem(element) {
     if (element.kind === 'debugPlaceholder') {
@@ -128,7 +142,7 @@ class WatchlistController {
     }
     if (this.hidden) return new vscode.TreeItem('', vscode.TreeItemCollapsibleState.None);
     if (element.kind === 'overseasGroup' || element.kind === 'overseasStock') return this.overseas.getTreeItem(element);
-    if (element.kind === 'stockGroup') return this.grouping.treeItem(element);
+    if (element.kind === 'stockGroup') return this.groupingFor(element.market).treeItem(element);
     if (element.kind === 'group') {
       const item = new vscode.TreeItem(`A Stock (${this.config.symbols.length})`, vscode.TreeItemCollapsibleState.Expanded);
       item.id = 'a-share-watchlist'; item.contextValue = 'aShareRoot'; item.description = '涨跌幅 · 现价 · 名称'; item.tooltip = '点击新建分组可分类管理 A 股；拖动个股可排序或移动分组。拖到 A 股标题会移至未分组末尾。'; return item;
@@ -276,8 +290,9 @@ class WatchlistController {
   }
   handleDrag(source, transfer, token) {
     if (this.disposed || this.hidden || !this.config.enabled || token.isCancellationRequested || !Array.isArray(source) || !source.length) return;
-    if (source.every(item => item?.kind === 'stockGroup' && this.config.groups.some(g => g.id === item.id))) {
-      transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, groupIds: source.map(item => item.id) })); return;
+    const market = source[0]?.market || 'a';
+    if (source.every(item => item?.kind === 'stockGroup' && (item.market || 'a') === market && this.groupingFor(market)?.groups.some(g => g.id === item.id))) {
+      transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, market, groupIds: source.map(item => item.id) })); return;
     }
     if (source.every(item => item?.kind === 'overseasStock' && item.market === source[0].market && this.overseas.symbols[item.market]?.includes(item.symbol))) {
       transfer.set(WATCHLIST_MIME, new vscode.DataTransferItem({ owner: this.dragIdentity, market:source[0].market, symbols:source.map(item => item.symbol) })); return;
@@ -289,8 +304,9 @@ class WatchlistController {
     const payload = transfer.get(WATCHLIST_MIME)?.value;
     if (this.disposed || this.hidden || !this.config.enabled || token.isCancellationRequested || payload?.owner !== this.dragIdentity) return;
     if (Array.isArray(payload.groupIds)) {
-      if (target && !['group', 'stockGroup'].includes(target.kind)) return;
-      return this.grouping.reorder(payload.groupIds, target?.kind === 'stockGroup' ? target.id : undefined, token);
+      const market = payload.market || 'a', grouping = this.groupingFor(market);
+      if (!grouping || target && ((target.market || 'a') !== market || !['group', 'overseasGroup', 'stockGroup'].includes(target.kind))) return;
+      return grouping.reorder(payload.groupIds, target?.kind === 'stockGroup' ? target.id : undefined, token);
     }
     if (!Array.isArray(payload.symbols)) return;
     if (payload.market) return this.overseas.reorder(payload, target, token);
@@ -298,7 +314,7 @@ class WatchlistController {
       if (this.disposed || token.isCancellationRequested || !this.config.enabled) return;
       if (this.hidden) return;
       if (this.config.groups.length) {
-        if (target && !['group', 'stockGroup', 'stock'].includes(target.kind)) return;
+        if (target && ((target.market || 'a') !== 'a' || !['group', 'stockGroup', 'stock'].includes(target.kind))) return;
         const id = target?.kind === 'stockGroup' ? target.id : target?.kind === 'stock' ? this.grouping.idFor(target.symbol) : UNGROUPED;
         if (!this.grouping.bucket(id) || payload.symbols.some(s => !this.config.symbols.includes(s))) return;
         return this.grouping.moveNow(payload.symbols, id, target?.kind === 'stock' ? target.symbol : undefined);

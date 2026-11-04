@@ -83,7 +83,7 @@ test('报价补齐名称时更新设置名单，相同名称不会反复重绘�
   } finally { c.dispose(); emitter.dispose(); }
 });
 
-test('设置页分组操作写入实际自选，拒绝越界分组、港股和直接覆盖分组配置', async () => {
+test('设置页分组操作写入实际自选，拒绝跨市场个股、越界分组和直接覆盖分组配置', async () => {
   const h = harness({ 'aShareTurnover.stocks.symbols': ['sh600105', 'sh600519'] });
   const { WatchlistController } = h.load('../src/watchlist'), stocks = new WatchlistController(h.context); stocks.paused = true;
   const { SettingsController } = h.load('../src/settings'), c = new SettingsController(h.context, { stocks, sources: [stocks], lists: { 'stocks.symbols': { ids: () => stocks.config.symbols, name: () => '示例股票' } } });
@@ -98,10 +98,40 @@ test('设置页分组操作写入实际自选，拒绝越界分组、港股和�
       { type: 'stockGroup', key: 'stocks.symbols', operation: 'move', groupId: id, id: 'hk00700' },
       { type: 'stockGroup', key: 'stocks.symbols', operation: 'move', groupId: 'missing', id: 'sh600105' },
       { type: 'stockGroup', key: 'stocks.symbols', operation: 'remove', groupId: 'ungrouped' },
-      { type: 'stockGroup', key: 'stocks.hkSymbols', operation: 'create' },
+      { type: 'stockGroup', key: 'funds.symbols', operation: 'create' },
       { type: 'save', key: 'stocks.groups', value: [] }
     ]) { await send(m); assert.equal(panel.webview.messages.at(-1).ok, false); }
     await send({ type: 'stockGroup', key: 'stocks.symbols', operation: 'remove', groupId: id }); assert.equal(stocks.config.groups.length, 0); assert.equal(stocks.config.symbols.length, 2);
     c.setHidden(true); await send({ type: 'stockGroup', key: 'stocks.symbols', operation: 'create' }); assert.equal(stocks.config.groups.length, 0);
+  } finally { c.dispose(); stocks.dispose(); }
+});
+
+test('设置页独立管理港股与美股分组，不串市场，错误保留原名单', async () => {
+  const h = harness({ 'aShareTurnover.stocks.hkSymbols': ['hk00700'], 'aShareTurnover.stocks.usSymbols': ['usAAPL'] });
+  const { WatchlistController } = h.load('../src/watchlist'), stocks = new WatchlistController(h.context); stocks.paused = true;
+  const { SettingsController } = h.load('../src/settings'), c = new SettingsController(h.context, { stocks, sources: [stocks] });
+  c.open(); const panel = h.panels[0], token = panel.webview.html.match(/data-token="([a-f0-9]+)"/)[1];
+  const send = async m => { panel.webview.receive.fire({ token, ...m }); await c.queue; };
+  const lastResult = () => panel.webview.messages.filter(m => m.type === 'result').at(-1);
+  try {
+    h.api.window.showInputBox = async () => '持仓';
+    for (const [market, symbol] of [['hk', 'hk00700'], ['us', 'usAAPL']]) {
+      const key = `stocks.${market}Symbols`, grouping = stocks.groupingFor(market);
+      await send({ type: 'stockGroup', key, operation: 'create' }); assert.equal(lastResult().ok, true);
+      const groupId = grouping.groups[0].id;
+      await send({ type: 'stockGroup', key, operation: 'move', id: symbol, groupId }); assert.equal(grouping.idFor(symbol), groupId);
+      h.api.window.showInputBox = async options => options.value ? '长期持仓' : '持仓';
+      await send({ type: 'stockGroup', key, operation: 'rename', groupId }); assert.equal(grouping.groups[0].name, '长期持仓');
+      const fields = c.model().find(g => g.id === 'stocks').fields;
+      assert.equal(fields.some(f => f.key === `stocks.${market}Groups`), false);
+      assert.deepEqual(fields.find(f => f.key === key).stockGroups[0].symbols, [symbol]);
+      for (const message of [
+        { type: 'stockGroup', key, operation: 'move', id: market === 'hk' ? 'usAAPL' : 'hk00700', groupId },
+        { type: 'stockGroup', key, operation: 'remove', groupId: 'ungrouped' },
+        { type: 'save', key: `stocks.${market}Groups`, value: [] }
+      ]) { await send(message); assert.equal(lastResult().ok, false); }
+      await send({ type: 'stockGroup', key, operation: 'remove', groupId }); assert.equal(grouping.groups.length, 0); assert.deepEqual(grouping.config.symbols, [symbol]);
+    }
+    assert.equal(stocks.grouping.groups.length, 0);
   } finally { c.dispose(); stocks.dispose(); }
 });

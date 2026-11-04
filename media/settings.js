@@ -76,7 +76,7 @@
         details.addEventListener('toggle', () => { if (!row.query.value) { if (details.open) row.collapsed.delete(g.id); else row.collapsed.add(g.id); } });
         const title = node('span', `${g.name} (${members.length})`, 'stock-group-name'); title.title = g.name;
         const buttons = node('span', '', 'stock-group-buttons');
-        buttons.append(groupButton(row, g, '＋', '添加 A 股', 'add'));
+        buttons.append(groupButton(row, g, '＋', row.field.addLabel || '添加个股', 'add'));
         if (g.custom) buttons.append(groupButton(row, g, '↑', '上移分组', 'up', index === 0), groupButton(row, g, '↓', '下移分组', 'down', index === groups.filter(g => g.custom).length - 1), groupButton(row, g, '✎', '重命名分组', 'rename'), groupButton(row, g, '×', '删除分组，保留个股', 'remove'));
         summary.append(title, buttons); details.append(summary);
         const list = node('ul', '', 'watch-list stock-group-list'); for (const item of matches) list.append(stockLine(row, item));

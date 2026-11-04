@@ -51,3 +51,21 @@ test('A股分组原位管理、移动失败恢复原分组，折叠和筛选保�
   const filter = all().find(n => n.getAttribute('aria-label') === '筛选A 股自选'); filter.value = '重点观察'; filter.dispatch('input');
   assert.ok(all().some(n => n.textContent === '永鼎股份')); assert.equal(all().filter(n => n.tag === 'details').length, 1);
 });
+
+test('港股和美股同名分组按钮与移动控件发送各自市场，不误用 A 股入口', () => {
+  const p = page(), groups = [{ id: 'stocks', title: '自选与图表', actions: [], fields: ['hk', 'us'].map(market => ({
+    key: `stocks.${market}Symbols`, label: market === 'hk' ? '港股自选' : '美股自选', help: '', type: 'list', addLabel: market === 'hk' ? '添加港股' : '添加美股',
+    items: [{ id: market === 'hk' ? 'hk00700' : 'usAAPL', name: market === 'hk' ? '腾讯控股' : '苹果' }],
+    value: [market === 'hk' ? 'hk00700' : 'usAAPL'],
+    stockGroups: [{ id: 'watch', name: '观察', custom: true, symbols: [] }, { id: 'ungrouped', name: '未分组', custom: false, symbols: [market === 'hk' ? 'hk00700' : 'usAAPL'] }]
+  })) }];
+  p.receive({ type: 'state', groups }); const all = () => descendants(p.nodes.get('sections'));
+  for (const [market, label, name] of [['hk', '港股', '腾讯控股'], ['us', '美股', '苹果']]) {
+    all().find(n => n.getAttribute('aria-label') === `添加${label}：观察`).dispatch('click');
+    assert.equal(p.sent.at(-1).key, `stocks.${market}Symbols`); assert.equal(p.sent.at(-1).operation, 'add'); assert.equal(p.sent.at(-1).groupId, 'watch');
+    p.receive({ type: 'result', key: `stocks.${market}Symbols`, ok: true });
+    const select = all().find(n => n.getAttribute('aria-label') === `移动 ${name} 到分组`); select.value = 'watch'; select.dispatch('change');
+    assert.equal(p.sent.at(-1).key, `stocks.${market}Symbols`); assert.equal(p.sent.at(-1).operation, 'move');
+    p.receive({ type: 'result', key: `stocks.${market}Symbols`, ok: true });
+  }
+});
