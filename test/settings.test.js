@@ -35,6 +35,18 @@ test('无效配置、未授权命令和过期页面不能写入；老板键关�
     await send({ type: 'save', key: 'enabled', value: false }); assert.equal(h.values.size, 0);
   } finally { c.dispose(); }
 });
+test('新闻设置只保留开关和刷新间隔，无来源切换或 Token 入口', async () => {
+  const { c, panel, send } = setup();
+  try {
+    await send({ type: 'ready' });
+    const news = panel.webview.messages.at(-1).groups.find(g => g.id === 'news');
+    assert.deepEqual(news.fields.map(f => f.key), ['news.enabled', 'news.refreshIntervalSeconds']);
+    assert.deepEqual(news.actions, []);assert.match(news.fields[0].help, /东方财富.*无需登录/);
+    assert.equal(manifest.contributes.commands.some(c => /news\.(source|setToken)$/.test(c.command)), false);
+    await send({ type: 'action', action: 'news.setToken' });assert.equal(panel.webview.messages.at(-1).ok, false);
+  } finally { c.dispose(); }
+});
+
 test('写入错误留在页面，不返回成功；已有工作区覆盖写入相同层级', async () => {
   const { h, c, panel, send } = setup();
   try {

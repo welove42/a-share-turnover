@@ -304,7 +304,7 @@ function activate(context) {
   const sectors = new SectorsController(context);
   const reminders = new ReminderController(context);
   const alerts = new StockAlerts(context, stocks);
-  const settings = new SettingsController(context, { stocks, sources: [stocks, globals, funds, commodities], actions: { 'news.setToken': () => news.setToken() }, lists: {
+  const settings = new SettingsController(context, { stocks, sources: [stocks, globals, funds, commodities], lists: {
     'stocks.symbols': { ids: () => stocks.config.symbols, name: id => stocks.quotes.get(id)?.name || (id === 'sh000001' ? '上证指数' : ''), add: () => stocks.searchAndAdd('', 'a'), remove: id => stocks.remove(id) },
     'stocks.hkSymbols': { ids: () => stocks.overseas.symbols.hk, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'hk' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },
     'stocks.usSymbols': { ids: () => stocks.overseas.symbols.us, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'us' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },
@@ -366,8 +366,6 @@ function activate(context) {
     bind('welove42.aShareTurnover.news.refresh', () => news.refresh()),
     bind('welove42.aShareTurnover.news.show', () => news.show()),
     bind('welove42.aShareTurnover.news.open', item => news.open(item)),
-    bind('welove42.aShareTurnover.news.source', () => news.source()),
-    bind('welove42.aShareTurnover.news.setToken', () => news.setToken()),
     bind('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
   );
   controller.start(); stocks.start(); news.start(); globals.start(); funds.start(); commodities.start(); sectors.start(); reminders.start();

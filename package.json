@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.20.1",
+  "version": "1.20.2",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.20.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.20.2.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -163,16 +163,6 @@
         "command": "welove42.aShareTurnover.news.open",
         "title": "A股财经新闻：阅读全文",
         "icon": "$(open-preview)"
-      },
-      {
-        "command": "welove42.aShareTurnover.news.source",
-        "title": "A股财经新闻：选择来源",
-        "icon": "$(list-selection)"
-      },
-      {
-        "command": "welove42.aShareTurnover.news.setToken",
-        "title": "A股财经新闻：设置选股宝 Token",
-        "icon": "$(key)"
       },
       {
         "command": "welove42.aShareTurnover.news.togglePause",
@@ -317,8 +307,16 @@
       "properties": {
         "aShareTurnover.stockAlerts.mode": {
           "type": "string",
-          "enum": ["always", "never", "whenVisible"],
-          "enumDescriptions": ["一直提醒", "一直不提醒", "老板键激活时不提醒"],
+          "enum": [
+            "always",
+            "never",
+            "whenVisible"
+          ],
+          "enumDescriptions": [
+            "一直提醒",
+            "一直不提醒",
+            "老板键激活时不提醒"
+          ],
           "default": "whenVisible",
           "scope": "application",
           "description": "自选个股涨幅超过7%或跌幅超过7%时弹窗提醒，覆盖A股、港股和美股。当天同一股票同一方向只提醒一次。一直提醒模式在老板键开启时仍监测；关闭自选行情或暂停刷新时停止监测。"
@@ -521,20 +519,6 @@
           "default": true,
           "scope": "application",
           "description": "启用底部输出面板财经快讯及新闻状态栏入口。"
-        },
-        "aShareTurnover.news.source": {
-          "type": "string",
-          "enum": [
-            "eastmoney",
-            "xuangubao"
-          ],
-          "default": "eastmoney",
-          "scope": "application",
-          "enumDescriptions": [
-            "东方财富公开快讯，无需登录",
-            "选股宝（参考插件来源），需要设置登录Token"
-          ],
-          "description": "财经新闻来源；选股宝Token请使用命令设置，保存在SecretStorage。"
         },
         "aShareTurnover.news.refreshIntervalSeconds": {
           "type": "integer",

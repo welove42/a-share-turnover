@@ -1,27 +1,19 @@
 'use strict';
 const { requestJson } = require('./http');
-const SOURCES = { eastmoney: '东方财富', xuangubao: '选股宝' };
+const SOURCES = { eastmoney: '东方财富' };
 function plain(value) {
   return typeof value === 'string' ? value.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').trim().slice(0, 20000) : '';
 }
-function parseNews(payload, source) {
-  let rows;
-  if (source === 'eastmoney') {
-    if (String(payload?.code) !== '1' || !Array.isArray(payload?.data?.fastNewsList)) throw new Error('东方财富快讯接口返回异常');
-    rows = payload.data.fastNewsList;
-  } else if (source === 'xuangubao') {
-    if (payload?.code !== 20000 || !Array.isArray(payload?.data?.messages)) throw new Error('选股宝接口未授权或 Token 已过期，请重新设置 Token');
-    rows = payload.data.messages;
-  } else throw new Error('未知新闻来源');
+function parseNews(payload) {
+  if (String(payload?.code) !== '1' || !Array.isArray(payload?.data?.fastNewsList)) throw new Error('东方财富快讯接口返回异常');
+  const source = 'eastmoney', rows = payload.data.fastNewsList;
   const articles = [];
   for (const row of rows) {
-    const id = String(source === 'eastmoney' ? row.code ?? '' : row.id ?? '');
+    const id = String(row.code ?? '');
     const title = plain(row.title) || plain(row.summary).slice(0, 150);
-    const publishedAt = source === 'eastmoney'
-      ? /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(row.showTime || '') ? Date.parse(row.showTime.replace(' ', 'T') + '+08:00') : NaN
-      : typeof row.created_at === 'number' && row.created_at > 0 ? row.created_at * 1000 : NaN;
+    const publishedAt = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(row.showTime || '') ? Date.parse(row.showTime.replace(' ', 'T') + '+08:00') : NaN;
     if (!/^[\w-]{1,100}$/.test(id) || !title || !Number.isFinite(publishedAt)) continue;
     articles.push({ key: `${source}:${id}`, id, source, title,
       body: plain(row.summary) || title, publishedAt,
@@ -47,19 +39,12 @@ function mergeNews(existing, incoming, limit = 200) {
 }
 class NewsProvider {
   constructor(request = requestJson) { this.request = request; }
-  async load(source, token, signal) {
-    let url, headers;
-    if (source === 'xuangubao') {
-      if (!token) throw new Error('选股宝需要登录 Token，请运行“A股财经新闻：设置选股宝 Token”');
-      url = 'https://baoer-api.xuangubao.com.cn/api/v6/message/newsflash?limit=50&subj_ids=9,10,723,35,469,821&has_explain=false&platform=pcweb';
-      headers = { 'x-ivanka-token': token, Referer: 'https://xuangutong.com.cn/' };
-    } else {
-      url = 'https://np-listapi.eastmoney.com/comm/web/getFastNewsList?client=web&biz=web_724&fastColumn=102&sortEnd=&pageSize=50&req_trace=1';
-      headers = { Referer: 'https://finance.eastmoney.com/' };
-    }
+  async load(signal) {
+    const url = 'https://np-listapi.eastmoney.com/comm/web/getFastNewsList?client=web&biz=web_724&fastColumn=102&sortEnd=&pageSize=50&req_trace=1';
+    const headers = { Referer: 'https://finance.eastmoney.com/' };
     const payload = await this.request(url, signal, headers);
     if (signal?.aborted) throw new Error('新闻请求已取消');
-    return parseNews(payload, source);
+    return parseNews(payload);
   }
 }
 module.exports = { SOURCES, plain, parseNews, isArticle, mergeNews, NewsProvider };
