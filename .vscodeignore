@@ -1,4 +1,7 @@
 .vscode/**
+.github/**
+artifacts/**
+docs/RELEASING.md
 test/**
 scripts/**
 node_modules/**

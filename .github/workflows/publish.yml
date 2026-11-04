@@ -1,0 +1,86 @@
+name: Package and publish extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual runs only test and package; they never publish to the Marketplace.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'welove42/a-share-turnover'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Check version and release notes
+        id: release
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const pkg = require('./package.json');
+          const lock = require('./package-lock.json');
+          assert.equal(pkg.name, 'a-share-turnover', 'Unexpected extension name');
+          assert.equal(pkg.publisher, 'welove42', 'Unexpected publisher');
+          assert.match(pkg.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, 'Use a stable x.y.z version');
+          assert.equal(lock.version, pkg.version, 'Update package-lock.json version');
+          assert.equal(lock.packages[''].version, pkg.version, 'Update package-lock.json root version');
+          if (process.env.GITHUB_REF_TYPE === 'tag') {
+            assert.equal(process.env.GITHUB_REF_NAME, `v${pkg.version}`, 'Tag must match package.json version');
+          }
+          const notes = fs.readFileSync('CHANGELOG.md', 'utf8');
+          assert.ok(notes.split(/\r?\n/).some(line => line.trim() === `## ${pkg.version}`), 'Add this version to CHANGELOG.md');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `vsix=artifacts/${pkg.name}-${pkg.version}.vsix\n`);
+          NODE
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package VSIX
+        env:
+          VSIX_PATH: ${{ steps.release.outputs.vsix }}
+        run: |
+          mkdir -p artifacts
+          npx --no-install vsce package --no-dependencies --out "$VSIX_PATH"
+
+      - name: Save VSIX for download
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ steps.release.outputs.vsix }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish to VS Code Marketplace
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          VSIX_PATH: ${{ steps.release.outputs.vsix }}
+        run: npx --no-install vsce publish --oidc --packagePath "$VSIX_PATH"

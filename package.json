@@ -946,7 +946,7 @@
     }
   },
   "devDependencies": {
-    "@vscode/vsce": "^3.6.0"
+    "@vscode/vsce": "4.1.0"
   },
   "repository": {
     "type": "git",
@@ -955,5 +955,9 @@
   "homepage": "https://github.com/welove42/a-share-turnover#readme",
   "bugs": {
     "url": "https://github.com/welove42/a-share-turnover/issues"
+  },
+  "overrides": {
+    "sax": "1.4.1",
+    "mime": "1.6.0"
   }
 }

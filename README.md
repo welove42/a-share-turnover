@@ -166,4 +166,6 @@ code --install-extension welove42.a-share-turnover
 
 项目采用 **MIT** 许可证。欢迎在 [GitHub](https://github.com/welove42/a-share-turnover) 查看源码、提出建议或[反馈问题](https://github.com/welove42/a-share-turnover/issues)。
 
+维护者发布流程见[自动打包与发布](docs/RELEASING.md)：大版本推送标签后自动测试、打包并上传插件市场。
+
 如果这个插件帮你更方便地查看行情，欢迎分享给同样使用 VS Code 的朋友。
