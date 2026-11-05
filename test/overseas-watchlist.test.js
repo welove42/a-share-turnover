@@ -51,6 +51,7 @@ test('分组加号按中文名搜索并添加，取消不会写入',async()=>{
 test('港美股刷新合并并发请求、按10秒限频并在取消后忽略迟到结果',async()=>{
  const h=harness({'aShareTurnover.stocks.usSymbols':['usAAPL']});const {WatchlistController}=h.load('../src/watchlist');let time=new Date('2026-10-31T00:00:00+08:00'),count=0,resolve;
  const c=new WatchlistController(h.context,{now:()=>time,provider:{load:async()=>({quotes:new Map(),errors:new Map()})}});c.overseas.request=()=>{count++;return new Promise(r=>{resolve=r;});};
+ c.overseas.extendedProvider={load:async()=>({quotes:new Map(),errors:new Map()})};
  try {const a=c.overseas.refresh('us'),b=c.overseas.refresh('us');assert.equal(count,1);resolve(line('usAAPL','AAPL.OQ','2026-10-30 12:00:00'));await Promise.all([a,b]);
  time=new Date(time.getTime()+9000);c.overseas.tick();assert.equal(count,1);time=new Date(time.getTime()+1000);c.overseas.tick();assert.equal(count,2);
  c.overseas.changed();resolve(line('usAAPL','AAPL.OQ','2026-10-30 12:00:01'));await c.overseas.inflight.us;assert.equal(c.overseas.quotes.get('usAAPL').timestamp,'20261030120000');

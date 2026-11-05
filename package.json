@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.22.1",
+  "version": "1.22.2",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.2.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -507,7 +507,7 @@
           "items": {
             "type": "string"
           },
-          "description": "美股自选代码，例如 usAAPL；也可使用美股分组旁的＋按名称或代码添加。"
+          "description": "美股自选代码，例如 usAAPL、usTSLA、usBRK.B。支持名称搜索、分组和拖拽；列表按常规、盘前、盘后时段显示价格及涨跌幅，悬停查看各时段、基准价和美东时间。"
         },
         "aShareTurnover.stocks.sortBy": {
           "type": "string",

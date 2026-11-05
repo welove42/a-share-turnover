@@ -34,7 +34,7 @@ class StockGroups {
     this.symbolsKey = market === 'a' ? 'stocks.symbols' : `stocks.${market}Symbols`;
   }
   get config() { return this.market === 'a' ? this.parent.config : { ...this.parent.config, symbols: this.parent.overseas.symbols[this.market], groups: this.parent.overseas.stockGroups[this.market] }; }
-  get quotes() { return this.market === 'a' ? this.parent.quotes : this.parent.overseas.quotes; }
+  get quotes() { return this.market === 'a' ? this.parent.quotes : this.parent.overseas.displayQuotes(this.market); }
   get groups() { return this.config.groups; }
   allowed() { return !this.parent.disposed && !this.parent.hidden; }
   bucket(id) { return this.buckets().find(g => g.id === id); }
