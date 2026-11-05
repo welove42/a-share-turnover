@@ -16,7 +16,7 @@
     for (const b of $('categories').children) b.setAttribute('aria-current', String(b.dataset.id === selected));
   }
   function apply(row, value) {
-    if (row.pending || document.activeElement === row.input && ['number', 'integer', 'dates'].includes(row.field.type)) return;
+    if (row.pending || document.activeElement === row.input && ['number', 'integer', 'dates', 'string'].includes(row.field.type)) return;
     const f = row.field;
     if (f.type === 'boolean') row.input.checked = value;
     else if (f.type === 'checks') for (const input of row.inputs) input.checked = value.includes(input.value);
@@ -116,7 +116,7 @@
       for (const opt of field.options) { const label = node('label', '', 'check'); const box = node('input'); box.type = 'checkbox'; box.value = opt.value; label.append(box, node('span', opt.label)); input.append(label); inputs.push(box); }
     } else if (field.type === 'select') { input = node('select'); }
     else if (field.type === 'dates') { input = node('textarea'); input.rows = 3; input.placeholder = 'YYYY-MM-DD'; }
-    else { input = node('input'); input.type = field.type === 'boolean' ? 'checkbox' : 'number'; if (input.type === 'number') { input.min = field.min; input.max = field.max; input.step = field.type === 'integer' ? '1' : 'any'; input.required = true; } }
+    else { input = node('input'); input.type = field.type === 'boolean' ? 'checkbox' : field.type === 'string' ? 'text' : 'number'; if (input.type === 'number') { input.min = field.min; input.max = field.max; input.step = field.type === 'integer' ? '1' : 'any'; input.required = true; } if (field.type === 'string') { input.spellcheck = false; input.autocomplete = 'off'; input.placeholder = field.key === 'ai.baseUrl' ? 'https://api.example.com/v1' : '模型 ID'; } }
     input.id = title.htmlFor; input.setAttribute('aria-label', field.label);
     help.id = 'help-' + field.key; input.setAttribute('aria-describedby', help.id);
     control.append(input);
@@ -141,10 +141,10 @@
     const all = node('button', '全部设置'); all.dataset.id = 'all'; $('categories').append(all);
     for (const group of groups) {
       const nav = node('button', group.title); nav.dataset.id = group.id; $('categories').append(nav);
-      const section = node('section'), heading = node('h2', group.title), toolbar = node('div', '', 'actions'); section.append(heading, toolbar);
+      const section = node('section'), heading = node('h2', group.title), toolbar = node('div', '', 'actions'), info = node('p', group.info || '', 'hint'); section.append(heading, info);
       for (const action of group.actions) { const b = node('button', action.label); b.type = 'button'; b.addEventListener('click', () => { b.disabled = true; send({ type: 'action', action: action.id }); }); toolbar.append(b); actions.set(action.id, b); }
       const sectionRows = group.fields.map(f => makeField(f)); sectionRows.forEach(row => section.append(row.element));
-      sections.set(group.id, { element: section, rows: sectionRows, title: group.title }); $('sections').append(section);
+      section.append(toolbar); sections.set(group.id, { element: section, rows: sectionRows, title: group.title, info }); $('sections').append(section);
     }
     for (const b of $('categories').children) b.addEventListener('click', () => { selected = b.dataset.id; search = ''; $('search').value = ''; filter(); });
   }
@@ -152,6 +152,8 @@
     const m = e.data; if (!m || m.token !== token) return;
     if (m.type === 'state') {
       if (!rows.size) { build(m.groups); $('save-status').textContent = '修改自动保存'; }
+      if (m.category && sections.has(m.category)) { selected = m.category; search = ''; $('search').value = ''; }
+      for (const group of m.groups) sections.get(group.id).info.textContent = group.info || '';
       for (const group of m.groups) for (const f of group.fields) {
         const row = rows.get(f.key); values[f.key] = f.value;
         if (f.type === 'select' && !row.pending) { row.input.replaceChildren(...f.options.map(o => { const option = node('option', o.label); option.value = o.value; return option; })); }
@@ -164,7 +166,7 @@
     if (m.type === 'result') {
       if (rows.has(m.key)) { const row = rows.get(m.key); busy(row, false); row.error.textContent = m.ok ? '' : m.error; if (!m.ok && row.field.stockGroups) { row.signature = ''; renderList(row); } }
       if (actions.has(m.action)) actions.get(m.action).disabled = false;
-      $('save-status').textContent = m.ok ? (m.action ? '操作完成' : '已保存') : m.error;
+      $('save-status').textContent = m.ok ? (m.note || (m.action ? '操作完成' : '已保存')) : m.error;
     }
   });
   $('search').addEventListener('input', () => { search = $('search').value.trim().toLowerCase(); if (search) selected = 'all'; filter(); });

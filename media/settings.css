@@ -26,6 +26,8 @@ h2 { font-size: 17px; margin: 0 0 12px; } section { margin-top: 28px; }
 .setting { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(160px, auto); gap: 8px 24px; padding: 17px 0; border-bottom: 1px solid var(--vscode-panel-border); align-items: center; }
 .setting-copy label { font-weight: 600; } .setting-copy p { color: var(--vscode-descriptionForeground); line-height: 1.6; margin: 6px 0 0; }
 .control { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; max-width: 350px; }
+.control input[type="text"] { width: 300px; }
+.actions { margin-top: 12px; }
 .reset { background: transparent; color: var(--vscode-textLink-foreground); font-size: 12px; padding: 4px; }
 fieldset { margin: 0; padding: 0; border: 0; } .check { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
 .watch-setting { margin: 16px 0; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 14px; }

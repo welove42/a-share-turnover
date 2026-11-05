@@ -2,12 +2,12 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.21.5",
+  "version": "1.22.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.109.0"
   },
   "categories": [
     "Other"
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.21.5.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -330,6 +330,21 @@
         "title": "自选股：添加个股到此分组",
         "icon": "$(add)",
         "enablement": "!aShareTurnover.hidden"
+      },
+      {
+        "command": "welove42.aShareTurnover.ai.open",
+        "title": "牛来盯盘：AI 分析个股 / ETF",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "welove42.aShareTurnover.ai.market",
+        "title": "牛来盯盘：AI 分析大盘",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "welove42.aShareTurnover.ai.chart",
+        "title": "AI 分析当前个股",
+        "icon": "$(sparkle)"
       }
     ],
     "configuration": {
@@ -796,6 +811,20 @@
           "default": true,
           "scope": "application",
           "description": "超过阈值时状态栏成交额一栏放量红色、缩量绿色；回到阈值内恢复常规颜色设置。独立于弹窗开关。"
+        },
+        "aShareTurnover.ai.baseUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "maxLength": 2048,
+          "description": "AI 分析的 Chat Completions 兼容 API 地址，例如 https://api.deepseek.com 或 https://api.example.com/v1。Key 请在插件设置页安全保存。"
+        },
+        "aShareTurnover.ai.model": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "maxLength": 160,
+          "description": "AI 模型 ID，由用户服务商提供，例如 deepseek-chat。只在主动分析、追问或测试连接时请求。"
         }
       }
     },
@@ -811,6 +840,13 @@
           "id": "welove42Workspace",
           "title": "工作台",
           "icon": "media/market.svg"
+        }
+      ],
+      "secondarySidebar": [
+        {
+          "id": "welove42Analysis",
+          "title": "分析",
+          "icon": "media/ai.svg"
         }
       ]
     },
@@ -846,6 +882,15 @@
           "name": "运行和调试",
           "contextualTitle": "工作台",
           "when": "aShareTurnover.hidden"
+        }
+      ],
+      "welove42Analysis": [
+        {
+          "id": "welove42.aShareTurnover.aiAnalysis",
+          "name": "AI 分析",
+          "type": "webview",
+          "when": "!aShareTurnover.hidden",
+          "icon": "media/ai.svg"
         }
       ]
     },
@@ -942,6 +987,11 @@
           "command": "welove42.aShareTurnover.commodities.togglePause",
           "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.commodities)",
           "group": "navigation@2"
+        },
+        {
+          "command": "welove42.aShareTurnover.ai.open",
+          "when": "!aShareTurnover.hidden && view == welove42.aShareTurnover.marketWatch",
+          "group": "analysis@1"
         }
       ],
       "view/item/context": [
@@ -1069,6 +1119,11 @@
           "command": "welove42.aShareTurnover.stockGroups.move",
           "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem =~ /^aShare(Stock|OverseasStock)$/",
           "group": "manage@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.ai.open",
+          "when": "view == welove42.aShareTurnover.marketWatch && viewItem == aShareStock && !aShareTurnover.hidden",
+          "group": "analysis@1"
         }
       ],
       "commandPalette": [
@@ -1119,6 +1174,18 @@
         {
           "command": "welove42.aShareTurnover.stockGroups.add",
           "when": "!aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.ai.open",
+          "when": "!aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.ai.market",
+          "when": "!aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.ai.chart",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart && !aShareTurnover.hidden"
         }
       ],
       "editor/title": [
@@ -1145,6 +1212,11 @@
         {
           "command": "welove42.aShareTurnover.showTemperatureDetails",
           "when": "activeWebviewPanelId == welove42.aShareTurnover.temperatureChart",
+          "group": "navigation@2"
+        },
+        {
+          "command": "welove42.aShareTurnover.ai.chart",
+          "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart && !aShareTurnover.hidden",
           "group": "navigation@2"
         }
       ]

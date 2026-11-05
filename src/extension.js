@@ -24,6 +24,7 @@ const { DebugCoverProvider } = require('./debug-cover');
 const { SettingsController } = require('./settings');
 const { StockAlerts } = require('./stock-alerts');
 const { TurnoverAlerts } = require('./turnover-alerts');
+const { AiAnalysisController } = require('./ai-analysis');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -262,6 +263,7 @@ class TurnoverController {
       { label: '$(refresh) 立即刷新', command: 'welove42.aShareTurnover.refresh' },
       { label: '$(arrow-swap) 切换比较口径', command: 'welove42.aShareTurnover.switchComparison' },
       { label: '$(dashboard) 市场温度走势图', command: 'welove42.aShareTurnover.showTemperature' },
+      { label: '$(sparkle) AI 分析大盘', command: 'welove42.aShareTurnover.ai.market' },
       { label: this.state.paused ? '$(play) 恢复自动刷新' : '$(debug-pause) 暂停自动刷新', command: 'welove42.aShareTurnover.togglePause' },
       { label: '$(settings-gear) 插件设置', command: 'welove42.aShareTurnover.settings.open' },
       { label: '$(output) 查看请求日志', command: 'welove42.aShareTurnover.showLog' }
@@ -311,7 +313,8 @@ function activate(context) {
   const sectors = new SectorsController(context);
   const reminders = new ReminderController(context);
   const alerts = new StockAlerts(context, stocks);
-  const settings = new SettingsController(context, { stocks, sources: [stocks, globals, funds, commodities], lists: {
+  const ai = new AiAnalysisController(context, { stocks, market: controller, openSettings: () => settings.open('ai') });
+  const settings = new SettingsController(context, { stocks, ai, actions: { 'ai.setKey': () => ai.setKey(), 'ai.clearKey': () => ai.clearKey(), 'ai.test': () => ai.testConnection() }, sources: [stocks, globals, funds, commodities], lists: {
     'stocks.symbols': { ids: () => stocks.config.symbols, name: id => stocks.quotes.get(id)?.name || (id === 'sh000001' ? '上证指数' : ''), add: () => stocks.searchAndAdd('', 'a'), remove: id => stocks.remove(id) },
     'stocks.hkSymbols': { ids: () => stocks.overseas.symbols.hk, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'hk' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },
     'stocks.usSymbols': { ids: () => stocks.overseas.symbols.us, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'us' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },
@@ -319,7 +322,7 @@ function activate(context) {
     'funds.symbols': { ids: () => funds.symbols, name: id => funds.quotes.get(id)?.name, add: () => funds.add(), remove: id => funds.remove(id), edit: id => funds.editHolding(id) },
     'commodities.symbols': { ids: () => commodities.codes, name: id => commodityEntry(id)?.name, add: () => commodities.add(), remove: id => commodities.remove(id) }
   } });
-  const bossKey = new BossKey(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts });
+  const bossKey = new BossKey(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts, ai });
   const bind = (command, callback) => vscode.commands.registerCommand(command, (...args) => bossKey.hidden ? undefined : callback(...args));
   context.subscriptions.push(controller,
     bossKey, vscode.commands.registerCommand('welove42.aShareTurnover.toggleHidden', () => bossKey.toggle()),
@@ -335,7 +338,10 @@ function activate(context) {
     bind('welove42.aShareTurnover.sectors.refresh', () => sectors.retry()),
     bind('welove42.aShareTurnover.sectors.menu', () => sectors.showMenu()),
     bind('welove42.aShareTurnover.reminders.show', () => reminders.show()),
-    stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts,
+    stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts, ai,
+    bind('welove42.aShareTurnover.ai.open', element => ai.open(element)),
+    bind('welove42.aShareTurnover.ai.market', () => ai.open('market')),
+    bind('welove42.aShareTurnover.ai.chart', () => ai.open(charts.visibleState()?.symbol)),
     bind('welove42.aShareTurnover.settings.open', () => settings.open()),
     bind('welove42.aShareTurnover.commodities.add', input => commodities.add(input)),
     bind('welove42.aShareTurnover.commodities.remove', element => commodities.remove(element)),

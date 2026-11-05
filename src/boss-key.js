@@ -3,10 +3,10 @@ const vscode = require('vscode');
 const privateUI = require('./privacy-ui');
 
 class BossKey {
-  constructor(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts }) {
+  constructor(context, { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts, ai }) {
     this.context=context; this.controller=controller; this.stocks=stocks; this.news=news; this.charts=charts;
     this.globals=globals; this.funds=funds; this.commodities=commodities; this.sectors=sectors; this.reminders=reminders;
-    this.settings=settings; this.alerts=alerts;
+    this.settings=settings; this.alerts=alerts; this.ai=ai;
     this.hidden=Boolean(context.globalState.get('bossKeyHidden',false));
     const saved=context.globalState.get('bossKeyHiddenSince');
     this.since=Number.isFinite(saved) ? saved : Date.now();
@@ -23,7 +23,7 @@ class BossKey {
   }
   apply(hidden, since) {
     privateUI.setHidden(hidden);
-    this.settings?.setHidden(hidden); this.alerts?.setHidden(hidden);
+    this.settings?.setHidden(hidden); this.alerts?.setHidden(hidden); this.ai?.setHidden(hidden);
     for (const item of [this.controller,this.stocks,this.news,this.charts,this.globals,this.funds,this.commodities,this.sectors]) item.setHidden(hidden);
     this.reminders.setHidden(hidden,since);
     const contextWrite=this.setViewsVisible(!hidden);
