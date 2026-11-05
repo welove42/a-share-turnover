@@ -110,14 +110,14 @@ class GlobalIndexProvider {
     this.request = request; this.requestText = requestText; this.now = now;
     this.batchRetryAt = 0; this.singleRetryAt = new Map();
   }
-  async load(ids, signal) {
+  async load(ids, signal, onQuote) {
     ids = normalizeIndexIds(ids);
     const result = { entries: new Map(), quotes: new Map(), errors: new Map() };
     if (!ids.length) return result;
     const checkAbort = () => { if (signal?.aborted) throw new Error('请求已取消'); };
     const accept = q => {
       if (!isGlobalQuote(q) || q.timestamp * 1000 > this.now() + 300000) return false;
-      result.quotes.set(q.id, q); result.entries.set(q.id, indexEntry(q.code, q.name)); result.errors.delete(q.id); return true;
+      result.quotes.set(q.id, q); result.entries.set(q.id, indexEntry(q.code, q.name)); result.errors.delete(q.id); onQuote?.(q); return true;
     };
     checkAbort();
     if (this.now() >= this.batchRetryAt) {

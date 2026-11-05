@@ -25,6 +25,8 @@
     $('analyze').textContent = m.messages.length ? '重新分析' : '开始分析'; $('analyze').disabled = m.busy;
     $('stop').hidden = !m.busy; $('send').disabled = m.busy || !m.canAsk; $('question').disabled = m.busy || !m.canAsk;
     $('welcome').hidden = m.messages.length > 0; $('snapshot').hidden = !m.snapshot;
+    $('context-summary').textContent = (m.snapshot?.coverage || []).map(item => item.label + ' ' + item.detail).join(' · ');
+    $('context-summary').hidden = !m.snapshot?.coverage?.length;
     const q = m.snapshot?.quote, daily = m.snapshot?.daily;
     const time = q?.timestamp ? String(q.timestamp).replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/, '$1-$2-$3 $4:$5:$6 北京') : '报价时间缺失';
     $('snapshot').querySelector('summary').textContent = m.snapshot ? `${q?.cached ? '缓存报价' : '行情快照'} · ${time}${daily?.date ? ' · 日K ' + daily.date : ''}` : '本次行情数据';

@@ -69,15 +69,26 @@ test('请求失败保留可重试状态，不把不完整回答带入追问', as
     assert.equal(c.busy, false); assert.equal(c.history.length, 2); assert.match(c.status, /中断/);
   } finally { c.dispose(); }
 });
+test('首次请求和后续追问确实包含完整背景，配置未完成时不采集背景', async () => {
+  const snapshot = { ...sample(), market: { amount: 100 }, sectors: { industry: '测试行业' }, globalMarkets: { quotes: [{ name: '纳指' }] }, commodities: { quotes: [{ name: '黄金' }] }, news: { items: [{ title: '公开快讯' }] } };
+  let collects = 0;
+  const { c, requests } = await setup({ collect: async () => { collects++; return snapshot; } });
+  try {
+    await c.open('sh600519'); const content = requests[0].messages[1].content;
+    assert.deepEqual(JSON.parse(content.slice(content.indexOf('\n') + 1)), snapshot);
+    await c.analyze('结合外围有什么建议？'); assert.equal(collects, 1); assert.equal(requests[1].messages[1].content, content);
+    assert.equal(requests[0].maxTokens, 3000);
+  } finally { c.dispose(); }
+});
 test('行情白名单、交易量单位和技术指标正确；缓存与缺失有说明', async () => {
   const bars = Array.from({ length: 90 }, (_, i) => ({ time: `2026-${i}`, open: i + 1, high: i + 3, low: i, close: i + 2, volume: 100, secret: 'must-not-send' }));
-  const context = new AnalysisContext({ stocks: { quotes: new Map([['sh600519', { ...sample().quote, holdings: 100, secret: 'must-not-send' }]]) }, market: { snapshot: { date: '2026-11-05', amount: 100, sameTime: { percent: 21, delta: 10 }, markets: [{ symbol: 'sh000002', breadth: { advancing: 100, declining: 50, unchanged: 3 }, secret: 'must-not-send' }] }, state: { cached: true }, temperatureResult: { score: 61, label: '偏热' } }, quoteProvider: { load: async () => { throw new Error('不可用'); } }, chartProvider: { load: async () => ({ bars, source: '测试行情', secret: 'must-not-send' }) } });
+  const context = new AnalysisContext({ environment: { load: async () => ({ market: { amount: 100, amountUnit: '元', sameTime: { delta: 10 }, markets: [{ breadth: { advancing: 100 } }], temperature: { score: 61 } } }) }, stocks: { quotes: new Map([['sh600519', { ...sample().quote, holdings: 100, secret: 'must-not-send' }]]) }, market: { snapshot: { date: '2026-11-05', amount: 100, sameTime: { percent: 21, delta: 10 }, markets: [{ symbol: 'sh000002', breadth: { advancing: 100, declining: 50, unchanged: 3 }, secret: 'must-not-send' }] }, state: { cached: true }, temperatureResult: { score: 61, label: '偏热' } }, quoteProvider: { load: async () => { throw new Error('不可用'); } }, chartProvider: { load: async () => ({ bars, source: '测试行情', secret: 'must-not-send' }) } });
   const data = await context.collect('sh600519');
   assert.equal(data.quote.cached, true); assert.equal(data.daily.bars.length, 60); assert.equal(data.daily.indicators.MA5, 89); assert.equal(data.daily.volumeUnit, '手');
   assert.match(data.notes.join(''), /缓存/); assert.doesNotMatch(JSON.stringify(data), /must-not-send|holdings/);
   const market = await context.collect('market'); assert.equal(market.market.markets[0].breadth.advancing, 100); assert.equal(market.market.amountUnit, '元');
   assert.equal(market.market.sameTime.delta, 10); assert.equal(market.market.temperature.score, 61);
   await assert.rejects(context.collect('hk00700'), /当前 AI 分析支持/);
-  const empty = new AnalysisContext({ quoteProvider: { load: async () => ({ quotes: new Map() }) }, chartProvider: { load: async () => { throw new Error(); } } });
+  const empty = new AnalysisContext({ environment: { load: async () => ({}) }, quoteProvider: { load: async () => ({ quotes: new Map() }) }, chartProvider: { load: async () => { throw new Error(); } } });
   await assert.rejects(empty.collect('sh600519'), /暂无可用行情/);
 });

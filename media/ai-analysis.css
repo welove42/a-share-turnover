@@ -2,3 +2,4 @@
 :root body.vscode-light,:root body.vscode-high-contrast-light{color-scheme:light}
 :root body.vscode-dark,:root body.vscode-high-contrast{color-scheme:dark}
 .composer textarea{flex:1;width:0}.composer button{flex-shrink:0;white-space:nowrap;min-width:52px}
+#context-summary{font-size:11px;line-height:1.7;color:var(--vscode-descriptionForeground);margin:0 0 8px;padding:6px 8px;border:1px solid var(--vscode-panel-border);border-radius:4px}

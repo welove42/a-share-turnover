@@ -14,12 +14,12 @@ function readConfig() {
 function html(webview, context, token) {
   const uri = name => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', name));
   const nonce = randomBytes(18).toString('base64');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';"><link rel="stylesheet" href="${uri('ai-analysis.css')}"><title>AI 分析</title></head><body data-token="${token}"><header><div><strong>AI 分析</strong><span id="model"></span></div><button id="settings" class="quiet" title="配置 API 地址、模型和密钥">设置</button></header><section class="target"><button id="choose" class="target-button" title="选择自选股或大盘"><span id="target">选择分析对象</span><span aria-hidden="true">⌄</span></button><div class="toolbar"><button id="analyze">开始分析</button><button id="stop" class="secondary" hidden>停止</button><button id="clear" class="quiet">清空</button></div></section><p id="status" role="status" aria-live="polite"></p><main id="conversation" tabindex="0" aria-label="分析内容"><div id="welcome"><h2>边写代码，边看分析</h2><p>选择个股、场内 ETF 或大盘，自动带入行情和技术指标。</p><p>首次使用，在设置中填写 API 地址、模型和 Key。</p><p class="muted">仅点击分析、追问或测试连接时调用，由你的 API 服务商计费。</p></div><div id="messages"></div></main><details id="snapshot" hidden><summary>本次行情数据</summary><pre id="data"></pre></details><form id="followup"><label for="question">继续追问</label><div class="composer"><textarea id="question" rows="2" maxlength="2000" placeholder="例如：目前有哪些风险？"></textarea><button id="send" type="submit">发送</button></div></form><footer>仅发送行情快照和本次对话，不读取代码或持仓。<br>AI 可能有误，分析仅供参考。</footer><script nonce="${nonce}" src="${uri('ai-analysis.js')}"></script></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';"><link rel="stylesheet" href="${uri('ai-analysis.css')}"><title>AI 分析</title></head><body data-token="${token}"><header><div><strong>AI 分析</strong><span id="model"></span></div><button id="settings" class="quiet" title="配置 API 地址、模型和密钥">设置</button></header><section class="target"><button id="choose" class="target-button" title="选择自选股或大盘"><span id="target">选择分析对象</span><span aria-hidden="true">⌄</span></button><div class="toolbar"><button id="analyze">开始分析</button><button id="stop" class="secondary" hidden>停止</button><button id="clear" class="quiet">清空</button></div></section><p id="status" role="status" aria-live="polite"></p><p id="context-summary" hidden aria-label="分析上下文"></p><main id="conversation" tabindex="0" aria-label="分析内容"><div id="welcome"><h2>边写代码，边看分析</h2><p>选择个股、场内 ETF 或大盘，自动带入个股、大盘、所属板块、全球市场及财经快讯。</p><p>首次使用，在设置中填写 API 地址、模型和 Key。</p><p class="muted">仅点击分析、追问或测试连接时调用，由你的 API 服务商计费。</p></div><div id="messages"></div></main><details id="snapshot" hidden><summary>本次行情数据</summary><pre id="data"></pre></details><form id="followup"><label for="question">继续追问</label><div class="composer"><textarea id="question" rows="2" maxlength="2000" placeholder="例如：目前有哪些风险？"></textarea><button id="send" type="submit">发送</button></div></form><footer>仅发送公开行情、快讯和本次对话，不读取代码或持仓。<br>AI 可能有误，分析仅供参考。</footer><script nonce="${nonce}" src="${uri('ai-analysis.js')}"></script></body></html>`;
 }
 class AiAnalysisController {
-  constructor(context, { stocks, market, collect, request = complete, config = readConfig, openSettings = () => {} } = {}) {
+  constructor(context, { stocks, market, globals, commodities, news, collect, request = complete, config = readConfig, openSettings = () => {} } = {}) {
     Object.assign(this, { context, stocks, request, config, openSettings });
-    const source = collect ? null : new AnalysisContext({ stocks, market });
+    const source = collect ? null : new AnalysisContext({ stocks, market, globals, commodities, news });
     this.collect = collect || ((target, signal) => source.collect(target, signal));
     this.messages = []; this.history = []; this.status = ''; this.generation = 0; this.busy = false; this.configured = false;
     this.registration = vscode.window.registerWebviewViewProvider(VIEW, this);
@@ -101,7 +101,7 @@ class AiAnalysisController {
       if (!url || !model || !key) { this.configured = false; this.status = '请先在设置 → AI 分析中填写 API 地址、模型，并设置 API Key。'; return; }
       this.configured = true;
       if (!followup) {
-        this.messages = []; this.history = []; this.snapshot = null; this.status = '正在获取行情与日 K 指标…'; this.publish();
+        this.messages = []; this.history = []; this.snapshot = null; this.status = '正在汇总个股、大盘、所属板块、全球市场和财经快讯…'; this.publish();
         const snapshot = await this.collect(this.target, abort.signal);
         if (!active()) return;
         this.snapshot = snapshot;
@@ -113,7 +113,7 @@ class AiAnalysisController {
       if (JSON.stringify(requestMessages).length > 100000) throw new Error('本次对话过长，请重新分析后继续。');
       this.messages.push({ role: 'user', content: followup ? question.trim() : `分析 ${this.name()}` }, answer);
       this.status = '正在分析…'; this.publish();
-      const result = await this.request({ url, model, key, messages: requestMessages, signal: abort.signal, onDelta: text => {
+      const result = await this.request({ url, model, key, messages: requestMessages, maxTokens: 3000, signal: abort.signal, onDelta: text => {
         if (!active()) return;
         answer.content += text;
         if (!this.publishTimer) this.publishTimer = setTimeout(() => { this.publishTimer = null; if (active()) this.publish(); }, 80);
