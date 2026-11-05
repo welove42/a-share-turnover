@@ -1,4 +1,6 @@
-# A股行情 · 把行情，放进 VS Code
+# 牛来盯盘 · 把行情，放进 VS Code
+
+<img src="media/icon.png" alt="牛来盯盘图标：戴牛角的小熊" width="128" height="128">
 
 个股内置图表顶部可查看所选日期或周期的行情、均线、技术指标和换手率；5 日分时显示每日换手率。
 
@@ -6,13 +8,13 @@
 
 点击自选股栏的 **齿轮** 打开插件设置，集中调整行情、图表、新闻和提醒。自选股涨幅或跌幅超过 **7%** 时可弹窗提醒，默认老板键开启时不提醒；当天同一股票同一方向只提醒一次。
 
-A股行情为 VS Code 提供紧凑的状态栏、可折叠的行情列表和独立图表页：盘中看成交额是否放大，点开自选查看多周期走势，也能关注港美股、基金、全球指数、商品和财经大事。
+牛来盯盘为 VS Code 提供紧凑的状态栏、可折叠的行情列表和独立图表页：盘中看成交额是否放大，点开自选查看多周期走势，也能关注港美股、基金、全球指数、商品和财经大事。
 
 [安装扩展](https://marketplace.visualstudio.com/items?itemName=welove42.a-share-turnover) · [GitHub 源码](https://github.com/welove42/a-share-turnover) · [使用手册](docs/USER_GUIDE.zh-CN.md) · [反馈问题](https://github.com/welove42/a-share-turnover/issues)
 
-![A股行情社区宣传海报，使用插件真实图表截图](media/promotion/community-poster.png)
+![牛来盯盘的内置行情图表，使用插件真实截图](media/promotion/kline-preview.png)
 
-*海报使用插件真实图表截图；截图中的行情为2026年10月28日的历史数据。*
+*插件真实图表截图，行情为 2026 年 10 月 28 日的历史数据。*
 
 ## 一眼看盘，按需展开
 

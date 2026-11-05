@@ -1,6 +1,6 @@
 # 做了一个 VS Code 行情插件：自选股、图表和财经提醒，都放进编辑器
 
-最初只是想在 VS Code 底部看一眼两市成交额，后来把常用的行情查看功能陆续补齐，整理成了这个开源插件：**A股行情**。
+最初只是想在 VS Code 底部看一眼两市成交额，后来把常用的行情查看功能陆续补齐，整理成了这个开源插件：**牛来盯盘**。
 
 不需要一直开着详情页。底部状态栏可以看到成交额和昨日同刻的放量、缩量、领涨板块及最近财经大事；默认显示上证指数，也能切成自己的自选股。想看细节时，再点开图表。
 
@@ -18,7 +18,7 @@
 
 [扩展市场](https://marketplace.visualstudio.com/items?itemName=welove42.a-share-turnover) · [GitHub](https://github.com/welove42/a-share-turnover)
 
-![A股行情宣传海报，使用插件真实图表截图](../media/promotion/community-poster.png)
+![牛来盯盘的内置行情图表，使用插件真实截图](../media/promotion/kline-preview.png)
 
 项目采用 MIT 许可证，欢迎试用、提建议。第三方行情可能延迟；基金使用已公布净值，市场温度和提示只做信息展示，不预测未来涨跌。温度历史从功能启用后开始采集。大事日历的未来年份取决于数据源覆盖；股指交割按规则和交易日历推算，请以交易所公告为准。
 
@@ -26,4 +26,4 @@
 
 ## 简短版
 
-做了一个开源 VS Code 行情插件「A股行情」：底部看成交额同刻缩放量、领涨板块、市场温度和财经大事；支持 A 股、港股、美股自选，分时与多周期技术图表、基金、全球指数/商品和财经快讯，适配深浅主题。扩展ID：`welove42.a-share-turnover`。GitHub：https://github.com/welove42/a-share-turnover
+做了一个开源 VS Code 行情插件「牛来盯盘」：底部看成交额同刻缩放量、领涨板块、市场温度和财经大事；支持 A 股、港股、美股自选，分时与多周期技术图表、基金、全球指数/商品和财经快讯，适配深浅主题。扩展ID：`welove42.a-share-turnover`。GitHub：https://github.com/welove42/a-share-turnover
