@@ -23,6 +23,7 @@ const { BossKey } = require('./boss-key');
 const { DebugCoverProvider } = require('./debug-cover');
 const { SettingsController } = require('./settings');
 const { StockAlerts } = require('./stock-alerts');
+const { TurnoverAlerts } = require('./turnover-alerts');
 
 class TurnoverController {
   constructor(context, provider, now = () => new Date()) {
@@ -40,6 +41,7 @@ class TurnoverController {
     this.snapshot = isSnapshot(cached) ? cached : null;
     this.state.cached = Boolean(this.snapshot);
     this.output = vscode.window.createOutputChannel('A股成交额');
+    this.turnoverAlerts = new TurnoverAlerts(context.globalState, text => vscode.window.showWarningMessage(text), message => this.log(message));
     this.item = vscode.window.createStatusBarItem('aShareTurnover', vscode.StatusBarAlignment.Right, 100);
     this.item.name = '沪深 A 股成交额';
     this.item.command = 'welove42.aShareTurnover.showMenu';
@@ -75,6 +77,7 @@ class TurnoverController {
       comparisonMode: config.get('comparisonMode', 'sameTime'),
       showDifferenceAmount: config.get('showDifferenceAmount', true),
       colorMode: config.get('colorMode', 'neutral'),
+      turnoverAlerts: { enabled: config.get('turnoverAlerts.enabled', true), percent: config.get('turnoverAlerts.percent', 20), colorize: config.get('turnoverAlerts.colorize', true) },
       additionalClosedDates: config.get('additionalClosedDates', []),
       temperature: { enabled: config.get('temperature.enabled', true), colorize: config.get('temperature.colorize', true) },
       risk: { enabled: config.get('risk.enabled', true), volumePercent: config.get('risk.volumePercent', 30), dropPercent: config.get('risk.dropPercent', 1.5) }
@@ -142,6 +145,10 @@ class TurnoverController {
         await this.temperatureHistory.flush();
       }
       await this.context.globalState.update('snapshot', snapshot).catch(error => this.log(`缓存保存失败：${error.message}`));
+      if (!this.disposed && !this.hidden && !signal.aborted) {
+        const now = this.now();
+        this.turnoverAlerts.check(snapshot, this.state, this.config, session(now, this.config.additionalClosedDates), now);
+      }
     } catch (error) {
       if (this.disposed || signal.aborted) return;
       this.state.error = error.message || '网络连接失败';

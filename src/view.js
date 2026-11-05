@@ -1,6 +1,7 @@
 'use strict';
 
 const { PHASE_LABELS, timeToMinute, tradingMinute, shanghaiClock } = require('./market');
+const { turnoverSignal } = require('./turnover-alerts');
 
 function money(amount) { return `${(amount / 1e8).toFixed(2)}亿`; }
 function signedMoney(amount) { return `${amount >= 0 ? '+' : '-'}${money(Math.abs(amount))}`; }
@@ -60,9 +61,14 @@ function view(snapshot, state, config, clock, now = new Date()) {
   if (cached) lines.push('当前显示缓存，等待新行情。', '');
   if (!clock.date.startsWith('2026-')) lines.push('本年份节假日尚未内置，请在设置中补充额外休市日期；日期异常的旧行情会明确标注。', '');
   lines.push('交易时段每 10 秒刷新；午休及休市暂停。15:00–15:02 核对收盘数据。', '', '点击打开刷新、暂停及比较口径菜单。');
-  const color = config.colorMode === 'redUpGreenDown' && comparison && !problem && !staleDay && !state.paused
+  let color = config.colorMode === 'redUpGreenDown' && comparison && !problem && !staleDay && !state.paused
     ? comparison.delta > 0 ? 'charts.red' : comparison.delta < 0 ? 'charts.green' : undefined
     : undefined;
+  const signal = config.turnoverAlerts?.colorize && turnoverSignal(snapshot, state, config, clock, now);
+  if (signal) {
+    color = signal.color;
+    lines.push('', `成交额${signal.label}已超过 ${signal.threshold}% 变色阈值；放量红色，缩量绿色。可在插件设置的“涨跌提醒与风险”中调整。`);
+  }
   const accessibility = `${text.replace(/\$\([^)]+\)\s*/g, '')}。统计沪深A股成交额；比较口径：${mode === 'sameTime' ? '昨日同刻' : '昨日全天'}；状态：${suffix}${snapshot ? `；行情日期：${snapshot.date}` : ''}。`;
   return { text, markdown: lines.join('\n'), color, accessibility };
 }

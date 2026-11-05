@@ -23,6 +23,21 @@ test('设置页覆盖所有配置，复用标签，真实保存并响应外部�
     assert.equal(panel.webview.messages.at(-1).groups[0].fields.find(f => f.key === 'sectors.category').value, 'concept');
   } finally { c.dispose(); }
 });
+
+test('大盘成交额提醒在设置页调整开关和阈值，拒绝无效值且支持恢复默认', async () => {
+  const { h, c, panel, send } = setup();
+  try {
+    const fields = c.model().find(g => g.id === 'risk').fields;
+    assert.equal(fields.find(f => f.key === 'turnoverAlerts.enabled').value, true);
+    assert.equal(fields.find(f => f.key === 'turnoverAlerts.percent').value, 20);
+    assert.equal(fields.find(f => f.key === 'turnoverAlerts.colorize').value, true);
+    for (const [key, value] of [['turnoverAlerts.enabled', false], ['turnoverAlerts.percent', 25.5], ['turnoverAlerts.colorize', false]]) {
+      await send({ type: 'save', key, value }); assert.equal(h.values.get('aShareTurnover.' + key), value);
+    }
+    for (const value of [0, 101, '20', NaN]) { await send({ type: 'save', key: 'turnoverAlerts.percent', value }); assert.equal(panel.webview.messages.at(-1).ok, false); }
+    await send({ type: 'reset', key: 'turnoverAlerts.percent' }); assert.equal(h.values.get('aShareTurnover.turnoverAlerts.percent'), 20);
+  } finally { c.dispose(); }
+});
 test('无效配置、未授权命令和过期页面不能写入；老板键关闭设置页', async () => {
   const { h, c, panel, send } = setup();
   try {

@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "A股行情 · 自选股、基金与全球指数",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.21.2",
+  "version": "1.21.3",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.21.2.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.21.3.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -389,7 +389,7 @@
             "使用默认状态栏颜色。",
             "放量红色，缩量绿色。"
           ],
-          "description": "缩放量文字颜色。"
+          "description": "成交额常规颜色；开启超过阈值变色后，达到变色条件时优先使用提醒颜色。"
         },
         "aShareTurnover.additionalClosedDates": {
           "type": "array",
@@ -776,6 +776,26 @@
               }
             }
           }
+        },
+        "aShareTurnover.turnoverAlerts.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "大盘成交额放量或缩量严格超过阈值时弹窗，每天每个方向只提醒一次，重启保留记录；老板键、暂停、关闭成交额或行情过期时不提醒。"
+        },
+        "aShareTurnover.turnoverAlerts.percent": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100,
+          "scope": "application",
+          "description": "大盘放量 / 缩量的弹窗和变色阈值（%），沿用状态栏的比较口径，默认对比上一交易日同刻。"
+        },
+        "aShareTurnover.turnoverAlerts.colorize": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "超过阈值时状态栏成交额一栏放量红色、缩量绿色；回到阈值内恢复常规颜色设置。独立于弹窗开关。"
         }
       }
     },

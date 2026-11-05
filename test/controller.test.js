@@ -10,6 +10,7 @@ const snapshot = () => buildSnapshot(SYMBOLS.map(s => parseMinute(minutePayload(
   SYMBOLS.map(s => parseHistory(historyPayload(s), s)), NOW);
 let configurationListener;
 const configValues = {};
+const turnoverNotifications = [];
 function trackedStatusBarItem() {
   const values = {};
   const item = {
@@ -31,6 +32,7 @@ const vscode = {
   MarkdownString: class { constructor(value) { this.value = value; } },
   ThemeColor: class { constructor(id) { this.id = id; } },
   window: {
+    showWarningMessage: async text => { turnoverNotifications.push(text); },
     createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
     createStatusBarItem: trackedStatusBarItem
   },
@@ -107,6 +109,30 @@ test('未来日期异常时拒绝覆盖成功快照', async () => {
   try {
     await c.refresh(); assert.equal(c.snapshot, null); assert.match(c.state.error, /晚于北京时间/);
   } finally { c.dispose(); }
+});
+
+test('成交额弹窗只使用成功的新行情，变色及去重与刷新、暂停、老板键一致', async () => {
+  turnoverNotifications.length = 0; let resolve;
+  const { controller: c, store } = setup(async () => snapshot());
+  try {
+    c.snapshot = snapshot(); c.state.cached = true; c.render();
+    assert.equal(turnoverNotifications.length, 0); assert.equal(c.item.color, undefined);
+    await c.refresh(); await c.turnoverAlerts.write;
+    assert.equal(turnoverNotifications.length, 1); assert.equal(c.item.color.id, 'charts.red'); assert.equal(store.get('turnoverAlertDays').up, '2026-10-26');
+    await c.refresh(); c.render(); assert.equal(turnoverNotifications.length, 1);
+    configValues['turnoverAlerts.enabled'] = false; configurationListener({ affectsConfiguration: () => true });
+    assert.equal(c.item.color.id, 'charts.red');
+    configValues['turnoverAlerts.colorize'] = false; configurationListener({ affectsConfiguration: () => true }); assert.equal(c.item.color, undefined);
+    configValues['turnoverAlerts.colorize'] = true; configValues['turnoverAlerts.enabled'] = true;
+    configurationListener({ affectsConfiguration: () => true });
+    const down = snapshot(); down.sameTime = { previous: 600e8, current: 398e8, delta: -202e8, percent: -202 / 600 * 100 };
+    c.provider.load = () => new Promise(r => { resolve = r; }); const pending = c.refresh();
+    // Hiding while a request is pending must never emit a late popup.
+    c.hidden = true; resolve(down); await pending; assert.equal(turnoverNotifications.length, 1); assert.equal(c.item.visible, false);
+    c.hidden = false; c.provider.load = async () => down; await c.refresh(); assert.equal(turnoverNotifications.length, 2); assert.equal(c.item.color.id, 'charts.green');
+    await c.togglePause(); assert.equal(c.item.color, undefined);
+    c.provider.load = async () => { throw new Error('网络失败'); }; await c.refresh(); assert.equal(turnoverNotifications.length, 2); assert.equal(c.item.color, undefined);
+  } finally { for (const key of Object.keys(configValues)) if (key.startsWith('turnoverAlerts.')) delete configValues[key]; c.dispose(); }
 });
 
 test('关闭再启用时等待取消中的请求，随后重新获取', async () => {
