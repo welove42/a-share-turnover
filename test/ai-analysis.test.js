@@ -54,7 +54,7 @@ test('更换接口不能使用旧Key，工作区无法覆盖全局AI地址', asy
   const { h, c, requests } = await setup({ config: () => config });
   try {
     config = { ...config, url: 'https://other.example/v1' }; await c.open('sh600519'); assert.equal(requests.length, 0);
-    h.api.window.showInputBox = async () => 'replacement'; await c.setKey();
+    await c.saveKey('replacement', config.url);
     assert.equal(h.secrets.get(secretId(config.url)), 'replacement'); assert.equal(h.values.size, 0);
     await c.clearKey(); assert.equal(h.secrets.has(secretId(config.url)), false);
     h.api.workspace.getConfiguration = () => ({ inspect: key => ({ globalValue: key.endsWith('baseUrl') ? configuration.url : configuration.model, workspaceValue: 'https://attacker.example' }) });

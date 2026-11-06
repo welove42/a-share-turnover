@@ -33,10 +33,10 @@ class AiAnalysisController {
   }
   async updateConfiguration() {
     const revision = (this.configRevision || 0) + 1; this.configRevision = revision;
-    let configured = false;
-    try { const c = this.config(); modelName(c.model); configured = Boolean(await this.context.secrets.get(secretId(c.url))); } catch { /* Empty setup. */ }
+    let configured = false, keyConfigured = false, keyEndpoint = '';
+    try { const c = this.config(); keyEndpoint = endpoint(c.url); keyConfigured = Boolean(await this.context.secrets.get(secretId(c.url))); modelName(c.model); configured = keyConfigured; } catch { /* Empty setup. */ }
     if (revision !== this.configRevision || this.disposed) return;
-    this.configured = configured; this.publish();
+    this.configured = configured; this.keyConfigured = keyConfigured; this.keyEndpoint = keyEndpoint; this.publish();
   }
   resolveWebviewView(view) {
     this.view = view; this.token = randomBytes(24).toString('hex');
@@ -147,30 +147,45 @@ class AiAnalysisController {
       }
     }
   }
-  async setKey() {
-    if (this.hidden || this.disposed) return;
-    const url = endpoint(this.config().url), id = secretId(url);
-    const value = await privateUI.showInputBox({ title: '设置 AI API Key', prompt: `仅保存到 VS Code 安全存储，绑定接口 ${url}`, password: true, ignoreFocusOut: true,
-      validateInput: text => !text.trim() || text.length > 4096 || /[\r\n]/.test(text) ? '请输入有效的 API Key' : undefined });
-    if (!value || this.hidden || this.disposed || endpoint(this.config().url) !== url) return;
-    this.stop(); await this.context.secrets.store(id, value.trim()); await this.updateConfiguration();
+  async saveKey(value, expectedUrl) {
+    if (this.hidden || this.disposed) throw new Error('操作已取消');
+    const url = endpoint(this.config().url);
+    if (endpoint(expectedUrl) !== url) throw new Error('API 地址已变化，请重新保存。');
+    if (typeof value !== 'string' || !value.trim() || value.length > 4096 || /[\r\n]/.test(value)) throw new Error('请输入有效的 API Key。');
+    this.stop();
+    try { await this.context.secrets.store(secretId(url), value.trim()); } catch { throw new Error('API Key 保存失败，请重试。'); }
+    await this.updateConfiguration();
   }
-  async clearKey() {
-    if (this.hidden || this.disposed) return;
-    this.stop(); await this.context.secrets.delete(secretId(this.config().url)); await this.updateConfiguration();
+  async clearKey(expectedUrl = this.config().url) {
+    if (this.hidden || this.disposed) throw new Error('操作已取消');
+    const url = endpoint(this.config().url);
+    if (endpoint(expectedUrl) !== url) throw new Error('请先保存 API 地址，再清除对应的 Key。');
+    this.stop();
+    try { await this.context.secrets.delete(secretId(url)); } catch { throw new Error('API Key 清除失败，请重试。'); }
+    await this.updateConfiguration();
   }
-  async testConnection() {
-    if (this.hidden || this.disposed) return;
+  async testConnection({ signal, onProgress = () => {}, expectedUrl, expectedModel } = {}) {
+    const cancelled = () => { const e = new Error('连接测试已取消。'); e.name = 'AbortError'; return e; };
+    if (this.hidden || this.disposed || signal?.aborted) throw cancelled();
     this.stop(); const generation = this.generation, abort = this.abort = new AbortController();
+    const cancel = () => abort.abort(); signal?.addEventListener('abort', cancel, { once: true });
+    const active = () => !this.hidden && !this.disposed && !abort.signal.aborted && generation === this.generation;
     this.busy = true; this.status = '正在测试连接…'; this.publish();
     try {
       const c = this.config(), url = endpoint(c.url), model = modelName(c.model), key = await this.context.secrets.get(secretId(url));
-      if (this.hidden || this.disposed || abort.signal.aborted) return;
-      await this.request({ url, model, key, messages: [{ role: 'user', content: '请只回复：连接成功' }], signal: abort.signal, maxTokens: 64 });
-      if (!this.hidden && !this.disposed && generation === this.generation) this.status = '连接成功，可以开始分析。';
+      if (!active()) throw cancelled();
+      if (expectedUrl && endpoint(expectedUrl) !== url || expectedModel && expectedModel !== model) throw new Error('配置已变化，请重新测试。');
+      const result = await this.request({ url, model, key, messages: [{ role: 'user', content: '请只回复：连接成功' }], signal: abort.signal, maxTokens: 64,
+        onProgress: phase => { if (active()) onProgress(phase); } });
+      if (!active()) throw cancelled();
+      if (typeof result !== 'string' || !result.trim()) throw new Error('AI 未返回测试回复，请检查模型或重试。');
+      this.status = '连接成功，可以开始分析。';
+      return { ok: true, model };
     } catch (error) {
-      if (!this.hidden && !this.disposed && generation === this.generation) { this.status = error.message || '连接测试失败，请重试。'; throw error; }
-    } finally { if (generation === this.generation) { this.busy = false; this.abort = null; this.publish(); } }
+      if (!active()) error = cancelled();
+      if (!this.hidden && !this.disposed && generation === this.generation) this.status = error.message || '连接测试失败，请重试。';
+      throw error;
+    } finally { signal?.removeEventListener('abort', cancel); if (generation === this.generation) { this.busy = false; this.abort = null; this.publish(); } }
   }
   setHidden(hidden) {
     this.hidden = hidden;

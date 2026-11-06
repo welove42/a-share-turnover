@@ -3,6 +3,7 @@
   const api = acquireVsCodeApi(), token = document.body.dataset.token;
   const $ = id => document.getElementById(id), rows = new Map(), actions = new Map(), sections = new Map();
   let values = {}, selected = 'all', search = '';
+  const ai = { dirty: false, sequence: 0, pending: null, timer: null };
   const send = value => api.postMessage({ ...value, token });
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
   function filter() {
@@ -16,6 +17,8 @@
     for (const b of $('categories').children) b.setAttribute('aria-current', String(b.dataset.id === selected));
   }
   function apply(row, value) {
+    if (row.field.type === 'secret') { updateKeyStatus(); return; }
+    if (row.field.key.startsWith('ai.') && ai.dirty) return;
     if (row.pending || document.activeElement === row.input && ['number', 'integer', 'dates', 'string'].includes(row.field.type)) return;
     const f = row.field;
     if (f.type === 'boolean') row.input.checked = value;
@@ -24,6 +27,55 @@
     else row.input.value = f.type === 'dates' ? value.join('\n') : value;
   }
   function busy(row, value) { row.pending = value; for (const c of row.controls) c.disabled = value || c.dataset.locked === 'true'; }
+  function sameEndpoint(a, b) {
+    const normalize = value => String(value || '').trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '').replace(/\/+$/, '');
+    return normalize(a) === normalize(b);
+  }
+  function updateKeyStatus() {
+    const row = rows.get('ai.apiKey'); if (!row) return;
+    const saved = row.field.configured && sameEndpoint(rows.get('ai.baseUrl')?.input.value, row.field.endpoint);
+    row.input.placeholder = saved ? '••••••••（已保存，留空保留）' : '输入 API Key';
+    row.saved.textContent = row.input.value ? '新 Key 待保存' : saved ? '已保存' : '尚未设置';
+    row.clear.disabled = Boolean(ai.pending) || !saved;
+  }
+  function lockAi(locked) {
+    for (const [key, row] of rows) if (key.startsWith('ai.')) busy(row, locked);
+    for (const [id, b] of actions) if (id.startsWith('ai.')) b.disabled = locked;
+    const testing = locked && ai.pending?.operation === 'test';
+    if (actions.has('ai.test')) actions.get('ai.test').textContent = testing ? '测试中…' : '测试连接';
+    if (ai.cancel) ai.cancel.hidden = !testing;
+    updateKeyStatus();
+  }
+  function showAiResult(text, kind) {
+    if (!ai.result) return;
+    ai.result.textContent = text; ai.result.dataset.kind = kind; ai.result.hidden = !text;
+  }
+  function waitingAi() {
+    if (!ai.pending) return;
+    const seconds = Math.floor((Date.now() - ai.pending.started) / 1000);
+    showAiResult(`${ai.pending.note}… ${seconds} 秒`, 'running');
+  }
+  function configureAi(operation) {
+    if (ai.pending) return;
+    const id = 'ai-' + (++ai.sequence), url = rows.get('ai.baseUrl').input.value, model = rows.get('ai.model').input.value;
+    ai.pending = { id, operation, started: Date.now(), note: operation === 'clear' ? '正在清除 Key' : '正在保存配置' };
+    lockAi(true); waitingAi(); ai.timer = setInterval(waitingAi, 1000);
+    send({ type: 'aiConfigure', id, operation, url, model, key: rows.get('ai.apiKey').input.value });
+  }
+  function makeSecret(field) {
+    const element = node('article', '', 'setting'), copy = node('div', '', 'setting-copy'), title = node('label', field.label), help = node('p', field.help);
+    title.htmlFor = 'field-' + field.key; copy.append(title, help);
+    const control = node('div', '', 'control secret-control'), line = node('div', '', 'secret-input'), input = node('input');
+    input.id = title.htmlFor; input.type = 'password'; input.autocomplete = 'off'; input.spellcheck = false; input.maxLength = 4096; input.setAttribute('aria-label', 'API Key');
+    const reveal = node('button', '显示', 'secret-reveal'); reveal.type = 'button'; reveal.setAttribute('aria-label', '显示本次输入的 API Key'); reveal.setAttribute('aria-pressed', 'false');
+    reveal.addEventListener('click', () => { const shown = input.type === 'password'; input.type = shown ? 'text' : 'password'; reveal.textContent = shown ? '隐藏' : '显示'; reveal.setAttribute('aria-pressed', String(shown)); });
+    const meta = node('div', '', 'secret-meta'), saved = node('span', '', 'muted'), clear = node('button', '清除已存 Key', 'reset'); clear.type = 'button';
+    clear.addEventListener('click', () => configureAi('clear')); meta.append(saved, clear); line.append(input, reveal); control.append(line, meta);
+    const error = node('p', '', 'error'); error.setAttribute('role', 'alert'); element.append(copy, control, error);
+    const row = { element, field, input, reveal, saved, clear, error, controls: [input, reveal, clear], pending: false };
+    input.addEventListener('input', () => { ai.dirty = true; updateKeyStatus(); showAiResult('配置已修改，点击保存或测试连接。', 'idle'); });
+    rows.set(field.key, row); return row;
+  }
   function listAction(row, operation, id) {
     if (row.pending) return;
     row.error.textContent = ''; busy(row, true); $('save-status').textContent = operation === 'remove' ? '正在移除…' : '等待操作…';
@@ -107,6 +159,7 @@
   }
   function makeField(field) {
     if (field.type === 'list') return makeList(field);
+    if (field.type === 'secret') return makeSecret(field);
     const element = node('article', '', 'setting'), text = node('div', '', 'setting-copy'), title = node('label', field.label), help = node('p', field.help);
     title.htmlFor = 'field-' + field.key; text.append(title, help);
     const control = node('div', '', 'control'), error = node('p', '', 'error'); error.setAttribute('role', 'alert');
@@ -121,7 +174,9 @@
     help.id = 'help-' + field.key; input.setAttribute('aria-describedby', help.id);
     control.append(input);
     const row = { element, field, input, inputs, error, controls: field.type === 'checks' ? inputs : [input], pending: false };
-    if (field.type !== 'list') {
+    if (field.key.startsWith('ai.')) {
+      input.addEventListener('input', () => { ai.dirty = true; updateKeyStatus(); showAiResult('配置已修改，点击保存或测试连接。', 'idle'); });
+    } else if (field.type !== 'list') {
       const reset = node('button', '恢复默认', 'reset'); reset.type = 'button'; row.controls.push(reset); control.append(reset);
       reset.addEventListener('click', () => { busy(row, true); error.textContent = ''; $('save-status').textContent = '保存中…'; send({ type: 'reset', key: field.key }); });
       const change = () => {
@@ -142,16 +197,23 @@
     for (const group of groups) {
       const nav = node('button', group.title); nav.dataset.id = group.id; $('categories').append(nav);
       const section = node('section'), heading = node('h2', group.title), toolbar = node('div', '', 'actions'), info = node('p', group.info || '', 'hint'); section.append(heading, info);
-      for (const action of group.actions) { const b = node('button', action.label); b.type = 'button'; b.addEventListener('click', () => { b.disabled = true; send({ type: 'action', action: action.id }); }); toolbar.append(b); actions.set(action.id, b); }
+      for (const action of group.actions) { const b = node('button', action.label); b.type = 'button'; b.addEventListener('click', () => { if (group.id === 'ai') configureAi(action.id === 'ai.test' ? 'test' : 'save'); else { b.disabled = true; send({ type: 'action', action: action.id }); } }); toolbar.append(b); actions.set(action.id, b); }
       const sectionRows = group.fields.map(f => makeField(f)); sectionRows.forEach(row => section.append(row.element));
-      section.append(toolbar); sections.set(group.id, { element: section, rows: sectionRows, title: group.title, info }); $('sections').append(section);
+      section.append(toolbar);
+      if (group.id === 'ai') {
+        section.className = 'ai-settings';
+        ai.cancel = node('button', '取消测试'); ai.cancel.hidden = true; ai.cancel.type = 'button';
+        ai.cancel.addEventListener('click', () => { if (ai.pending) { ai.pending.note = '正在取消测试'; waitingAi(); send({ type: 'aiCancel', id: ai.pending.id }); } }); toolbar.append(ai.cancel);
+        ai.result = node('p', '', 'ai-result'); ai.result.hidden = true; ai.result.setAttribute('role', 'status'); ai.result.setAttribute('aria-live', 'polite'); section.append(ai.result);
+      }
+      sections.set(group.id, { element: section, rows: sectionRows, title: group.title, info }); $('sections').append(section);
     }
     for (const b of $('categories').children) b.addEventListener('click', () => { selected = b.dataset.id; search = ''; $('search').value = ''; filter(); });
   }
   window.addEventListener('message', e => {
     const m = e.data; if (!m || m.token !== token) return;
     if (m.type === 'state') {
-      if (!rows.size) { build(m.groups); $('save-status').textContent = '修改自动保存'; }
+      if (!rows.size) { build(m.groups); $('save-status').textContent = '常规设置自动保存'; }
       if (m.category && sections.has(m.category)) { selected = m.category; search = ''; $('search').value = ''; }
       for (const group of m.groups) sections.get(group.id).info.textContent = group.info || '';
       for (const group of m.groups) for (const f of group.fields) {
@@ -161,12 +223,25 @@
         apply(row, f.value);
       }
       $('dependencies').textContent = !values.enabled && (values['temperature.enabled'] || values['risk.enabled']) ? '市场温度和风险提示需要开启“显示成交额”。' : !values['stocks.enabled'] && values['risk.enabled'] ? '风险提示需要开启“启用自选行情”。' : '';
-      filter();
+      updateKeyStatus(); filter();
     }
     if (m.type === 'result') {
       if (rows.has(m.key)) { const row = rows.get(m.key); busy(row, false); row.error.textContent = m.ok ? '' : m.error; if (!m.ok && row.field.stockGroups) { row.signature = ''; renderList(row); } }
       if (actions.has(m.action)) actions.get(m.action).disabled = false;
       $('save-status').textContent = m.ok ? (m.note || (m.action ? '操作完成' : '已保存')) : m.error;
+    }
+    if (m.type === 'aiProgress' && m.id === ai.pending?.id) { ai.pending.note = m.note; waitingAi(); }
+    if (m.type === 'aiResult' && m.id === ai.pending?.id) {
+      clearInterval(ai.timer); ai.timer = null; ai.pending = null;
+      if (m.saved || m.ok && m.operation === 'clear') {
+        const row = rows.get('ai.apiKey'); row.input.value = ''; row.input.type = 'password'; row.reveal.textContent = '显示'; row.reveal.setAttribute('aria-pressed', 'false');
+        if (m.saved) ai.dirty = false;
+      }
+      lockAi(false);
+      const elapsed = m.operation === 'test' && m.ok ? ` 耗时 ${(m.elapsedMs / 1000).toFixed(1)} 秒。` : '';
+      const failure = m.operation === 'test' ? '测试失败：' : m.operation === 'clear' ? '清除失败：' : '保存失败：';
+      showAiResult((m.ok ? '✓ ' + m.note : m.cancelled ? m.error : failure + m.error) + elapsed, m.ok ? 'success' : m.cancelled ? 'idle' : 'error');
+      $('save-status').textContent = m.saved ? 'AI 配置已保存' : m.ok ? m.note : '请查看 AI 设置中的提示';
     }
   });
   $('search').addEventListener('input', () => { search = $('search').value.trim().toLowerCase(); if (search) selected = 'all'; filter(); });

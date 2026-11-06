@@ -27,6 +27,17 @@ h2 { font-size: 17px; margin: 0 0 12px; } section { margin-top: 28px; }
 .setting-copy label { font-weight: 600; } .setting-copy p { color: var(--vscode-descriptionForeground); line-height: 1.6; margin: 6px 0 0; }
 .control { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; max-width: 350px; }
 .control input[type="text"] { width: 300px; }
+.secret-control { width: 300px; display: block; }
+.secret-input { display: flex; align-items: stretch; width: 100%; }
+.secret-input input { width: 100%; min-width: 0; flex: 1; border-radius: 4px 0 0 4px; }
+.secret-reveal { flex: none; border-radius: 0 4px 4px 0; }
+.secret-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.ai-settings .actions button:first-child { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+.ai-result { margin: 8px 0 0; padding: 10px 12px; line-height: 1.6; border: 1px solid var(--vscode-panel-border); border-radius: 4px; overflow-wrap: anywhere; }
+.ai-result[data-kind="running"], .ai-result[data-kind="idle"] { color: var(--vscode-descriptionForeground); }
+.ai-result[data-kind="success"] { color: var(--vscode-testing-iconPassed, #73c991); }
+body.vscode-light .ai-result[data-kind="success"], body.vscode-high-contrast-light .ai-result[data-kind="success"] { color: var(--vscode-testing-iconPassed, #237a3b); }
+.ai-result[data-kind="error"] { color: var(--vscode-errorForeground); }
 .actions { margin-top: 12px; }
 .reset { background: transparent; color: var(--vscode-textLink-foreground); font-size: 12px; padding: 4px; }
 fieldset { margin: 0; padding: 0; border: 0; } .check { display: flex; align-items: center; gap: 6px; padding: 3px 0; }

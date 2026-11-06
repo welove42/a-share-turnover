@@ -314,7 +314,7 @@ function activate(context) {
   const reminders = new ReminderController(context);
   const alerts = new StockAlerts(context, stocks);
   const ai = new AiAnalysisController(context, { stocks, market: controller, globals, commodities, news, openSettings: () => settings.open('ai') });
-  const settings = new SettingsController(context, { stocks, ai, actions: { 'ai.setKey': () => ai.setKey(), 'ai.clearKey': () => ai.clearKey(), 'ai.test': () => ai.testConnection() }, sources: [stocks, globals, funds, commodities], lists: {
+  const settings = new SettingsController(context, { stocks, ai, sources: [stocks, globals, funds, commodities], lists: {
     'stocks.symbols': { ids: () => stocks.config.symbols, name: id => stocks.quotes.get(id)?.name || (id === 'sh000001' ? '上证指数' : ''), add: () => stocks.searchAndAdd('', 'a'), remove: id => stocks.remove(id) },
     'stocks.hkSymbols': { ids: () => stocks.overseas.symbols.hk, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'hk' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },
     'stocks.usSymbols': { ids: () => stocks.overseas.symbols.us, name: id => stocks.overseas.quotes.get(id)?.name, add: () => stocks.overseas.add({ market: 'us' }), remove: id => stocks.overseas.remove(stocks.overseas.element(id)) },

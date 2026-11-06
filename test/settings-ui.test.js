@@ -1,17 +1,64 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict'), vm = require('node:vm'), fs = require('node:fs'), path = require('node:path');
 function page() {
-  const nodes = new Map(), sent = []; let receive;
+  const nodes = new Map(), sent = [], timers = new Map(); let receive, timerId = 0;
   function element(tag) { const handlers = {}, attributes = {}; return { tag, children: [], dataset: {}, value: '', textContent: '', hidden: false, disabled: false,
     append(...children) { this.children.push(...children); }, replaceChildren(...children) { this.children = children; },
     setAttribute(k, v) { attributes[k] = v; }, getAttribute(k) { return attributes[k]; },
     addEventListener(k, f) { handlers[k] = f; }, dispatch(k) { handlers[k]?.(); } }; }
   const document = { body: { dataset: { token: 'test' } }, activeElement: null, createElement: element, getElementById: id => { if (!nodes.has(id)) nodes.set(id, element(id)); return nodes.get(id); } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/settings.js'), 'utf8'), { document, window: { addEventListener: (_, fn) => { receive = fn; } }, acquireVsCodeApi: () => ({ postMessage: m => sent.push(m) }) });
-  return { nodes, sent, receive: message => receive({ data: { token: 'test', ...message } }) };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/settings.js'), 'utf8'), { document, setInterval: fn => { timers.set(++timerId, fn); return timerId; }, clearInterval: id => timers.delete(id), window: { addEventListener: (_, fn) => { receive = fn; } }, acquireVsCodeApi: () => ({ postMessage: m => sent.push(m) }) });
+  return { nodes, sent, timers, receive: message => receive({ data: { token: 'test', ...message } }) };
 }
 const descendants = node => [node, ...node.children.flatMap(descendants)];
 const model = () => [{ id: 'stocks', title: '自选与图表', actions: [], fields: [{ key: 'stocks.symbols', label: 'A 股自选', help: '', type: 'list', addLabel: '添加 A 股', value: ['sh600105'], items: [{ id: 'sh600105', name: '永鼎股份' }] }] }];
+const aiModel = () => [{ id: 'ai', title: 'AI 分析', actions: [{ id: 'ai.save', label: '保存配置' }, { id: 'ai.test', label: '测试连接' }], fields: [
+  { key: 'ai.baseUrl', label: 'API 地址', type: 'string', value: 'https://example.com/v1' },
+  { key: 'ai.apiKey', label: 'API Key', type: 'secret', configured: true, endpoint: 'https://example.com/v1' },
+  { key: 'ai.model', label: '模型名称', type: 'string', value: 'test' }
+] }];
+
+test('Key直接在密码框输入，保存后清空草稿并遮挡；旧密钥不会作为表单值返回', () => {
+  const p = page(), groups = aiModel(); p.receive({ type: 'state', groups });
+  const all = () => descendants(p.nodes.get('sections')), input = all().find(n => n.id === 'field-ai.apiKey');
+  assert.equal(input.type, 'password'); assert.equal(input.value, ''); assert.match(input.placeholder, /已保存/);
+  input.value = 'new-test-secret'; input.dispatch('input');
+  const toggle = all().find(n => n.getAttribute('aria-label') === '显示本次输入的 API Key'); toggle.dispatch('click'); assert.equal(input.type, 'text');
+  all().find(n => n.textContent === '保存配置').dispatch('click'); const request = p.sent.at(-1);
+  assert.equal(request.type, 'aiConfigure'); assert.equal(request.key, 'new-test-secret'); assert.equal(request.operation, 'save'); assert.equal(input.disabled, true);
+  p.receive({ type: 'aiResult', id: request.id, operation: 'save', saved: true, ok: true, note: '配置已保存。' });
+  assert.equal(input.value, ''); assert.equal(input.type, 'password'); assert.equal(input.disabled, false); assert.equal(p.timers.size, 0);
+  assert.ok(all().some(n => /✓ 配置已保存/.test(n.textContent)));
+});
+
+test('连接测试原位反馈、禁止重复点击，成功和失败不会被行情刷新覆盖', () => {
+  const p = page(), groups = aiModel(); p.receive({ type: 'state', groups }); const all = () => descendants(p.nodes.get('sections'));
+  const b = all().find(n => n.textContent === '测试连接'), input = all().find(n => n.id === 'field-ai.apiKey');
+  b.dispatch('click'); const request = p.sent.at(-1), count = p.sent.length;
+  assert.equal(b.textContent, '测试中…'); assert.equal(b.disabled, true); assert.equal(input.disabled, true);
+  assert.ok(all().some(n => /正在保存配置.*0 秒/.test(n.textContent)));
+  b.dispatch('click'); assert.equal(p.sent.length, count);
+  p.receive({ type: 'aiProgress', id: request.id, note: '等待模型回复' }); assert.ok(all().some(n => /等待模型回复/.test(n.textContent)));
+  p.receive({ type: 'aiResult', id: request.id, ok: true, saved: true, operation: 'test', elapsedMs: 1450, note: '连接成功，可以开始分析。' });
+  p.receive({ type: 'state', groups });
+  const result = all().find(n => n.className === 'ai-result'); assert.match(result.textContent, /连接成功.*1.4 秒/); assert.equal(result.dataset.kind, 'success');
+  b.dispatch('click'); const retry = p.sent.at(-1);
+  p.receive({ type: 'aiResult', id: retry.id, ok: false, saved: true, operation: 'test', error: 'AI 接口 HTTP 401：Key 无效' });
+  p.receive({ type: 'state', groups }); assert.match(result.textContent, /401/); assert.equal(result.dataset.kind, 'error'); assert.equal(b.disabled, false);
+  assert.equal(p.timers.size, 0); assert.equal(input.value, '');
+});
+
+test('测试可取消，过期测试结果不能覆盖新测试，表单草稿不会被自动刷新清除', () => {
+  const p = page(), groups = aiModel(); p.receive({ type: 'state', groups }); const all = () => descendants(p.nodes.get('sections'));
+  const url = all().find(n => n.id === 'field-ai.baseUrl'), key = all().find(n => n.id === 'field-ai.apiKey');
+  url.value = 'https://new.example/v1'; url.dispatch('input'); key.value = 'draft'; key.dispatch('input'); p.receive({ type: 'state', groups });
+  assert.equal(url.value, 'https://new.example/v1'); assert.equal(key.value, 'draft'); assert.doesNotMatch(key.placeholder, /已保存/);
+  const b = all().find(n => n.textContent === '测试连接'); b.dispatch('click'); const first = p.sent.at(-1);
+  all().find(n => n.textContent === '取消测试').dispatch('click'); assert.equal(p.sent.at(-1).type, 'aiCancel');
+  p.receive({ type: 'aiResult', id: first.id, ok: false, cancelled: true, error: '测试已取消。' });
+  b.dispatch('click'); p.receive({ type: 'aiResult', id: first.id, ok: true, note: '连接成功' });
+  assert.equal(b.disabled, true); assert.doesNotMatch(all().find(n => n.className === 'ai-result').textContent, /连接成功/);
+});
 test('名单原位添加和移除使用当前分组与代码，错误后可重试', () => {
   const p = page(); p.receive({ type: 'state', groups: model() });
   const all = () => descendants(p.nodes.get('sections'));

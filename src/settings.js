@@ -12,7 +12,7 @@ const GROUPS = [
   { id: 'news', title: '财经新闻', keys: ['news.enabled', 'news.refreshIntervalSeconds'] },
   { id: 'risk', title: '涨跌提醒与风险', keys: ['stockAlerts.mode', 'turnoverAlerts.enabled', 'turnoverAlerts.percent', 'turnoverAlerts.colorize', 'risk.enabled', 'risk.volumePercent', 'risk.dropPercent'] },
   { id: 'events', title: '大事提醒与休市', keys: ['reminders.enabled', 'reminders.notifications', 'reminders.categories', 'additionalClosedDates'] },
-  { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.setKey', 'ai.clearKey', 'ai.test'] }
+  { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.save', 'ai.test'] }
 ];
 const LABELS = {
   'ai.baseUrl': 'API 地址', 'ai.model': '模型名称',
@@ -27,8 +27,8 @@ const LABELS = {
   'reminders.enabled': '显示大事倒计时', 'reminders.notifications': '启用事件弹窗', 'reminders.categories': '提醒哪些大事', additionalClosedDates: '补充休市日期'
 };
 const HELP = {
-  'ai.baseUrl': '使用兼容 Chat Completions 的接口，例如 https://api.deepseek.com 或 https://api.example.com/v1。也可填写完整 /chat/completions 地址。修改自动保存；更换地址后需要重新设置 Key。',
-  'ai.model': '填写服务商提供的模型 ID，例如 deepseek-chat。只需配置一次；分析、追问和测试连接由你的服务商计费。Key 安全保存在 VS Code 中，不写入设置文件。',
+  'ai.baseUrl': '填写兼容 Chat Completions 的地址，例如 https://api.deepseek.com 或 https://api.openai.com/v1。',
+  'ai.model': '填写服务商提供的模型 ID，例如 deepseek-chat。',
   'turnoverAlerts.enabled': '交易期间超过阈值时弹窗，当天放量、缩量各提醒一次，重启不重复；老板键、暂停或关闭成交额时不提醒。',
   'turnoverAlerts.percent': '默认 20，严格超过才触发。弹窗和变色使用状态栏所选比较口径，默认对比上一交易日同刻；选择昨日全天时，盘中累计额通常偏低。',
   'turnoverAlerts.colorize': '状态栏成交额一栏超过阈值后放量红色、缩量绿色；回到阈值内恢复常规颜色设置。此项可独立于弹窗开关使用。',
@@ -45,7 +45,7 @@ const OPTIONS = {
   comparisonMode: ['昨日同一时刻', '昨日全天'], colorMode: ['默认颜色', '放量红色 / 缩量绿色'],
   'charts.defaultMode': ['内置分时', '内置五日分时', '1 分钟 K 线', '5 分钟 K 线', '15 分钟 K 线', '30 分钟 K 线', '60 分钟 K 线', '日 K', '周 K', '月 K', '东方财富图表', '东方财富筹码盘口']
 };
-const ACTIONS = { 'ai.setKey': '设置 / 更换 API Key', 'ai.clearKey': '清除当前 Key', 'ai.test': '测试连接（少量用量）' };
+const ACTIONS = { 'ai.save': '保存配置', 'ai.test': '测试连接' };
 const ADD_LABELS = { 'stocks.symbols': '添加 A 股', 'stocks.hkSymbols': '添加港股', 'stocks.usSymbols': '添加美股', 'globalIndices.symbols': '添加指数', 'funds.symbols': '添加基金', 'commodities.symbols': '添加商品' };
 const LISTS = new Set(['stocks.symbols', 'stocks.hkSymbols', 'stocks.usSymbols', 'globalIndices.symbols', 'funds.symbols', 'commodities.symbols']);
 const GROUP_KEYS = new Set(['stocks.groups', 'stocks.hkGroups', 'stocks.usGroups']);
@@ -71,18 +71,22 @@ function validate(key, value, read) {
 function settingsHtml(webview, context, token) {
   const uri = name => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', name));
   const nonce = randomBytes(18).toString('base64');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';"><link rel="stylesheet" href="${uri('settings.css')}"><title>行情设置</title></head><body data-token="${token}"><header><div><h1>行情设置</h1><p>按你的习惯安排看盘。</p></div><span id="save-status" role="status" aria-live="polite">正在加载…</span></header><div class="layout"><nav id="categories" aria-label="设置分类"></nav><main><label class="search"><span>搜索设置</span><input id="search" type="search" placeholder="搜索设置，例如：板块、图表、提醒" autocomplete="off"></label><p class="hint">修改自动保存 · 老板键 Ctrl+Shift+; 可隐藏行情和设置页</p><p id="dependencies" role="status"></p><div id="sections"></div><p id="empty" hidden>没有匹配的设置</p></main></div><script nonce="${nonce}" src="${uri('settings.js')}"></script></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';"><link rel="stylesheet" href="${uri('settings.css')}"><title>行情设置</title></head><body data-token="${token}"><header><div><h1>行情设置</h1><p>按你的习惯安排看盘。</p></div><span id="save-status" role="status" aria-live="polite">正在加载…</span></header><div class="layout"><nav id="categories" aria-label="设置分类"></nav><main><label class="search"><span>搜索设置</span><input id="search" type="search" placeholder="搜索设置，例如：板块、图表、提醒" autocomplete="off"></label><p class="hint">常规设置自动保存 · AI 配置需保存 · 老板键 Ctrl+Shift+; 可隐藏行情和设置页</p><p id="dependencies" role="status"></p><div id="sections"></div><p id="empty" hidden>没有匹配的设置</p></main></div><script nonce="${nonce}" src="${uri('settings.js')}"></script></body></html>`;
 }
 class SettingsController {
   constructor(context, { stocks, actions = {}, lists = {}, sources = [], ai } = {}) {
     this.context = context; this.stocks = stocks; this.actions = actions; this.lists = lists; this.queue = Promise.resolve();
     this.ai = ai;
-    this.listener = vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('aShareTurnover')) this.publish(); });
+    this.listener = vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('aShareTurnover')) this.publish();
+      if (e.affectsConfiguration('aShareTurnover.ai')) void this.ai?.updateConfiguration().then(() => this.publish());
+    });
+    void this.ai?.ready?.then(() => this.publish());
     this.listListeners = sources.map(source => source.onDidChangeTreeData(() => this.publish()));
   }
   read(key) { if (LISTS.has(key) && this.lists[key]) return this.lists[key].ids(); const config = vscode.workspace.getConfiguration('aShareTurnover'); if (key.startsWith('ai.') && config.inspect) return config.inspect(key)?.globalValue ?? schema(key).default; return key.startsWith('stocks.') && key !== 'stocks.enabled' && this.stocks ? this.stocks.settings.get(key, schema(key).default) : config.get(key, schema(key).default); }
   model() {
-    return GROUPS.map(group => ({ ...group, info: group.id === 'ai' ? (this.ai?.configured ? '当前接口已配置，可以开始分析。' : '先填写地址和模型，再设置 API Key；支持右侧分析和追问。') : '', actions: (group.actions || []).map(id => ({ id, label: ACTIONS[id] })), fields: group.keys.filter(key => !GROUP_KEYS.has(key)).map(key => {
+    const groups = GROUPS.map(group => ({ ...group, info: group.id === 'ai' ? '填写后保存即可使用。测试连接会先保存本页配置，并产生少量 API 用量。' : '', actions: (group.actions || []).map(id => ({ id, label: ACTIONS[id] })), fields: group.keys.filter(key => !GROUP_KEYS.has(key)).map(key => {
       const s = schema(key), c = vscode.workspace.getConfiguration('aShareTurnover').inspect?.(key);
       const grouping = Object.hasOwn(STOCK_MARKETS, key) && this.stocks?.groupingFor?.(STOCK_MARKETS[key]);
       const options = key === 'stocks.statusBarSymbol' ? [...new Set(['sh000001', ...this.read('stocks.symbols')])].map(value => ({ value, label: value === 'sh000001' ? '上证指数' : `${this.lists['stocks.symbols']?.name(value) || this.stocks?.quotes.get(value)?.name || '名称待获取'} · ${value}` }))
@@ -91,6 +95,46 @@ class SettingsController {
         ...(LISTS.has(key) ? { addLabel: ADD_LABELS[key], canEdit: Boolean(this.lists[key]?.edit), items: this.read(key).map(id => ({ id, name: this.lists[key]?.name(id) || '名称待获取' })) } : {}),
         ...(grouping ? { stockGroups: grouping.buckets() } : {}) };
     }) }));
+    let keyConfigured = false;
+    try { keyConfigured = Boolean(this.ai?.keyConfigured && this.ai.keyEndpoint === endpoint(this.read('ai.baseUrl'))); } catch { /* Unconfigured URL. */ }
+    groups.find(g => g.id === 'ai').fields.splice(1, 0, { key: 'ai.apiKey', label: 'API Key', type: 'secret', help: '安全保存在本机，不写入设置文件。已保存时留空可保留，输入新 Key 可替换。', configured: keyConfigured, endpoint: this.read('ai.baseUrl') });
+    return groups;
+  }
+  configureAi(panel, token, message) {
+    if (this.aiTask || !['save', 'test', 'clear'].includes(message.operation) || typeof message.id !== 'string' || !/^[\w-]{1,64}$/.test(message.id)) return;
+    const task = this.aiTask = { id: message.id, abort: new AbortController(), started: Date.now(), saved: false };
+    const active = () => this.aiTask === task && this.panel === panel && !this.hidden && !this.disposed && !task.abort.signal.aborted;
+    const check = () => { if (!active()) { const e = new Error('操作已取消。'); e.name = 'AbortError'; throw e; } };
+    const post = value => { if (this.panel === panel && !this.hidden && !this.disposed) void panel.webview.postMessage({ token, id: task.id, ...value }); };
+    const prepare = this.queue.catch(() => {}).then(async () => {
+      check(); if (!this.ai) throw new Error('AI 功能尚未就绪，请重载窗口后重试。');
+      if (message.operation === 'clear') { await this.ai.clearKey(message.url); check(); return; }
+      const url = validate('ai.baseUrl', message.url), model = modelName(message.model);
+      endpoint(url);
+      const key = message.key;
+      if (typeof key !== 'string' || key.length > 4096 || /[\r\n]/.test(key)) throw new Error('请输入有效的 API Key。');
+      const c = vscode.workspace.getConfiguration('aShareTurnover');
+      if (this.read('ai.baseUrl') !== url) await c.update('ai.baseUrl', url, vscode.ConfigurationTarget.Global);
+      check(); if (this.read('ai.model') !== model) await c.update('ai.model', model, vscode.ConfigurationTarget.Global);
+      check(); if (key.trim()) await this.ai.saveKey(key, url); else await this.ai.updateConfiguration();
+      check(); task.saved = true; return { url, model };
+    });
+    this.queue = prepare.catch(() => {}); // A network test must not block unrelated settings.
+    this.aiTaskPromise = prepare.then(async config => {
+      check();
+      if (message.operation === 'test') {
+        const phases = { connecting: '正在连接服务', waiting: '等待模型回复', reasoning: '模型正在思考', answering: '正在接收回复' };
+        post({ type: 'aiProgress', note: '正在连接服务' });
+        await this.ai.testConnection({ signal: task.abort.signal, expectedUrl: config.url, expectedModel: config.model,
+          onProgress: phase => { if (active() && phases[phase]) post({ type: 'aiProgress', note: phases[phase] }); } });
+        check();
+      }
+      post({ type: 'aiResult', ok: true, saved: task.saved, operation: message.operation, elapsedMs: Date.now() - task.started,
+        note: message.operation === 'test' ? '连接成功，可以开始分析。' : message.operation === 'clear' ? '已清除当前接口的 Key。' : this.ai.configured ? '配置已保存。' : '配置已保存，请填写 API Key 后开始分析。' });
+    }).catch(error => {
+      post({ type: 'aiResult', ok: false, saved: task.saved, operation: message.operation, cancelled: task.abort.signal.aborted || error.name === 'AbortError',
+        error: task.abort.signal.aborted || error.name === 'AbortError' ? '测试已取消。' : error.message || '操作失败，请重试。' });
+    }).finally(() => { message.key = undefined; if (this.aiTask === task) this.aiTask = null; this.publish(true); });
   }
   publish(force = false) { if (this.panel && !this.hidden && !this.disposed) { const groups = this.model(), signature = JSON.stringify(groups); if (!force && signature === this.signature && !this.category) return; this.signature = signature; void this.panel.webview.postMessage({ type: 'state', token: this.token, groups, category: this.category }); this.category = undefined; } }
   open(category) {
@@ -100,9 +144,11 @@ class SettingsController {
     const panel = this.panel = vscode.window.createWebviewPanel('welove42.aShareTurnover.settings', '行情设置', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')] });
     const token = this.token = randomBytes(24).toString('hex');
     panel.webview.html = settingsHtml(panel.webview, this.context, token);
-    panel.onDidDispose(() => { if (this.panel === panel) this.panel = null; });
+    panel.onDidDispose(() => { if (this.panel === panel) { this.aiTask?.abort.abort(); this.panel = null; } });
     panel.webview.onDidReceiveMessage(message => {
       if (!message || message.token !== token || this.panel !== panel || this.hidden || this.disposed) return;
+      if (message.type === 'aiConfigure') { this.configureAi(panel, token, message); return; }
+      if (message.type === 'aiCancel') { if (this.aiTask?.id === message.id) this.aiTask.abort.abort(); return; }
       if (message.type === 'ready') { this.publish(true); return; }
       this.queue = this.queue.catch(() => {}).then(async () => {
         if (this.panel !== panel || this.hidden || this.disposed) return;
