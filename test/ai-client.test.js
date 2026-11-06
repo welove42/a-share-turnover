@@ -1,6 +1,6 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict'), http = require('node:http');
-const { endpoint, secretId, complete } = require('../src/ai-client');
+const { endpoint, secretId, complete, requestBody } = require('../src/ai-client');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function server(t, handle) {
   const s = http.createServer(handle); await new Promise(resolve => s.listen(0, '127.0.0.1', resolve));
@@ -60,4 +60,51 @@ test('长度截断和流内错误不伪装成分析完成', async t => {
   const url = await server(t, (_req, res) => { res.setHeader('Content-Type', 'text/event-stream'); res.end('data: ' + JSON.stringify(error ? { error: { message: 'secret-test-key' } } : { choices: [{ delta: { content: '截断内容' }, finish_reason: 'length' }] }) + '\n\ndata: [DONE]\n\n'); });
   await assert.rejects(complete(args(url)), /长度上限/);
   error = true; await assert.rejects(complete(args(url)), e => /服务返回错误/.test(e.message) && !e.message.includes('secret-test-key'));
+});
+
+test('OpenAI使用现代输出上限并预留推理额度，其他兼容接口保留原参数', () => {
+  const messages = [{ role: 'user', content: '测试' }];
+  const body = requestBody('https://api.openai.com/v1/chat/completions', 'gpt-6.1-terra', messages, 3000);
+  assert.equal(body.max_tokens, undefined); assert.equal(body.max_completion_tokens, 7096); assert.equal(body.messages, messages);
+  assert.equal(requestBody('https://api.openai.com/v1/chat/completions', 'gpt-4o', messages, 3000).max_completion_tokens, 3000);
+  assert.equal(requestBody('https://api.openai.com/v1/chat/completions', 'gpt-6.1-terra', messages, 64).max_completion_tokens, 1088);
+  assert.equal(requestBody('https://compatible.example/v1/chat/completions', 'gpt-6.1-terra', messages, 3000).max_tokens, 3000);
+});
+
+test('推理阶段只上报状态，不泄露或混入正文；完成信号后无需等连接关闭', async t => {
+  const url = await server(t, (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write('data: {"choices":[{"delta":{"reasoning_content":"private reasoning"}}]}\n\n');
+    res.write('data: {"choices":[{"delta":{"content":"分析结果"},"finish_reason":"stop"}]}\n\n');
+    // Deliberately leave the connection open, without [DONE].
+  });
+  const progress = [], chunks = [];
+  assert.equal(await complete({ ...args(url), timeoutMs: 1000, onProgress: p => progress.push(p), onDelta: p => chunks.push(p) }), '分析结果');
+  assert.deepEqual(progress, ['connecting', 'waiting', 'reasoning', 'answering']); assert.deepEqual(chunks, ['分析结果']);
+});
+
+test('网关漏写SSE类型仍能逐段接收，推理无正文与错误协议给出明确原因', async t => {
+  let mode = 'sse';
+  const url = await server(t, (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (mode === 'sse') res.end('data: {"choices":[{"delta":{"content":"兼容流"},"finish_reason":"stop"}]}\n\n');
+    if (mode === 'reasoning') res.end(JSON.stringify({ choices: [{ message: { content: '', reasoning_content: 'private reasoning' }, finish_reason: 'stop' }] }));
+    if (mode === 'limit') res.end(JSON.stringify({ choices: [{ message: { content: null }, finish_reason: 'length' }] }));
+    if (mode === 'responses') res.write('data: {"type":"response.created"}\n\n');
+  });
+  assert.equal(await complete(args(url)), '兼容流');
+  mode = 'reasoning'; await assert.rejects(complete(args(url)), /只返回了推理过程/);
+  mode = 'limit'; await assert.rejects(complete(args(url)), /尚未返回正文/);
+  mode = 'responses'; await assert.rejects(complete(args(url)), /Responses 格式/);
+});
+
+test('心跳不能无限延长等待，有效推理重置空闲计时但仍受总时限约束', async t => {
+  let mode = 'heartbeat';
+  const url = await server(t, (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream'); res.write(': ready\n\n');
+    const timer = setInterval(() => res.write(mode === 'heartbeat' ? ': ping\n\n' : 'data: {"choices":[{"delta":{"reasoning":"thinking"}}]}\n\n'), 10);
+    res.on('close', () => clearInterval(timer));
+  });
+  await assert.rejects(complete({ ...args(url), idleTimeoutMs: 70, timeoutMs: 1000 }), /未返回有效内容/);
+  mode = 'reasoning'; await assert.rejects(complete({ ...args(url), idleTimeoutMs: 100, timeoutMs: 180 }), /请求超时/);
 });

@@ -67,7 +67,31 @@ test('请求失败保留可重试状态，不把不完整回答带入追问', as
   try {
     await c.open('sh600519'); fail = true; await c.analyze('追问');
     assert.equal(c.busy, false); assert.equal(c.history.length, 2); assert.match(c.status, /中断/);
+    assert.equal(c.messages.at(-1).state, 'error'); assert.match(c.messages.at(-1).notice, /中断/); assert.equal(c.progressTimer, null);
   } finally { c.dispose(); }
+});
+
+test('零正文失败、停止、重试均收尾，迟到进度不覆盖新请求', async () => {
+  let fail = true, finish, callbacks;
+  const { c, panel } = await setup({ request: async args => {
+    if (fail) throw new Error('AI 接口 HTTP 400');
+    callbacks = args; args.onProgress('reasoning'); return new Promise(resolve => { finish = resolve; });
+  } });
+  try {
+    await c.open('sh600519'); assert.equal(c.busy, false); assert.equal(c.messages.at(-1).state, 'error'); assert.match(c.messages.at(-1).notice, /400/);
+    fail = false; const pending = c.analyze(); await tick();
+    assert.equal(c.messages.at(-1).phase, 'reasoning'); assert.match(c.status, /思考/);
+    c.stop(); assert.equal(c.messages.at(-1).state, 'stopped'); assert.equal(c.progressTimer, null);
+    callbacks.onProgress('answering'); callbacks.onDelta('迟到内容'); finish('迟到内容'); await pending;
+    assert.equal(c.messages.at(-1).content, ''); assert.equal(c.history.length, 0); assert.match(c.status, /停止/);
+    assert.equal(panel.webview.messages.at(-1).busy, false);
+  } finally { c.dispose(); }
+});
+
+test('连接测试失败更新面板状态，不残留测试中', async () => {
+  const { c } = await setup({ request: async () => { throw new Error('AI 接口 HTTP 401'); } });
+  try { await assert.rejects(c.testConnection(), /401/); assert.equal(c.busy, false); assert.match(c.status, /401/); }
+  finally { c.dispose(); }
 });
 test('首次请求和后续追问确实包含完整背景，配置未完成时不采集背景', async () => {
   const snapshot = { ...sample(), market: { amount: 100 }, sectors: { industry: '测试行业' }, globalMarkets: { quotes: [{ name: '纳指' }] }, commodities: { quotes: [{ name: '黄金' }] }, news: { items: [{ title: '公开快讯' }] } };

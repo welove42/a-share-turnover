@@ -32,14 +32,21 @@
     $('snapshot').querySelector('summary').textContent = m.snapshot ? `${q?.cached ? '缓存报价' : '行情快照'} · ${time}${daily?.date ? ' · 日K ' + daily.date : ''}` : '本次行情数据';
     const snapshot = m.snapshot ? JSON.stringify(m.snapshot, null, 2) : '';
     if (snapshot !== data) { $('data').textContent = snapshot; data = snapshot; }
-    const encoded = JSON.stringify(m.messages);
+    const encoded = JSON.stringify([m.messages, m.busy, m.status]);
     if (encoded !== last) {
       const box = $('conversation'), bottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
       if (m.messages.length < count) { $('messages').replaceChildren(); count = 0; }
       m.messages.forEach((item, i) => {
         let article = $('messages').children[i];
-        if (!article) { article = document.createElement('article'); article.className = item.role; const label = document.createElement('div'); label.className = 'role'; label.textContent = item.role === 'user' ? '你' : '牛来盯盘'; article.append(label, document.createElement('div')); $('messages').append(article); }
-        if (article.dataset.content !== item.content) { renderText(article.lastElementChild, item.content || '正在思考…'); article.dataset.content = item.content; }
+        if (!article) { article = document.createElement('article'); article.className = item.role; const label = document.createElement('div'); label.className = 'role'; label.textContent = item.role === 'user' ? '你' : '牛来盯盘'; const notice = document.createElement('div'); notice.className = 'result-notice'; article.append(label, document.createElement('div'), notice); $('messages').append(article); }
+        const pending = item.role === 'assistant' && m.busy && (item.state === 'pending' || (!item.state && i === m.messages.length - 1));
+        const phases = { connecting: '正在连接 AI 服务…', waiting: '等待模型回复…', reasoning: '模型正在思考，尚未返回正文…', answering: '正在接收分析…' };
+        const waiting = `${phases[item.phase] || phases.waiting}（${item.elapsedSeconds || 0} 秒）`;
+        const fallback = item.notice || (item.state === 'stopped' ? '已停止分析。' : m.status || '未收到分析正文，请重新分析。');
+        const content = item.content || (pending ? waiting : fallback);
+        if (article.dataset.content !== content) { renderText(article.children[1], content); article.dataset.content = content; }
+        article.lastElementChild.textContent = item.content ? (pending ? waiting : item.notice || '') : '';
+        article.lastElementChild.hidden = !article.lastElementChild.textContent;
       });
       if (bottom || m.messages.length > count) box.scrollTop = box.scrollHeight;
       count = m.messages.length; last = encoded;

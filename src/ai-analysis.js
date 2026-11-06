@@ -5,6 +5,7 @@ const privateUI = require('./privacy-ui');
 const { endpoint, modelName, secretId, complete } = require('./ai-client');
 const { AnalysisContext, SYSTEM } = require('./ai-context');
 const VIEW = 'welove42.aShareTurnover.aiAnalysis';
+const PHASES = { connecting: '正在连接 AI 服务…', waiting: '等待模型回复…', reasoning: '模型正在思考，尚未返回正文…', answering: '正在接收分析…' };
 function readConfig() {
   const config = vscode.workspace.getConfiguration('aShareTurnover');
   // Ignore workspace overrides: a repository must never redirect a stored key.
@@ -78,7 +79,8 @@ class AiAnalysisController {
   }
   stop() {
     this.generation++; this.abort?.abort(); this.abort = null; clearTimeout(this.publishTimer);
-    this.publishTimer = null;
+    this.publishTimer = null; clearInterval(this.progressTimer); this.progressTimer = null;
+    if (this.pendingAnswer) { this.pendingAnswer.state = 'stopped'; this.pendingAnswer.notice = '已停止分析；可点击重新分析。'; this.pendingAnswer = null; }
     if (this.busy) this.status = '已停止；未完成的回复不用于追问。';
     this.busy = false; this.publish();
   }
@@ -108,21 +110,42 @@ class AiAnalysisController {
       }
       const content = followup ? question.trim() : '请分析这份行情快照：\n' + JSON.stringify(this.snapshot);
       const prior = followup ? this.history : [];
-      const user = { role: 'user', content }, answer = { role: 'assistant', content: '' };
+      const user = { role: 'user', content }, answer = { role: 'assistant', content: '', state: 'pending', phase: 'connecting', elapsedSeconds: 0 };
       const requestMessages = [{ role: 'system', content: SYSTEM }, ...prior, user];
       if (JSON.stringify(requestMessages).length > 100000) throw new Error('本次对话过长，请重新分析后继续。');
       this.messages.push({ role: 'user', content: followup ? question.trim() : `分析 ${this.name()}` }, answer);
-      this.status = '正在分析…'; this.publish();
-      const result = await this.request({ url, model, key, messages: requestMessages, maxTokens: 3000, signal: abort.signal, onDelta: text => {
+      this.pendingAnswer = answer; this.status = PHASES.connecting; this.publish();
+      const started = Date.now();
+      this.progressTimer = setInterval(() => {
         if (!active()) return;
+        answer.elapsedSeconds = Math.floor((Date.now() - started) / 1000); this.publish();
+      }, 1000);
+      const result = await this.request({ url, model, key, messages: requestMessages, maxTokens: 3000, signal: abort.signal, onProgress: phase => {
+        if (!active() || !PHASES[phase]) return;
+        answer.phase = phase; this.status = PHASES[phase]; this.publish();
+      }, onDelta: text => {
+        if (!active()) return;
+        answer.phase = 'answering'; this.status = PHASES.answering;
         answer.content += text;
         if (!this.publishTimer) this.publishTimer = setTimeout(() => { this.publishTimer = null; if (active()) this.publish(); }, 80);
       } });
       if (!active()) return;
+      if (typeof result !== 'string' || !result.trim()) throw new Error('AI 未返回分析正文，请重试或更换模型。');
+      answer.state = 'complete'; this.pendingAnswer = null;
       answer.content = result; this.history = [...prior, user, { role: 'assistant', content: result }];
       this.status = '分析完成 · 追问沿用本次行情，重新分析获取新数据';
-    } catch (error) { if (active()) this.status = error.message || '分析失败，请重试。'; }
-    finally { if (active()) { this.busy = false; this.abort = null; clearTimeout(this.publishTimer); this.publishTimer = null; this.publish(); } }
+    } catch (error) {
+      if (active()) {
+        this.status = error.message || '分析失败，请重试。';
+        if (this.pendingAnswer) { this.pendingAnswer.state = 'error'; this.pendingAnswer.notice = this.status; this.pendingAnswer = null; }
+      }
+    }
+    finally {
+      if (active()) {
+        this.busy = false; this.abort = null; clearTimeout(this.publishTimer); this.publishTimer = null;
+        clearInterval(this.progressTimer); this.progressTimer = null; this.publish();
+      }
+    }
   }
   async setKey() {
     if (this.hidden || this.disposed) return;
@@ -139,12 +162,14 @@ class AiAnalysisController {
   async testConnection() {
     if (this.hidden || this.disposed) return;
     this.stop(); const generation = this.generation, abort = this.abort = new AbortController();
-    this.busy = true;
+    this.busy = true; this.status = '正在测试连接…'; this.publish();
     try {
       const c = this.config(), url = endpoint(c.url), model = modelName(c.model), key = await this.context.secrets.get(secretId(url));
       if (this.hidden || this.disposed || abort.signal.aborted) return;
       await this.request({ url, model, key, messages: [{ role: 'user', content: '请只回复：连接成功' }], signal: abort.signal, maxTokens: 64 });
       if (!this.hidden && !this.disposed && generation === this.generation) this.status = '连接成功，可以开始分析。';
+    } catch (error) {
+      if (!this.hidden && !this.disposed && generation === this.generation) { this.status = error.message || '连接测试失败，请重试。'; throw error; }
     } finally { if (generation === this.generation) { this.busy = false; this.abort = null; this.publish(); } }
   }
   setHidden(hidden) {
