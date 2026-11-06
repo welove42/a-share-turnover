@@ -7,7 +7,7 @@ const { COLOR_KEYS, HEX_COLOR } = require('./stock-colors');
 const manifest = require('../package.json');
 const properties = manifest.contributes.configuration.properties;
 const GROUPS = [
-  { id: 'market', title: '状态栏与市场', keys: ['enabled', 'comparisonMode', 'showDifferenceAmount', 'colorMode', 'sectors.enabled', 'sectors.category', 'temperature.enabled', 'temperature.colorize'] },
+  { id: 'market', title: '状态栏与市场', keys: ['enabled', 'comparisonMode', 'showDifferenceAmount', 'colorMode', 'sectors.enabled', 'sectors.category', 'sectors.direction', 'temperature.enabled', 'temperature.colorize'] },
   { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.colorMode', 'stocks.upColor', 'stocks.downColor', 'stocks.symbols', 'stocks.groups', 'stocks.hkSymbols', 'stocks.hkGroups', 'stocks.usSymbols', 'stocks.usGroups', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'] },
   { id: 'assets', title: '指数、基金与商品', keys: ['globalIndices.enabled', 'globalIndices.symbols', 'funds.enabled', 'funds.estimateEnabled', 'funds.symbols', 'commodities.enabled', 'commodities.symbols'] },
   { id: 'news', title: '财经新闻', keys: ['news.enabled', 'news.refreshIntervalSeconds'] },
@@ -22,7 +22,7 @@ const LABELS = {
   'stockAlerts.mode': '自选股涨跌超过 7% 时提醒',
   'turnoverAlerts.enabled': '大盘放量 / 缩量弹窗提醒', 'turnoverAlerts.percent': '放量 / 缩量提醒阈值（%）', 'turnoverAlerts.colorize': '超过阈值时成交额变色',
   enabled: '显示成交额', comparisonMode: '放量 / 缩量比较方式', showDifferenceAmount: '显示成交额差值', colorMode: '成交额颜色',
-  'sectors.enabled': '显示领涨板块', 'sectors.category': '板块类型', 'temperature.enabled': '显示市场温度', 'temperature.colorize': '温度使用颜色区分',
+  'sectors.enabled': '显示板块排行', 'sectors.category': '板块类型', 'sectors.direction': '涨跌榜', 'temperature.enabled': '显示市场温度', 'temperature.colorize': '温度使用颜色区分',
   'stocks.enabled': '启用自选行情', 'stocks.symbols': 'A 股自选', 'stocks.hkSymbols': '港股自选', 'stocks.usSymbols': '美股自选', 'stocks.statusBarSymbol': '底部显示的股票 / 指数', 'stocks.sortBy': '自选排序', 'charts.defaultMode': '默认图表',
   'globalIndices.enabled': '显示全球指数', 'globalIndices.symbols': '关注的指数', 'funds.enabled': '显示基金', 'funds.symbols': '关注的基金', 'commodities.enabled': '显示全球商品', 'commodities.symbols': '关注的商品',
   'news.enabled': '启用新闻', 'news.refreshIntervalSeconds': '刷新间隔（秒）',
@@ -41,7 +41,7 @@ const HELP = {
   'turnoverAlerts.colorize': '状态栏成交额一栏超过阈值后放量红色、缩量绿色；回到阈值内恢复常规颜色设置。此项可独立于弹窗开关使用。',
   'stockAlerts.mode': '覆盖 A 股、港股和美股。当天同一股票同一方向只提醒一次；“一直提醒”在老板键开启时仍监测并弹窗。关闭自选行情或暂停刷新时不监测。',
   enabled: '底部显示沪深 A 股成交额。市场温度和风险提示需要此项。', comparisonMode: '昨日指上一个交易日。', showDifferenceAmount: '在百分比后显示增加或减少了多少亿元。', colorMode: '选择常规颜色；开启超过阈值变色后，优先使用提醒颜色。',
-  'sectors.enabled': '显示涨幅第一的板块，悬停看前十。', 'sectors.category': '选择行业或概念板块排行。', 'temperature.enabled': '查看市场冷热和当天走势，需要开启成交额。', 'temperature.colorize': '偏热用红色，偏冷用蓝色。',
+  'sectors.enabled': '显示所选涨跌榜第一名，悬停看前十；点击底部板块行情可直接切换榜单。', 'sectors.category': '选择行业或概念板块排行。', 'sectors.direction': '涨幅榜从高到低，跌幅榜从低到高。切换后立即更新并记住选择。', 'temperature.enabled': '查看市场冷热和当天走势，需要开启成交额。', 'temperature.colorize': '偏热用红色，偏冷用蓝色。',
   'stocks.enabled': '启用侧栏自选和底部股票行情。', 'stocks.statusBarSymbol': '可选择上证指数或已添加的 A 股自选。', 'stocks.sortBy': '选择手动顺序时，可在侧栏拖动个股排序。', 'charts.defaultMode': '下次新打开详情标签时使用；已经打开的标签保留当前图表。',
   'globalIndices.enabled': '启用全球指数栏目。', 'funds.enabled': '启用净值和持仓收益栏目。', 'commodities.enabled': '启用黄金、原油等商品栏目。',
   'news.enabled': '使用东方财富公开快讯，无需登录。点击底部新闻入口打开资讯面板。', 'news.refreshIntervalSeconds': '10–300 秒；休市期间也会更新。',

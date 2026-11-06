@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.22.7",
+  "version": "1.22.8",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.7.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.8.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -702,7 +702,7 @@
         "aShareTurnover.sectors.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "在状态栏显示涨幅最高的板块，悬停查看前十。"
+          "description": "在状态栏显示所选涨幅榜或跌幅榜第一名，悬停查看前十，点击切换榜单。"
         },
         "aShareTurnover.sectors.category": {
           "type": "string",
@@ -716,6 +716,13 @@
           ],
           "default": "industry",
           "description": "状态栏板块涨幅排行类型。东方财富不可用时，概念榜使用新浪备用参考并标注口径。"
+        },
+        "aShareTurnover.sectors.direction": {
+          "type": "string",
+          "enum": ["gainers", "losers"],
+          "enumDescriptions": ["涨幅前十", "跌幅前十"],
+          "default": "gainers",
+          "description": "板块榜单方向。涨幅榜按涨跌幅从高到低，跌幅榜从低到高；可直接点击底部板块行情切换，行业和概念板块均支持。"
         },
         "aShareTurnover.stocks.groups": {
           "type": "array",

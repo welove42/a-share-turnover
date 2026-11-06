@@ -37,6 +37,17 @@ test('配色设置支持三种模式与 HEX 校验，恢复默认并提供条件
   } finally { c.dispose(); }
 });
 
+test('设置页可切换板块涨跌榜并恢复默认，拒绝无效方向', async () => {
+  const { h, c, panel, send } = setup();
+  try {
+    const field = c.model().find(g => g.id === 'market').fields.find(f => f.key === 'sectors.direction');
+    assert.equal(field.value, 'gainers'); assert.deepEqual(field.options.map(o => o.label), ['涨幅前十', '跌幅前十']);
+    await send({ type: 'save', key: field.key, value: 'losers' }); assert.equal(h.values.get('aShareTurnover.sectors.direction'), 'losers');
+    await send({ type: 'save', key: field.key, value: 'unknown' }); assert.equal(panel.webview.messages.at(-1).ok, false);
+    await send({ type: 'reset', key: field.key }); assert.equal(h.values.get('aShareTurnover.sectors.direction'), 'gainers');
+  } finally { c.dispose(); }
+});
+
 test('大盘成交额提醒在设置页调整开关和阈值，拒绝无效值且支持恢复默认', async () => {
   const { h, c, panel, send } = setup();
   try {
