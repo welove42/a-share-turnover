@@ -171,6 +171,7 @@ function activate(context) {
     bind('welove42.aShareTurnover.overseas.add', (element) => stocks.overseas.add(element)),
     bind('welove42.aShareTurnover.overseas.remove', (element) => stocks.overseas.remove(element)),
     bind('welove42.aShareTurnover.overseas.open', (element) => stocks.overseas.open(element)),
+    bind('welove42.aShareTurnover.overseas.selectSession', () => stocks.overseas.chooseUsSession()),
     bind('welove42.aShareTurnover.stocks.selectStatus', (element) => stocks.selectStatus(element)),
     bind('welove42.aShareTurnover.stocks.sort', () => stocks.sort()),
     bind('welove42.aShareTurnover.stocks.togglePause', () => stocks.togglePause()),

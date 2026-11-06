@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.1",
+  "version": "1.23.2",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.1.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.2.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -353,6 +353,15 @@
         "command": "welove42.aShareTurnover.ai.chart",
         "title": "AI 分析当前个股",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "welove42.aShareTurnover.overseas.selectSession",
+        "title": "美股：切换时段",
+        "icon": {
+          "light": "media/session-switch-light.svg",
+          "dark": "media/session-switch-dark.svg"
+        },
+        "enablement": "!aShareTurnover.hidden"
       }
     ],
     "configuration": {
@@ -547,7 +556,7 @@
           "items": {
             "type": "string"
           },
-          "description": "美股自选代码，例如 usAAPL、usTSLA、usBRK.B。支持名称搜索、分组和拖拽；列表按常规、盘前、盘后时段显示价格及涨跌幅，悬停查看各时段、基准价和美东时间。"
+          "description": "美股自选代码，例如 usAAPL、usTSLA、usBRK.B。支持名称搜索、分组和拖拽；点击美股标题行的时段按钮可选择自动、盘前、盘中、盘后，悬停查看各时段、基准价和美东时间。"
         },
         "aShareTurnover.stocks.sortBy": {
           "type": "string",
@@ -1056,7 +1065,7 @@
       "view/item/context": [
         {
           "command": "welove42.aShareTurnover.overseas.add",
-          "when": "view == welove42.aShareTurnover.marketWatch && viewItem == aShareOverseasGroup",
+          "when": "view == welove42.aShareTurnover.marketWatch && viewItem =~ /^aShare(OverseasGroup|UsGroup)$/",
           "group": "inline@1"
         },
         {
@@ -1151,7 +1160,7 @@
         },
         {
           "command": "welove42.aShareTurnover.stockGroups.create",
-          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem =~ /^aShare(Root|OverseasGroup)$/",
+          "when": "view == welove42.aShareTurnover.marketWatch && !aShareTurnover.hidden && viewItem =~ /^aShare(Root|OverseasGroup|UsGroup)$/",
           "group": "inline@0"
         },
         {
@@ -1183,6 +1192,11 @@
           "command": "welove42.aShareTurnover.ai.open",
           "when": "view == welove42.aShareTurnover.marketWatch && viewItem == aShareStock && !aShareTurnover.hidden",
           "group": "inline@0"
+        },
+        {
+          "command": "welove42.aShareTurnover.overseas.selectSession",
+          "when": "view == welove42.aShareTurnover.marketWatch && viewItem == aShareUsGroup && !aShareTurnover.hidden",
+          "group": "inline@-1"
         }
       ],
       "commandPalette": [
@@ -1245,6 +1259,10 @@
         {
           "command": "welove42.aShareTurnover.ai.chart",
           "when": "activeWebviewPanelId == welove42.aShareTurnover.stockChart && !aShareTurnover.hidden"
+        },
+        {
+          "command": "welove42.aShareTurnover.overseas.selectSession",
+          "when": "!aShareTurnover.hidden && config.aShareTurnover.stocks.enabled"
         }
       ],
       "editor/title": [

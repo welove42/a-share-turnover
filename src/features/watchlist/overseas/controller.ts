@@ -13,6 +13,18 @@ interface OverseasPick extends vscode.QuickPickItem {
   symbol?: string;
   empty?: boolean;
 }
+type UsDisplayMode = 'auto' | 'pre' | 'regular' | 'post';
+const US_DISPLAY_KEY = 'usDisplayMode';
+const US_DISPLAY_MODES: ReadonlyArray<{ mode: UsDisplayMode; label: string; detail: string }> = [
+  { mode: 'auto', label: '自动', detail: '跟随美东交易时段，默认使用此模式。' },
+  { mode: 'pre', label: '盘前', detail: '固定查看盘前报价；历史报价标明日期，没有数据时显示暂无。' },
+  { mode: 'regular', label: '盘中', detail: '查看常规交易时段行情；尚未开盘时显示最近一次常规行情及日期。' },
+  { mode: 'post', label: '盘后', detail: '固定查看盘后报价；历史报价标明日期，没有数据时显示暂无。' }
+];
+const US_PHASE_LABELS = { pre: '盘前', regular: '盘中', post: '盘后', closed: '休市' };
+function isUsDisplayMode(value: unknown): value is UsDisplayMode {
+  return US_DISPLAY_MODES.some((item) => item.mode === value);
+}
 function parseOverseasSearch(text, market) {
   return parseMarketSuggestions(text)
     .filter((item) => item.market === market)
@@ -134,6 +146,9 @@ class OverseasWatchlist {
   declare extendedErrors: Map<any, any>;
   declare lastExtendedAttempt: number;
   declare usPhaseKey: string;
+  declare usDisplayMode: UsDisplayMode;
+  declare usHeaderSignature: string;
+  declare displayModeWrite: Promise<void>;
   declare grouping: {
     hk: StockGroups;
     us: StockGroups;
@@ -158,6 +173,9 @@ class OverseasWatchlist {
     this.cached = new Set(this.quotes.keys());
     this.signatures = new Map();
     this.cacheWrite = Promise.resolve();
+    const mode = parent.context.globalState.get(US_DISPLAY_KEY, 'auto');
+    this.usDisplayMode = isUsDisplayMode(mode) ? mode : 'auto';
+    this.displayModeWrite = Promise.resolve();
     this.read();
     this.extendedProvider = extendedProvider;
     this.extended = new Map();
@@ -175,6 +193,7 @@ class OverseasWatchlist {
         }
     this.usPhaseKey = localClock(parent.now(), 'us').date + ':' + localClock(parent.now(), 'us').phase;
     this.grouping = { hk: new StockGroups(parent, 'hk'), us: new StockGroups(parent, 'us') };
+    this.usHeaderSignature = this.usModeDescription();
   }
   validQuote(q) {
     try {
@@ -234,6 +253,47 @@ class OverseasWatchlist {
   getGroups() {
     return [this.groups.hk, this.groups.us];
   }
+  usModeDescription() {
+    if (this.usDisplayMode !== 'auto') return US_PHASE_LABELS[this.usDisplayMode];
+    const now = this.parent.now(),
+      clock = usClock(now);
+    const earlyClose =
+      clock.phase === 'regular' &&
+      [...this.extended.values()].some(
+        (slots) => slots.post?.earlyClose && slots.post.date === clock.date && validExtended(slots.post, now)
+      );
+    return `自动：${US_PHASE_LABELS[earlyClose ? 'post' : clock.phase]}`;
+  }
+  async chooseUsSession() {
+    if (this.parent.hidden || this.parent.disposed || !this.parent.config.enabled) return;
+    const selected = await privateUI.showQuickPick(
+      US_DISPLAY_MODES.map((item) => ({
+        ...item,
+        label: `${item.mode === this.usDisplayMode ? '$(check) ' : ''}${item.label}`,
+        description: item.mode === this.usDisplayMode ? '当前模式' : undefined
+      })),
+      { title: '美股 · 切换时段', placeHolder: '统一切换所有美股及自定义分组，选择会自动保存' }
+    );
+    if (!selected || this.parent.hidden || this.parent.disposed) return;
+    try {
+      await this.setUsDisplayMode(selected.mode);
+    } catch {
+      void privateUI.showErrorMessage('美股时段保存失败，已保留原模式，请重试。');
+    }
+  }
+  setUsDisplayMode(mode: UsDisplayMode): Promise<void> {
+    if (!isUsDisplayMode(mode)) return Promise.reject(new Error('未知美股显示时段'));
+    // 与行情请求独立：串行保存选择，切换时不取消请求、不重复拉取，也不改提醒使用的常规报价。
+    this.displayModeWrite = this.displayModeWrite
+      .catch(() => {})
+      .then(async () => {
+        if (this.parent.hidden || this.parent.disposed || mode === this.usDisplayMode) return;
+        await this.parent.context.globalState.update(US_DISPLAY_KEY, mode);
+        this.usDisplayMode = mode;
+        if (!this.parent.hidden && !this.parent.disposed) this.publish('us');
+      });
+    return this.displayModeWrite;
+  }
   element(symbol) {
     if (!this.elements.has(symbol))
       this.elements.set(symbol, { kind: 'overseasStock', market: symbol.slice(0, 2), symbol });
@@ -265,16 +325,28 @@ class OverseasWatchlist {
       slots.post?.earlyClose && slots.post.date === clock.date && clock.minute >= 780 && clock.minute < 1200;
     const phase = earlyClose ? 'post' : clock.phase,
       active = ['pre', 'post'].includes(phase);
-    let extended = active
-      ? slots[phase]
-      : clock.phase === 'closed' && slots.post?.timestamp > (regular?.timestamp || '')
-        ? slots.post
-        : null;
-    if (extended && (!validExtended(extended, now) || (active && extended.date !== clock.date))) extended = null;
+    const automatic = this.usDisplayMode === 'auto';
+    const requested = automatic ? phase : this.usDisplayMode;
+    let extended = !automatic
+      ? requested === 'regular'
+        ? null
+        : slots[requested]
+      : active
+        ? slots[phase]
+        : clock.phase === 'closed' && slots.post?.timestamp > (regular?.timestamp || '')
+          ? slots.post
+          : null;
+    if (
+      extended &&
+      (!validExtended(extended, now) ||
+        (!automatic && extended.phase !== requested) ||
+        (automatic && active && extended.date !== clock.date))
+    )
+      extended = null;
     if (extended) {
       const cached = this.extendedCached.has(symbol + ':' + extended.phase) || this.extendedErrors.has(symbol),
-        earlier = active && now.getTime() - extended.epoch > 5 * 60000;
-      const stale = cached || earlier;
+        earlier = active && extended.phase === phase && now.getTime() - extended.epoch > 5 * 60000;
+      const stale = cached || earlier || extended.date !== clock.date;
       const label = extended.phase === 'pre' ? '盘前' : '盘后';
       return {
         quote: extended,
@@ -288,16 +360,33 @@ class OverseasWatchlist {
           (cached ? ' · 缓存' : earlier ? ' · 较早报价' : '')
       };
     }
+    // 手动模式不回退到别的时段，避免列表数字和用户选择的口径不一致。
+    if (!automatic && requested !== 'regular')
+      return {
+        quote: undefined,
+        phase: requested,
+        stale: true,
+        error: this.extendedErrors.get(symbol),
+        description: `暂无${US_PHASE_LABELS[requested]}行情`
+      };
+    const regularLabel = automatic ? '常规' : '盘中';
+    const regularDate =
+      typeof regular?.date === 'string' && regular.date !== clock.date ? ' ' + regular.date.slice(5) : '';
     return {
       quote: regular,
       phase: 'regular',
       stale: this.stale(symbol),
       error: this.errors.get(symbol),
-      description: active
-        ? `常规 · ${phase === 'pre' ? '盘前' : '盘后'}暂无`
-        : this.errors.has(symbol)
-          ? '常规 · 获取失败'
-          : '常规'
+      description: !regular
+        ? `暂无${regularLabel}行情`
+        : `${regularLabel}${regularDate}` +
+          (automatic && active
+            ? ` · ${phase === 'pre' ? '盘前' : '盘后'}暂无`
+            : this.errors.has(symbol)
+              ? ' · 获取失败'
+              : this.cached.has(symbol)
+                ? ' · 缓存'
+                : '')
     };
   }
   displayQuotes(market) {
@@ -311,22 +400,26 @@ class OverseasWatchlist {
         vscode.TreeItemCollapsibleState.Collapsed
       );
       item.id = `overseas:${element.market}`;
-      item.contextValue = 'aShareOverseasGroup';
-      item.description = element.market === 'us' ? '常规 / 盘前 / 盘后' : '涨跌幅 · 现价 · 名称';
+      item.contextValue = element.market === 'us' ? 'aShareUsGroup' : 'aShareOverseasGroup';
+      item.description = element.market === 'us' ? this.usModeDescription() : '涨跌幅 · 现价 · 名称';
       item.tooltip =
         `点击行尾＋添加${label}；文件夹图标新建分组。拖动个股可排序或移动分组，拖回此标题进入未分组。` +
         (element.market === 'us'
-          ? '\n美股按时段显示价格和涨跌幅，悬停查看常规、盘前和盘后数据。盘前/盘后涨跌均以对应常规收盘价为基准。'
+          ? `\n当前模式：${this.usModeDescription()}。点击行尾“切换时段”按钮选择自动、盘前、盘中或盘后，所有美股分组统一切换并记住选择。悬停个股可同时查看各时段。盘前/盘后涨跌均以对应常规收盘价为基准。`
           : '');
       return item;
     }
     const display = this.displayInfo(element.symbol),
       q = display.quote,
       stale = display.stale;
+    const name =
+      q?.name ||
+      this.quotes.get(element.symbol)?.name ||
+      this.extended.get(element.symbol)?.pre?.name ||
+      this.extended.get(element.symbol)?.post?.name ||
+      element.symbol;
     const item = new vscode.TreeItem(
-      q
-        ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]`
-        : `—   —   [${element.symbol}]`,
+      q ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]` : `—   —   [${name}]`,
       vscode.TreeItemCollapsibleState.None
     );
     item.id = `stock:${element.symbol}`;
@@ -349,6 +442,8 @@ class OverseasWatchlist {
           return `${q.date} ${q.timestamp.slice(8, 10)}:${q.timestamp.slice(10, 12)}${minute ? '' : ':' + q.timestamp.slice(12, 14)}（美东时间${minute ? '，分钟精度' : ''}）`;
         };
       tip.appendText(`${q?.name || regular?.name || element.symbol}（${element.symbol}）\n价格单位：美元\n`);
+      tip.appendText(`显示模式：${this.usModeDescription()}\n`);
+      if (!q) tip.appendText(`当前行：${display.description}。不会用其他时段的价格代替。\n`);
       tip.appendText(
         regular
           ? `\n常规：${regular.priceText}　${percentText(regular.percent)}\n涨跌额：${signed(regular.delta, 3)}　昨收：${regular.previousClose}\n行情时间：${time(regular)}\n来源：腾讯行情${this.stale(element.symbol) ? '（历史/缓存，请核对时间）' : ''}\n`
@@ -363,11 +458,13 @@ class OverseasWatchlist {
           );
         else tip.appendText(`\n${label}：暂无有效报价\n`);
       }
-      if (display.phase !== 'regular' && stale)
+      if (q && display.phase !== 'regular' && stale)
         tip.appendText(
-          display.cached
-            ? '\n当前行使用缓存，请核对行情时间。'
-            : '\n当前行报价时间较早，可能尚无新成交，请核对行情时间。'
+          q.date !== usClock(this.parent.now()).date
+            ? '\n当前行是历史盘前/盘后报价，请核对行情日期。'
+            : display.cached
+              ? '\n当前行使用缓存，请核对行情时间。'
+              : '\n当前行报价时间较早，可能尚无新成交，请核对行情时间。'
         );
       if (this.errors.has(element.symbol)) tip.appendText(`\n常规行情：${this.errors.get(element.symbol)}`);
       if (this.extendedErrors.has(element.symbol))
@@ -395,6 +492,10 @@ class OverseasWatchlist {
     return clock.polling && clock.minute - timeToMinute(q.timestamp.slice(8, 12)) > 2;
   }
   publish(m) {
+    if (this.parent.hidden || this.parent.disposed) return;
+    const header = m === 'us' ? this.usModeDescription() : '';
+    const headerChanged = m === 'us' && header !== this.usHeaderSignature;
+    if (m === 'us') this.usHeaderSignature = header;
     const changed: string[] = [];
     for (const symbol of this.symbols[m]) {
       const signature = JSON.stringify([
@@ -411,7 +512,8 @@ class OverseasWatchlist {
         changed.push(symbol);
       }
     }
-    if (changed.length && this.parent.config.sortBy !== 'manual') this.parent.emitter.fire(this.groups[m]);
+    if (headerChanged || (changed.length && this.parent.config.sortBy !== 'manual'))
+      this.parent.emitter.fire(this.groups[m]);
     else for (const symbol of changed) this.parent.emitter.fire(this.element(symbol));
   }
   publishAll() {
@@ -466,12 +568,10 @@ class OverseasWatchlist {
           Promise.resolve(null);
         if (loadExtended) {
           this.lastExtendedAttempt = this.parent.now().getTime();
-          extendedTask = this.extendedProvider
-            .load(symbols, abort.signal, this.parent.now())
-            .catch((error) => ({
-              quotes: new Map(),
-              errors: new Map(symbols.map((s) => [s, error.message || '盘前盘后行情获取失败']))
-            }));
+          extendedTask = this.extendedProvider.load(symbols, abort.signal, this.parent.now()).catch((error) => ({
+            quotes: new Map(),
+            errors: new Map(symbols.map((s) => [s, error.message || '盘前盘后行情获取失败']))
+          }));
         }
         const batches: string[][] = [];
         for (let i = 0; i < symbols.length; i += 50) batches.push(symbols.slice(i, i + 50));

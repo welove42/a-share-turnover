@@ -82,6 +82,209 @@ function setup(options = {}) {
     }
   };
 }
+test('美股标题选择盘中后立即显示常规行情和日期，选择持久化且不额外请求', async () => {
+  const h = setup(),
+    { c } = h;
+  let restored;
+  try {
+    await c.overseas.refresh('us');
+    assert.equal(c.getTreeItem(c.overseas.groups.us).description, '自动：盘前');
+    assert.equal(c.getTreeItem(c.overseas.groups.us).contextValue, 'aShareUsGroup');
+    assert.equal(c.getTreeItem(c.overseas.groups.hk).contextValue, 'aShareOverseasGroup');
+    h.api.window.showQuickPick = async (items, options) => {
+      assert.match(options.title, /美股.*切换时段/);
+      assert.deepEqual(
+        items.map((i) => i.mode),
+        ['auto', 'pre', 'regular', 'post']
+      );
+      assert.equal(items[0].description, '当前模式');
+      return items.find((i) => i.mode === 'regular');
+    };
+    c.overseas.request = async () => {
+      throw new Error('切换不应发出请求');
+    };
+    await c.overseas.chooseUsSession();
+    assert.equal(h.count(), 1);
+    assert.equal(h.store.get('usDisplayMode'), 'regular');
+    assert.equal(c.getTreeItem(c.overseas.groups.us).description, '盘中');
+    const row = c.getTreeItem(c.overseas.element('usAAPL'));
+    assert.match(row.label, /\+25.00%.*100.00.*常规名称/);
+    assert.match(row.description, /盘中 11-04/);
+    assert.match(row.tooltip.value, /盘前：102.*\+2.00%/);
+    assert.ok(c.emitter.fired.includes(c.overseas.groups.us));
+    restored = new (h.load('../dist/features/watchlist/controller.js').WatchlistController)(h.context, {
+      now: () => NOW
+    });
+    assert.equal(restored.overseas.usDisplayMode, 'regular');
+    assert.match(restored.getTreeItem(restored.overseas.element('usAAPL')).description, /盘中 11-04/);
+  } finally {
+    restored?.dispose();
+    c.dispose();
+  }
+});
+test('时段按钮只出现在美股标题，标题新增类型后添加和新建分组仍可用', () => {
+  const h = setup(),
+    { c } = h;
+  try {
+    const manifest = require('../package.json');
+    const menus = manifest.contributes.menus['view/item/context'];
+    const matches = (entry, value) => {
+      const equal = entry.when.match(/viewItem == (\w+)/);
+      const pattern = entry.when.match(/viewItem =~ \/([^/]+)\//);
+      return equal ? equal[1] === value : pattern ? new RegExp(pattern[1]).test(value) : false;
+    };
+    const us = c.getTreeItem(c.overseas.groups.us).contextValue;
+    const hk = c.getTreeItem(c.overseas.groups.hk).contextValue;
+    const action = menus.find((m) => m.command === 'welove42.aShareTurnover.overseas.selectSession');
+    assert.equal(matches(action, us), true);
+    assert.equal(matches(action, hk), false);
+    assert.match(action.when, /!aShareTurnover.hidden/);
+    assert.match(action.group, /^inline@/);
+    for (const command of ['welove42.aShareTurnover.overseas.add', 'welove42.aShareTurnover.stockGroups.create']) {
+      assert.ok(menus.some((entry) => entry.command === command && matches(entry, us)));
+      assert.ok(menus.some((entry) => entry.command === command && matches(entry, hk)));
+    }
+  } finally {
+    c.dispose();
+  }
+});
+test('手动时段缺失不混用常规价，历史和过期报价明确区分，保留股票名称', async () => {
+  const h = setup(),
+    { c } = h;
+  try {
+    await c.overseas.refresh('us');
+    await c.overseas.setUsDisplayMode('post');
+    let row = c.getTreeItem(c.overseas.element('usAAPL'));
+    assert.match(row.label, /^—\s+—.*常规名称/);
+    assert.equal(row.description, '暂无盘后行情');
+    assert.equal(c.overseas.displayQuotes('us').get('usAAPL'), undefined);
+    assert.match(row.tooltip.value, /不会用其他时段的价格代替/);
+    assert.doesNotMatch(row.tooltip.value, /当前行报价时间较早/);
+    await c.overseas.setUsDisplayMode('pre');
+    h.setNow('2026-11-06T11:30:00Z');
+    row = c.getTreeItem(c.overseas.element('usAAPL'));
+    assert.match(row.description, /盘前 11-05/);
+    assert.match(row.tooltip.value, /当前行是历史盘前\/盘后报价/);
+    assert.equal(c.overseas.displayInfo('usAAPL').stale, true);
+    await c.overseas.setUsDisplayMode('auto');
+    assert.equal(c.overseas.displayInfo('usAAPL').phase, 'regular');
+    assert.match(c.overseas.displayInfo('usAAPL').description, /常规 11-04.*盘前暂无/);
+    await c.overseas.setUsDisplayMode('pre');
+    h.setNow('2026-11-20T11:30:00Z');
+    assert.equal(c.overseas.displayInfo('usAAPL').quote, undefined);
+    assert.equal(c.overseas.displayInfo('usAAPL').description, '暂无盘前行情');
+    await c.overseas.setUsDisplayMode('regular');
+    c.overseas.quotes.clear();
+    assert.equal(c.overseas.displayInfo('usAAPL').description, '暂无盘中行情');
+  } finally {
+    c.dispose();
+  }
+});
+test('时段选择统一作用于美股自定义分组和涨跌排序，提醒继续使用常规行情', async () => {
+  const h = setup({
+      'aShareTurnover.stocks.sortBy': 'percentDesc',
+      'aShareTurnover.stocks.usGroups': [{ id: 'watch', name: '观察', symbols: ['usAAPL', 'usTSLA'] }]
+    }),
+    { c } = h;
+  let alerts;
+  try {
+    h.setRegular(
+      regularLine('usAAPL', '2026-11-05 09:31:00', '25') + regularLine('usTSLA', '2026-11-05 09:31:00', '30')
+    );
+    h.setNow('2026-11-05T14:31:00Z');
+    await c.overseas.refresh('us');
+    const group = c.overseas.grouping.us.element('watch');
+    assert.deepEqual(
+      c.getChildren(group).map((i) => i.symbol),
+      ['usTSLA', 'usAAPL']
+    );
+    await c.overseas.setUsDisplayMode('pre');
+    assert.deepEqual(
+      c.getChildren(group).map((i) => i.symbol),
+      ['usAAPL', 'usTSLA']
+    );
+    assert.equal(c.overseas.displayInfo('usAAPL').quote.percent, 2);
+    assert.equal(c.overseas.quotes.get('usAAPL').percent, 25);
+    const notifications = [];
+    h.api.window.showWarningMessage = async (text) => {
+      notifications.push(text);
+    };
+    const { StockAlerts } = h.load('../dist/features/watchlist/alerts.js');
+    alerts = new StockAlerts(h.context, c, { now: c.now });
+    await alerts.tick();
+    assert.match(notifications.join('\n'), /上涨 25.00%/);
+    assert.doesNotMatch(notifications.join('\n'), /上涨 2.00%/);
+    await c.overseas.setUsDisplayMode('regular');
+    assert.deepEqual(
+      c.getChildren(group).map((i) => i.symbol),
+      ['usTSLA', 'usAAPL']
+    );
+    assert.deepEqual(c.overseas.symbols.us, ['usAAPL', 'usTSLA']);
+  } finally {
+    alerts?.dispose();
+    c.dispose();
+  }
+});
+test('自动标题随交易阶段更新，手动选择不会被行情刷新覆盖，闲置不反复刷新标题', async () => {
+  const h = setup(),
+    { c } = h;
+  try {
+    await c.overseas.refresh('us');
+    c.emitter.fired.length = 0;
+    c.overseas.tick(false);
+    assert.equal(c.emitter.fired.length, 0);
+    h.setNow('2026-11-05T14:30:00Z');
+    c.overseas.tick(false);
+    assert.equal(c.getTreeItem(c.overseas.groups.us).description, '自动：盘中');
+    assert.ok(c.emitter.fired.includes(c.overseas.groups.us));
+    await c.overseas.setUsDisplayMode('pre');
+    h.setNow('2026-11-05T22:00:00Z');
+    h.setExtended(
+      line({ extendedTime: 'Nov 05 05:00PM EST', regularTime: 'Nov 05 04:00PM EST', update: '2026-11-06 06:00:00' })
+    );
+    await c.overseas.refresh('us');
+    assert.equal(c.overseas.displayInfo('usAAPL').phase, 'pre');
+    assert.equal(c.getTreeItem(c.overseas.groups.us).description, '盘前');
+    await c.overseas.setUsDisplayMode('post');
+    assert.equal(c.overseas.displayInfo('usAAPL').phase, 'post');
+    await c.overseas.setUsDisplayMode('auto');
+    assert.equal(c.getTreeItem(c.overseas.groups.us).description, '自动：盘后');
+  } finally {
+    c.dispose();
+  }
+});
+test('选择取消、老板键和保存失败不改变模式，连续选择按顺序保存', async () => {
+  const h = setup(),
+    { c } = h;
+  try {
+    h.api.window.showQuickPick = async () => undefined;
+    await c.overseas.chooseUsSession();
+    assert.equal(c.overseas.usDisplayMode, 'auto');
+    h.api.window.showQuickPick = async (items) => {
+      c.hidden = true;
+      return items[2];
+    };
+    await c.overseas.chooseUsSession();
+    assert.equal(c.overseas.usDisplayMode, 'auto');
+    c.hidden = false;
+    const update = h.context.globalState.update;
+    h.context.globalState.update = async () => {
+      throw new Error('写入失败');
+    };
+    h.api.window.showQuickPick = async (items) => items[2];
+    await c.overseas.chooseUsSession();
+    assert.equal(c.overseas.usDisplayMode, 'auto');
+    assert.match(h.opened.at(-1).error, /保存失败/);
+    h.context.globalState.update = update;
+    await Promise.all([c.overseas.setUsDisplayMode('regular'), c.overseas.setUsDisplayMode('post')]);
+    assert.equal(c.overseas.usDisplayMode, 'post');
+    assert.equal(h.store.get('usDisplayMode'), 'post');
+    await assert.rejects(c.overseas.setUsDisplayMode('invalid'), /未知/);
+    assert.equal(c.overseas.usDisplayMode, 'post');
+  } finally {
+    c.dispose();
+  }
+});
 test('独立解析盘前价格和涨跌幅，以常规收盘价为基准，保留真实美东报价时间', () => {
   const r = parseExtended(line(), ['usAAPL'], NOW),
     q = r.quotes.get('usAAPL');
