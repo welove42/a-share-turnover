@@ -1,6 +1,7 @@
 'use strict';
 const { requestJson } = require('./http');
 const { validDate } = require('./market');
+const { FundEstimateProvider } = require('./fund-estimates');
 const FUND_POLL_MS = 60000, MAX_FUNDS = 50;
 function fundCode(value) {
   if (typeof value !== 'string' || !/^\d{6}$/.test(value.trim())) throw new Error('请输入六位基金代码，例如 110020；不要省略前导零');
@@ -68,7 +69,8 @@ function holdingReturn(quote, position) {
   return [value, profit, rate].every(Number.isFinite) ? { ...holding, value, profit, rate, date: quote.date } : null;
 }
 class FundProvider {
-  constructor({ request = requestJson } = {}) { this.request = request; this.metadata = new Map(); }
+  constructor({ request = requestJson } = {}) { this.request = request; this.metadata = new Map(); this.estimates = new FundEstimateProvider({ request }); }
+  loadEstimates(codes, signal) { return this.estimates.load(fundCodes(codes), signal); }
   async search(query, signal) {
     if (typeof query !== 'string' || !query.trim() || query.length > 100) return [];
     const payload = await this.request(`https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=${encodeURIComponent(query.trim())}`, signal, { Referer: 'https://fund.eastmoney.com/' });

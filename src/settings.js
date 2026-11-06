@@ -9,13 +9,14 @@ const properties = manifest.contributes.configuration.properties;
 const GROUPS = [
   { id: 'market', title: '状态栏与市场', keys: ['enabled', 'comparisonMode', 'showDifferenceAmount', 'colorMode', 'sectors.enabled', 'sectors.category', 'temperature.enabled', 'temperature.colorize'] },
   { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.colorMode', 'stocks.upColor', 'stocks.downColor', 'stocks.symbols', 'stocks.groups', 'stocks.hkSymbols', 'stocks.hkGroups', 'stocks.usSymbols', 'stocks.usGroups', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'] },
-  { id: 'assets', title: '指数、基金与商品', keys: ['globalIndices.enabled', 'globalIndices.symbols', 'funds.enabled', 'funds.symbols', 'commodities.enabled', 'commodities.symbols'] },
+  { id: 'assets', title: '指数、基金与商品', keys: ['globalIndices.enabled', 'globalIndices.symbols', 'funds.enabled', 'funds.estimateEnabled', 'funds.symbols', 'commodities.enabled', 'commodities.symbols'] },
   { id: 'news', title: '财经新闻', keys: ['news.enabled', 'news.refreshIntervalSeconds'] },
   { id: 'risk', title: '涨跌提醒与风险', keys: ['stockAlerts.mode', 'turnoverAlerts.enabled', 'turnoverAlerts.percent', 'turnoverAlerts.colorize', 'risk.enabled', 'risk.volumePercent', 'risk.dropPercent'] },
   { id: 'events', title: '大事提醒与休市', keys: ['reminders.enabled', 'reminders.notifications', 'reminders.categories', 'additionalClosedDates'] },
   { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.save', 'ai.test'] }
 ];
 const LABELS = {
+  'funds.estimateEnabled': '显示基金盘中估算',
   'stocks.colorMode': '自选配色', 'stocks.upColor': '上涨颜色', 'stocks.downColor': '下跌颜色',
   'ai.baseUrl': 'API 地址', 'ai.model': '模型名称',
   'stockAlerts.mode': '自选股涨跌超过 7% 时提醒',
@@ -29,6 +30,7 @@ const LABELS = {
   'reminders.enabled': '显示大事倒计时', 'reminders.notifications': '启用事件弹窗', 'reminders.categories': '提醒哪些大事', additionalClosedDates: '补充休市日期'
 };
 const HELP = {
+  'funds.estimateEnabled': '有有效估值时自动显示估算涨跌和持仓收益；正式净值公布后切回。每60秒检查，缺失或过期时显示正式净值。部分主动基金、货币基金没有估值；估算不等于实际收益。',
   'stocks.colorMode': '统一调整 A 股、港股、美股列表的涨跌箭头，以及底部股票行情。跟随主题时不使用红绿区分，保留箭头和涨跌数字。',
   'stocks.upColor': '点击色块选色，或输入六位 HEX 颜色。修改后立即生效。',
   'stocks.downColor': '可与上涨使用相同颜色，选中个股后仍保留自定义颜色。',

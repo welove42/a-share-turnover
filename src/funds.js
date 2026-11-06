@@ -1,11 +1,12 @@
 'use strict';
 const vscode = require('vscode');
 const privateUI = require('./privacy-ui');
-const { shanghaiClock } = require('./market');
+const { shanghaiClock, session } = require('./market');
 const { signed, percentText } = require('./quotes');
 const { StockSettings } = require('./stock-settings');
 const { trendIcon } = require('./trend-icon');
 const { FUND_POLL_MS, fundCode, fundCodes, isFundQuote, holdingPosition, holdingReturn, FundProvider, fundUrl } = require('./fund-data');
+const { isFundEstimate, estimateReason } = require('./fund-estimates');
 
 class FundsController {
   constructor(context, { provider = new FundProvider(), now = () => new Date(), log = () => {} } = {}) {
@@ -16,6 +17,9 @@ class FundsController {
     this.paused = Boolean(context.globalState.get('fundsPaused', false));
     const cache = context.globalState.get('fundQuotes', []);
     if (Array.isArray(cache)) for (const q of cache) if (isFundQuote(q)) this.quotes.set(q.code, q);
+    this.estimates = new Map(); this.estimateNotes = new Map(); this.estimateCached = new Set();
+    const estimates = context.globalState.get('fundEstimates', []);
+    if (Array.isArray(estimates)) for (const e of estimates) if (isFundEstimate(e) && Date.parse(e.time.replace(' ', 'T') + ':00+08:00') <= this.now().getTime() + 120000) { this.estimates.set(e.code, e); this.estimateCached.add(e.code); }
     this.holdings = {}; this.holdingWrite = Promise.resolve();
     const saved = context.globalState.get('fundHoldings', {});
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) for (const [code, position] of Object.entries(saved)) {
@@ -27,13 +31,15 @@ class FundsController {
       this.publish();
       if (!event.visible) this.abort?.abort(); else if (!this.paused) void this.refresh(true);
     }), vscode.workspace.onDidChangeConfiguration(event => {
-      if (this.writingSettings || !event.affectsConfiguration('aShareTurnover.funds')) return;
+      if (this.writingSettings || !event.affectsConfiguration('aShareTurnover.funds') && !event.affectsConfiguration('aShareTurnover.additionalClosedDates')) return;
       this.generation++; this.abort?.abort(); this.readConfig(); this.publish(true);
       if (!this.paused) void this.refresh(true);
     })];
   }
   readConfig() {
     this.enabled = vscode.workspace.getConfiguration('aShareTurnover').get('funds.enabled', true); this.configError = '';
+    this.estimateEnabled = vscode.workspace.getConfiguration('aShareTurnover').get('funds.estimateEnabled', true);
+    this.closedDates = vscode.workspace.getConfiguration('aShareTurnover').get('additionalClosedDates', []);
     try { this.symbols = fundCodes(this.settings.get('funds.symbols', [])); }
     catch (error) { this.configError = error.message; this.symbols ||= []; }
   }
@@ -42,33 +48,51 @@ class FundsController {
     if (!this.paused) void this.refresh();
   }
   tick() {
+    if (!this.disposed && !this.hidden && this.tree.visible) this.publish();
     if (!this.disposed && this.enabled && this.symbols.length && !this.paused && this.tree.visible && !this.inflight && this.now().getTime() - this.lastAttempt >= FUND_POLL_MS) return this.refresh(true);
   }
   getChildren(element) { return !element && this.enabled && !this.hidden ? this.symbols.map(code => this.element(code)) : []; }
   getParent() { return undefined; }
   element(code) { if (!this.elements.has(code)) this.elements.set(code, { kind: 'fund', code }); return this.elements.get(code); }
+  displayEstimate(code) {
+    const e = this.estimates.get(code);
+    return this.estimateEnabled && !estimateReason(e, this.quotes.get(code), this.now()) ? e : undefined;
+  }
   getTreeItem(element) {
     const code = element.code, q = this.quotes.get(code), position = this.holdings[code], income = holdingReturn(q, position), failed = this.errors.has(code);
+    const e = this.displayEstimate(code), estimatedIncome = e ? holdingReturn({ ...q, nav: e.nav, date: e.time.slice(0, 10) }, position) : null;
+    const estimateCache = e && (this.estimateCached.has(code) || this.paused);
     const label = !q ? `—   —   [${code}]` : q.kind === 'money'
       ? `${q.incomeUnit === 10000 ? '万份' : '百份'}收益 ${q.incomePerUnit.toFixed(4)}   [${q.name}]`
-      : `${percentText(q.percent).padStart(7)}   ${q.nav.toFixed(4)}   [${q.name}]`;
+      : `${e ? '估算' : '净值'} ${percentText(e?.percent ?? q.percent).padStart(7)}   ${(e?.nav ?? q.nav).toFixed(4)}   [${q.name}]`;
     const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
     item.id = `fund:${code}`; item.contextValue = 'aShareFund';
-    const detail = income ? `持仓 ${signed(income.profit)} (${percentText(income.rate)})` : q?.kind === 'money' ? `七日年化 ${percentText(q.sevenDayYield)}` : position ? '持仓待计算' : '可设置持仓';
-    item.description = `${failed ? '获取失败 · ' : this.cached && q ? '缓存 · ' : ''}${q?.date || '待公布'} · ${detail}`;
+    const detail = estimatedIncome ? `估算持仓 ${signed(estimatedIncome.profit)} (${percentText(estimatedIncome.rate)})` : income ? `持仓 ${signed(income.profit)} (${percentText(income.rate)})` : q?.kind === 'money' ? `七日年化 ${percentText(q.sevenDayYield)}` : position ? '持仓待计算' : '可设置持仓';
+    item.description = `${failed ? '净值获取失败 · ' : (e ? estimateCache : this.cached && q) ? '缓存 · ' : ''}${e ? e.time.slice(5) : q?.date || '待公布'} · ${detail}`;
     item.command = { command: 'welove42.aShareTurnover.funds.open', title: '查看基金详情', arguments: [code] };
     item.iconPath = failed ? new vscode.ThemeIcon('warning') : q?.kind === 'money' ? new vscode.ThemeIcon('pie-chart')
-      : trendIcon(this.context.extensionUri, q?.percent);
+      : trendIcon(this.context.extensionUri, e?.percent ?? q?.percent);
     const tip = new vscode.MarkdownString(); tip.isTrusted = false; tip.supportHtml = false;
     tip.appendText(`${q?.name || code}（${code}）\n类型：${q?.type || '待查询'}\n\n`);
     if (!q) tip.appendText('尚未获取已公布数据。');
     else if (q.kind === 'money') tip.appendText(`${q.incomeUnit === 10000 ? '每万份' : '每百份'}收益：${q.incomePerUnit.toFixed(4)}\n七日年化：${percentText(q.sevenDayYield)}\n收益日期：${q.date}\n货币基金不按单位净值计算持仓盈亏；当前只展示基金已公布的收益指标。`);
     else {
+      const lastEstimate = this.estimates.get(code);
+      if (this.estimateEnabled) {
+        if (lastEstimate) {
+          const reason = estimateReason(lastEstimate, q, this.now());
+          tip.appendText(`${e ? '盘中估算' : '上次估算（仅供回看）'}${estimateCache ? ' · 缓存' : ''}：${lastEstimate.nav.toFixed(4)}\n估算涨跌：${percentText(lastEstimate.percent)}\n估算时间：${lastEstimate.time}（北京，分钟精度）\n基准净值：${lastEstimate.baseNav.toFixed(4)}（${lastEstimate.baseDate}）\n估值来源：天天基金 / 东方财富（${lastEstimate.sourceHost}）\n`);
+          if (reason) tip.appendText(`${reason}，列表显示已公布净值。\n`);
+          if (estimatedIncome) tip.appendText(`\n预估持仓市值：${estimatedIncome.value.toFixed(2)}\n预估持仓收益：${signed(estimatedIncome.profit)}（${percentText(estimatedIncome.rate)}）\n今日预估收益：${signed((e.nav - e.baseNav) * estimatedIncome.shares)}\n今日预估收益 = 份额 ×（估算净值 − 基准净值）。\n`);
+        } else tip.appendText('暂无盘中估算，列表显示已公布净值。\n');
+        if (this.estimateNotes.has(code)) tip.appendText('估值状态：' + this.estimateNotes.get(code) + '\n');
+        tip.appendText('估算仅供参考，不代表基金正式净值或实际收益；ETF 的估算净值也不是场内成交价。\n\n');
+      }
       tip.appendText(`单位净值：${q.nav.toFixed(4)}\n净值日涨跌：${percentText(q.percent)}\n累计净值：${q.cumulativeNav === null ? '—' : q.cumulativeNav.toFixed(4)}\n净值日期：${q.date}`);
       if (income) tip.appendText(`\n\n持仓份额：${income.shares}\n持仓总成本：${income.cost.toFixed(2)}\n按净值计算的市值：${income.value.toFixed(2)}\n持仓收益：${signed(income.profit)}\n持仓收益率：${percentText(income.rate)}\n计算依据：${income.date}已公布净值。\n持仓收益 = 份额 × 单位净值 − 持仓总成本。金额与净值同币种，未换汇。分红、份额变动及费用需自行更新份额和成本；不包含已赎回部分收益。`);
       else tip.appendText('\n\n点击行末铅笔设置持仓份额、持仓总成本，可查看个人持仓收益。');
     }
-    tip.appendText('\n\n来源：天天基金 / 东方财富。公布日期不等于今天；页面显示已公布数据，不提供盘中估算。');
+    tip.appendText('\n\n净值来源：天天基金 / 东方财富。正式净值公布日期不一定是今天，QDII 等可能延后公布。');
     if (this.cached && q) tip.appendText('\n当前为重启前保存的缓存。');
     if (this.paused) tip.appendText('\n自动检查已暂停。');
     if (failed) tip.appendText('\n' + this.errors.get(code));
@@ -80,14 +104,14 @@ class FundsController {
     if (this.disposed) return;
     this.tree.title = this.hidden ? '调用堆栈' : '基金';
     if (this.hidden) { this.tree.description = undefined; this.tree.message = undefined; if (structural) this.emitter.fire(undefined); return; }
-    const description = !this.enabled ? '已禁用' : this.paused ? '已暂停' : !this.symbols.length ? '点击＋添加基金' : this.tree.visible ? '已公布净值 · 60秒检查' : '展开后检查净值';
+    const description = !this.enabled ? '已禁用' : this.paused ? '已暂停' : !this.symbols.length ? '点击＋添加基金' : this.tree.visible ? `${this.estimateEnabled ? '盘中估算 / 净值' : '已公布净值'} · 60秒检查` : '展开后检查更新';
     if (this.tree.description !== description) this.tree.description = description;
     const failed = this.symbols.filter(code => this.errors.has(code)).length;
     const message = this.configError || (failed ? `${failed}只基金未更新，保留上次数据；悬停查看原因及净值日期。` : undefined);
     if (this.tree.message !== message) this.tree.message = message;
     const changed = [];
     for (const code of this.symbols) {
-      const signature = JSON.stringify([this.quotes.get(code), this.errors.get(code), this.holdings[code], this.paused, this.cached]);
+      const signature = JSON.stringify([this.quotes.get(code), this.errors.get(code), this.holdings[code], this.paused, this.cached, this.estimateEnabled, this.estimates.get(code), this.estimateNotes.get(code), this.estimateCached.has(code), this.estimateEnabled ? estimateReason(this.estimates.get(code), this.quotes.get(code), this.now()) : '']);
       if (this.signatures.get(code) !== signature) { this.signatures.set(code, signature); changed.push(code); }
     }
     if (structural) this.emitter.fire(undefined); else for (const code of changed) this.emitter.fire(this.element(code));
@@ -100,17 +124,38 @@ class FundsController {
     this.lastAttempt = this.now().getTime();
     this.inflight = (async () => {
       try {
-        const result = await this.provider.load(codes, abort.signal);
+        const clock = session(this.now(), this.closedDates);
+        const estimateCodes = codes.filter(code => this.quotes.get(code)?.kind !== 'money');
+        const fetchEstimates = this.estimateEnabled && this.provider.loadEstimates && estimateCodes.length && clock.phase !== 'closed' && clock.minute >= 570 && clock.minute <= 930;
+        const [navResult, estimateResult] = await Promise.allSettled([
+          this.provider.load(codes, abort.signal),
+          fetchEstimates ? this.provider.loadEstimates(estimateCodes, abort.signal) : undefined
+        ]);
         if (this.disposed || abort.signal.aborted || this.generation !== generation) return;
-        this.errors = new Map(result.errors);
-        for (const code of codes) {
-          const q = result.quotes.get(code);
-          if (!q) { this.errors.set(code, this.errors.get(code) || '本次未返回该基金净值'); continue; }
-          if (isFundQuote(q) && q.code === code && q.date <= shanghaiClock(this.now()).date && (!this.quotes.has(code) || q.date >= this.quotes.get(code).date)) this.quotes.set(code, q);
-          else this.errors.set(code, '基金数据或净值日期异常，保留上次成功数据');
+        if (navResult.status === 'fulfilled') {
+          const result = navResult.value; this.errors = new Map(result.errors);
+          for (const code of codes) {
+            const q = result.quotes.get(code);
+            if (!q) { this.errors.set(code, this.errors.get(code) || '本次未返回该基金净值'); continue; }
+            if (isFundQuote(q) && q.code === code && q.date <= shanghaiClock(this.now()).date && (!this.quotes.has(code) || q.date >= this.quotes.get(code).date)) this.quotes.set(code, q);
+            else this.errors.set(code, '基金数据或净值日期异常，保留上次成功数据');
+          }
+          this.cached = false;
+        } else {
+          for (const code of codes) this.errors.set(code, navResult.reason?.message || '基金净值请求失败');
+          this.log('基金净值请求失败');
         }
-        this.cached = false;
+        if (fetchEstimates) for (const code of estimateCodes) {
+          const result = estimateResult.status === 'fulfilled' ? estimateResult.value : undefined, e = result?.estimates.get(code), previous = this.estimates.get(code);
+          if (result?.unavailable.has(code)) { this.estimates.delete(code); this.estimateCached.delete(code); this.estimateNotes.set(code, '数据源未提供盘中估算'); }
+          else if (isFundEstimate(e) && e.code === code && (!previous || e.time >= previous.time) && Date.parse(e.time.replace(' ', 'T') + ':00+08:00') <= this.now().getTime() + 120000) {
+            this.estimates.set(code, e); this.estimateCached.delete(code); this.estimateNotes.delete(code);
+          } else {
+            this.estimateCached.add(code); this.estimateNotes.set(code, result?.errors.get(code) || (estimateResult.status === 'rejected' ? estimateResult.reason?.message : '估值数据或时间异常，保留上次估算') || '估值获取失败');
+          }
+        }
         await this.context.globalState.update('fundQuotes', codes.map(code => this.quotes.get(code)).filter(Boolean)).catch(() => {});
+        await this.context.globalState.update('fundEstimates', codes.map(code => this.estimates.get(code)).filter(Boolean)).catch(() => {});
       } catch (error) {
         if (!this.disposed && !abort.signal.aborted) { for (const code of codes) this.errors.set(code, error.message || '基金请求失败'); this.log('基金净值请求失败'); }
       } finally { this.inflight = null; this.abort = null; if (!this.disposed) this.publish(); }

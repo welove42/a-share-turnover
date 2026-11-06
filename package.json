@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.22.6",
+  "version": "1.22.7",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.6.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.7.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -240,7 +240,7 @@
       },
       {
         "command": "welove42.aShareTurnover.funds.refresh",
-        "title": "基金：立即检查净值",
+        "title": "基金：立即刷新净值 / 估算",
         "icon": "$(refresh)"
       },
       {
@@ -623,7 +623,13 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "显示基金折叠栏目。展示已公布净值与涨跌，支持本机持仓收益；可见时每60秒检查净值。"
+          "description": "显示基金折叠栏目。自动展示有效盘中估算或已公布净值，支持本机持仓收益；可见时每60秒检查。"
+        },
+        "aShareTurnover.funds.estimateEnabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "有有效盘中估值时显示估算涨跌、净值和持仓收益；正式净值公布后自动切回。估值缺失或过期时显示正式净值，估算不代表实际收益。列表可见时每60秒检查。"
         },
         "aShareTurnover.funds.symbols": {
           "type": "array",
@@ -931,7 +937,7 @@
       },
       {
         "view": "welove42.aShareTurnover.funds",
-        "contents": "添加基金查看已公布净值和涨跌幅。\n[按名称或代码添加基金](command:welove42.aShareTurnover.funds.add)\n行末铅笔可设置份额和成本，计算个人持仓收益。\n基金净值通常按日公布，持仓数据只保存在本机。",
+        "contents": "添加基金查看盘中估算和已公布净值。\n[按名称或代码添加基金](command:welove42.aShareTurnover.funds.add)\n行末铅笔可设置份额和成本，查看持仓收益。\n估算会明确标注，不代表实际收益；持仓只保存在本机。",
         "when": "!aShareTurnover.hidden && config.aShareTurnover.funds.enabled"
       }
     ],
