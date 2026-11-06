@@ -15,18 +15,18 @@ function readConfig() {
 function html(webview, context, token) {
   const uri = name => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', name));
   const nonce = randomBytes(18).toString('base64');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';"><link rel="stylesheet" href="${uri('ai-analysis.css')}"><title>AI 分析</title></head><body data-token="${token}"><header><div><strong>AI 分析</strong><span id="model"></span></div><button id="settings" class="quiet" title="配置 API 地址、模型和密钥">设置</button></header><section class="target"><button id="choose" type="button" class="target-button" title="选择自选股或大盘"><span id="target">选择分析对象</span><span class="target-chevron" aria-hidden="true"></span></button><div class="toolbar"><button id="analyze">开始分析</button><button id="stop" class="secondary" hidden>停止</button><button id="clear" class="quiet">清空</button></div></section><p id="status" role="status" aria-live="polite"></p><p id="context-summary" hidden aria-label="分析上下文"></p><main id="conversation" tabindex="0" aria-label="分析内容"><div id="welcome"><h2>边写代码，边看分析</h2><p>选择个股、场内 ETF 或大盘，自动带入个股、大盘、所属板块、全球市场及财经快讯。</p><p>首次使用，在设置中填写 API 地址、模型和 Key。</p><p class="muted">仅点击分析、追问或测试连接时调用，由你的 API 服务商计费。</p></div><div id="messages"></div></main><details id="snapshot" hidden><summary>本次行情数据</summary><pre id="data"></pre></details><form id="followup"><label for="question">继续追问</label><div class="composer"><textarea id="question" rows="2" maxlength="2000" placeholder="例如：目前有哪些风险？"></textarea><button id="send" type="submit">发送</button></div></form><footer>仅发送公开行情、快讯和本次对话，不读取代码或持仓。<br>AI 可能有误，分析仅供参考。</footer><script nonce="${nonce}" src="${uri('ai-analysis.js')}"></script></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';"><link rel="stylesheet" href="${uri('ai-analysis.css')}"><title>AI 分析</title></head><body data-token="${token}"><header><div><strong>AI 分析</strong><span id="model"></span></div><button id="settings" class="quiet" title="配置 API 地址、模型和密钥">设置</button></header><section class="target"><button id="choose" type="button" class="target-button" title="选择自选股或大盘"><span id="target">选择分析对象</span><span class="target-chevron" aria-hidden="true"></span></button><div class="toolbar"><button id="analyze">开始分析</button><button id="stop" class="secondary" hidden>停止</button><button id="clear" class="quiet">清空</button></div></section><p id="status" role="status" aria-live="polite"></p><p id="context-summary" hidden aria-label="分析上下文"></p><main id="conversation" tabindex="0" aria-label="分析内容"><div id="welcome"><h2>边写代码，边看分析</h2><p>选择个股、场内 ETF 或大盘，自动带入个股、大盘、所属板块、全球市场及财经快讯。</p><p>首次使用，在设置中填写 API 地址、模型和 Key。</p><p class="muted">仅点击分析、追问或测试连接时调用，由你的 API 服务商计费。</p></div><div id="messages"></div></main><details id="snapshot" hidden><summary>本次行情数据</summary><pre id="data"></pre></details><form id="followup"><label for="question">继续追问</label><div class="composer"><textarea id="question" aria-describedby="followup-hint" rows="2" maxlength="2000" placeholder="例如：目前有哪些风险？"></textarea><button id="send" type="submit">发送</button></div><p id="followup-hint" class="muted" role="status"></p></form><footer>仅发送公开行情、快讯和本次对话，不读取代码或持仓。<br>AI 可能有误，分析仅供参考。</footer><script nonce="${nonce}" src="${uri('ai-analysis.js')}"></script></body></html>`;
 }
 class AiAnalysisController {
   constructor(context, { stocks, market, globals, commodities, news, collect, request = complete, config = readConfig, openSettings = () => {} } = {}) {
     Object.assign(this, { context, stocks, request, config, openSettings });
     const source = collect ? null : new AnalysisContext({ stocks, market, globals, commodities, news });
     this.collect = collect || ((target, signal) => source.collect(target, signal));
-    this.messages = []; this.history = []; this.status = ''; this.generation = 0; this.busy = false; this.configured = false;
+    this.messages = []; this.history = []; this.interruptedHistory = null; this.status = ''; this.generation = 0; this.busy = false; this.configured = false;
     this.registration = vscode.window.registerWebviewViewProvider(VIEW, this);
     this.listener = vscode.workspace.onDidChangeConfiguration(e => {
       if (!e.affectsConfiguration('aShareTurnover.ai')) return;
-      this.stop(); this.history = []; this.messages = []; this.snapshot = null;
+      this.clear();
       this.status = '配置已更新，点击开始分析。'; void this.updateConfiguration();
     });
     this.ready = this.updateConfiguration();
@@ -58,7 +58,8 @@ class AiAnalysisController {
   publish() {
     if (this.hidden || this.disposed || !this.view) return;
     void this.view.webview.postMessage({ type: 'state', token: this.token, target: this.target, name: this.name(), model: this.config().model,
-      configured: this.configured, busy: this.busy, status: this.status, messages: this.messages, snapshot: this.snapshot, canAsk: this.history.length > 0 });
+      configured: this.configured, busy: this.busy, status: this.status, messages: this.messages, snapshot: this.snapshot,
+      canAsk: Boolean(this.interruptedHistory || this.history.length), interrupted: Boolean(this.interruptedHistory) });
   }
   name() { return this.target === 'market' ? '沪深大盘' : this.target ? `${this.stocks?.quotes.get(this.target)?.name || this.snapshot?.quote?.name || this.target} · ${this.target}` : '选择分析对象'; }
   async open(target) {
@@ -77,19 +78,33 @@ class AiAnalysisController {
     if (!selected || this.hidden || this.disposed) return;
     this.clear(); this.target = selected.symbol; return this.analyze();
   }
+  retainInterruptedTurn() {
+    const turn = this.pendingTurn;
+    if (turn?.answer.content.trim()) {
+      // Keep incomplete output separate from completed history and label it explicitly.
+      this.interruptedHistory = [...turn.prior, turn.user, { role: 'assistant', content: turn.answer.content + '\n\n【此回复传输中断，以上内容不完整。】' }];
+    }
+    this.pendingTurn = null;
+  }
   stop() {
     this.generation++; this.abort?.abort(); this.abort = null; clearTimeout(this.publishTimer);
     this.publishTimer = null; clearInterval(this.progressTimer); this.progressTimer = null;
-    if (this.pendingAnswer) { this.pendingAnswer.state = 'stopped'; this.pendingAnswer.notice = '已停止分析；可点击重新分析。'; this.pendingAnswer = null; }
-    if (this.busy) this.status = '已停止；未完成的回复不用于追问。';
+    this.retainInterruptedTurn();
+    if (this.pendingAnswer) {
+      this.pendingAnswer.state = 'stopped';
+      this.pendingAnswer.notice = this.pendingAnswer.content.trim() ? '已停止，收到的内容已保留；可输入“继续”补全或继续追问。' : '已停止分析，尚未收到正文；可重新分析。';
+      this.pendingAnswer = null;
+    }
+    if (this.busy) this.status = this.interruptedHistory ? '已停止，回复尚未完整；可继续追问或重新分析。' : '已停止分析。';
     this.busy = false; this.publish();
   }
-  clear() { this.stop(); this.messages = []; this.history = []; this.snapshot = null; this.status = ''; this.publish(); }
+  clear() { this.stop(); this.messages = []; this.history = []; this.interruptedHistory = null; this.snapshot = null; this.status = ''; this.publish(); }
   async analyze(question) {
     if (this.hidden || this.disposed || this.busy) return;
     const followup = typeof question === 'string';
-    if (followup && (!question.trim() || question.length > 2000 || !this.history.length)) return;
-    if (followup && this.history.length >= 20) { this.status = '本次对话已达 10 轮，请重新分析后继续。'; this.publish(); return; }
+    const followupHistory = this.interruptedHistory || this.history;
+    if (followup && (!question.trim() || question.length > 2000 || !followupHistory.length)) return;
+    if (followup && followupHistory.length >= 20) { this.status = '本次对话已达 10 轮，请重新分析后继续。'; this.publish(); return; }
     if (!this.target) return this.choose();
     this.stop();
     const generation = this.generation, abort = this.abort = new AbortController();
@@ -103,18 +118,19 @@ class AiAnalysisController {
       if (!url || !model || !key) { this.configured = false; this.status = '请先在设置 → AI 分析中填写 API 地址、模型，并设置 API Key。'; return; }
       this.configured = true;
       if (!followup) {
-        this.messages = []; this.history = []; this.snapshot = null; this.status = '正在汇总个股、大盘、所属板块、全球市场和财经快讯…'; this.publish();
+        this.messages = []; this.history = []; this.interruptedHistory = null; this.snapshot = null; this.status = '正在汇总个股、大盘、所属板块、全球市场和财经快讯…'; this.publish();
         const snapshot = await this.collect(this.target, abort.signal);
         if (!active()) return;
         this.snapshot = snapshot;
       }
       const content = followup ? question.trim() : '请分析这份行情快照：\n' + JSON.stringify(this.snapshot);
-      const prior = followup ? this.history : [];
+      const prior = followup ? followupHistory : [];
       const user = { role: 'user', content }, answer = { role: 'assistant', content: '', state: 'pending', phase: 'connecting', elapsedSeconds: 0 };
-      const requestMessages = [{ role: 'system', content: SYSTEM }, ...prior, user];
+      const recovery = followup && this.interruptedHistory ? '\n上一轮回复传输中断，已收到的部分已标记。请结合原始行情快照和用户的新问题继续回答；如用户要求继续，补全未完成的分析，不要将截断内容当成完整结论。' : '';
+      const requestMessages = [{ role: 'system', content: SYSTEM + recovery }, ...prior, user];
       if (JSON.stringify(requestMessages).length > 100000) throw new Error('本次对话过长，请重新分析后继续。');
       this.messages.push({ role: 'user', content: followup ? question.trim() : `分析 ${this.name()}` }, answer);
-      this.pendingAnswer = answer; this.status = PHASES.connecting; this.publish();
+      this.pendingAnswer = answer; this.pendingTurn = { prior, user, answer }; this.status = PHASES.connecting; this.publish();
       const started = Date.now();
       this.progressTimer = setInterval(() => {
         if (!active()) return;
@@ -131,12 +147,13 @@ class AiAnalysisController {
       } });
       if (!active()) return;
       if (typeof result !== 'string' || !result.trim()) throw new Error('AI 未返回分析正文，请重试或更换模型。');
-      answer.state = 'complete'; this.pendingAnswer = null;
+      answer.state = 'complete'; this.pendingAnswer = null; this.pendingTurn = null; this.interruptedHistory = null;
       answer.content = result; this.history = [...prior, user, { role: 'assistant', content: result }];
       this.status = '分析完成 · 追问沿用本次行情，重新分析获取新数据';
     } catch (error) {
       if (active()) {
         this.status = error.message || '分析失败，请重试。';
+        this.retainInterruptedTurn();
         if (this.pendingAnswer) { this.pendingAnswer.state = 'error'; this.pendingAnswer.notice = this.status; this.pendingAnswer = null; }
       }
     }

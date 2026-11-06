@@ -108,3 +108,32 @@ test('心跳不能无限延长等待，有效推理重置空闲计时但仍受�
   await assert.rejects(complete({ ...args(url), idleTimeoutMs: 70, timeoutMs: 1000 }), /未返回有效内容/);
   mode = 'reasoning'; await assert.rejects(complete({ ...args(url), idleTimeoutMs: 100, timeoutMs: 180 }), /请求超时/);
 });
+
+test('已收到正文后停滞或超时说明回复未完成，保留正文且不自动重试', async t => {
+  let calls = 0;
+  const url = await server(t, (_req, res) => {
+    calls++; res.setHeader('Content-Type', 'text/event-stream');
+    res.write('data: {"choices":[{"delta":{"content":"已经收到的正文"}}]}\n\n');
+    const timer = setInterval(() => res.write(': ping\n\n'), 10);
+    res.on('close', () => clearInterval(timer));
+  });
+  const chunks = [];
+  await assert.rejects(complete({ ...args(url), idleTimeoutMs: 150, timeoutMs: 2000, onDelta: value => chunks.push(value) }), error => {
+    assert.match(error.message, /中途停了.*没有新内容/); assert.match(error.message, /保留.*继续追问/);
+    assert.doesNotMatch(error.message, /未返回有效内容/); return true;
+  });
+  assert.deepEqual(chunks, ['已经收到的正文']); assert.equal(calls, 1);
+  await assert.rejects(complete({ ...args(url), idleTimeoutMs: 2000, timeoutMs: 150 }), /请求超时.*回复尚未完整/);
+  assert.equal(calls, 2);
+});
+
+test('正文后连接异常断开说明是中断，不误报完全无法连接', async t => {
+  const url = await server(t, (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write('data: {"choices":[{"delta":{"content":"已收部分"}}]}\n\n');
+    setTimeout(() => res.destroy(), 60);
+  });
+  let received = '';
+  await assert.rejects(complete({ ...args(url), onDelta: value => { received += value; } }), /连接中断.*继续追问/);
+  assert.equal(received, '已收部分');
+});

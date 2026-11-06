@@ -51,7 +51,7 @@ async function complete({ url, model, key, messages, signal, onDelta = () => {},
     onDelta(value);
   };
   const checkFinish = reason => {
-    if (reason === 'length') throw new Error(text.trim() ? 'AI 回复达到长度上限，内容尚未完整；请缩小问题范围后重试。' : 'AI 已达到生成长度上限，但尚未返回正文；推理可能已耗尽额度，请改用较快的模型或缩小问题范围。');
+    if (reason === 'length') throw new Error(text.trim() ? 'AI 回复达到长度上限，内容尚未完整；可输入“继续”补全，或缩小问题范围后重新分析。' : 'AI 已达到生成长度上限，但尚未返回正文；推理可能已耗尽额度，请改用较快的模型或缩小问题范围。');
     if (reason === 'content_filter') throw new Error('AI 服务未完成此次回答，请调整问题后重试。');
     if (reason === 'tool_calls' || reason === 'function_call') throw new Error('AI 返回了工具调用，当前分析需要文本回复；请更换文本对话模型。');
   };
@@ -102,7 +102,7 @@ async function complete({ url, model, key, messages, signal, onDelta = () => {},
     buffer += decoder.decode();
     if (stream) {
       if (!done && buffer.trim()) event(buffer.replace(/\r\n/g, '\n'));
-      if (!done && !finished) throw new Error('AI 响应中断；当前内容不完整，可重新分析。');
+      if (!done && !finished) throw new Error(text.trim() ? 'AI 响应中断，回复尚未完整；已保留收到的内容，可继续追问或重新分析。' : 'AI 响应中断，尚未收到正文；请重新分析。');
     } else {
       let item;
       try { item = JSON.parse(buffer); } catch { throw new Error('AI 接口返回了非 JSON 内容，请检查 API 地址。'); }
@@ -115,10 +115,14 @@ async function complete({ url, model, key, messages, signal, onDelta = () => {},
     return text;
   } catch (error) {
     if (signal?.aborted) { const e = new Error('已停止分析'); e.name = 'AbortError'; throw e; }
-    if (timedOut) throw new Error(`AI 请求超时（${Math.ceil(timeoutMs / 1000)} 秒），已停止等待；可重试或更换较快的模型。`);
-    if (idleTimedOut) throw new Error(`AI 接口连续 ${Math.ceil(idleTimeoutMs / 1000)} 秒未返回有效内容，已停止等待；请检查网络或更换模型。`);
+    if (timedOut) throw new Error(text.trim()
+      ? `AI 请求超时（${Math.ceil(timeoutMs / 1000)} 秒），回复尚未完整；已保留收到的内容，可继续追问或重新分析。`
+      : `AI 请求超时（${Math.ceil(timeoutMs / 1000)} 秒），尚未收到正文；可重试或更换较快的模型。`);
+    if (idleTimedOut) throw new Error(text.trim()
+      ? `AI 回复中途停了，连续 ${Math.ceil(idleTimeoutMs / 1000)} 秒没有新内容；已保留收到的内容，可继续追问或重新分析。`
+      : `AI 接口连续 ${Math.ceil(idleTimeoutMs / 1000)} 秒未返回有效内容，尚未收到正文；请检查网络或稍后重试。`);
     if (/^(AI |请填写|请先|API 地址)/.test(error.message)) throw error;
-    throw new Error('无法连接 AI 接口，请检查网络和 API 地址。');
+    throw new Error(text.trim() ? 'AI 回复连接中断，回复尚未完整；已保留收到的内容，可继续追问或重新分析。' : '无法连接 AI 接口，请检查网络和 API 地址。');
   } finally {
     clearTimeout(timer); clearTimeout(idleTimer); signal?.removeEventListener('abort', cancel);
     // Completion must not wait for a gateway to acknowledge stream cancellation.

@@ -61,13 +61,95 @@ test('更换接口不能使用旧Key，工作区无法覆盖全局AI地址', asy
     const { readConfig } = h.load('../src/ai-analysis'); assert.deepEqual(readConfig(), configuration);
   } finally { c.dispose(); }
 });
-test('请求失败保留可重试状态，不把不完整回答带入追问', async () => {
+test('请求失败保留可重试状态，不把不完整回答标为成功', async () => {
   let fail = false;
   const { c } = await setup({ request: async args => { if (fail) { args.onDelta('不完整'); throw new Error('AI 响应中断'); } return '完成'; } });
   try {
     await c.open('sh600519'); fail = true; await c.analyze('追问');
     assert.equal(c.busy, false); assert.equal(c.history.length, 2); assert.match(c.status, /中断/);
     assert.equal(c.messages.at(-1).state, 'error'); assert.match(c.messages.at(-1).notice, /中断/); assert.equal(c.progressTimer, null);
+  } finally { c.dispose(); }
+});
+
+test('首次分析中断后可继续追问，带原行情与明确标记的部分正文，不自动重试', async () => {
+  const requests = []; let collects = 0;
+  const { c, panel } = await setup({ collect: async () => { collects++; return sample(); }, request: async args => {
+    requests.push(args);
+    if (requests.length === 1) { args.onDelta('已收到的分析，条件尚未'); throw new Error('AI 回复中途停了'); }
+    return '补全后的分析';
+  } });
+  try {
+    await c.open('sh600519');
+    assert.equal(c.busy, false); assert.equal(c.history.length, 0); assert.equal(requests.length, 1);
+    assert.equal(c.messages.at(-1).state, 'error'); assert.equal(c.messages.at(-1).content, '已收到的分析，条件尚未');
+    assert.equal(panel.webview.messages.at(-1).canAsk, true); assert.equal(panel.webview.messages.at(-1).interrupted, true);
+    assert.equal(c.pendingTurn, null);
+    await c.analyze('继续');
+    assert.equal(collects, 1); assert.equal(requests.length, 2);
+    const sent = requests[1].messages;
+    assert.equal(sent[1].content, requests[0].messages[1].content);
+    assert.equal(sent[2].role, 'assistant'); assert.match(sent[2].content, /已收到的分析.*尚未/);
+    assert.match(sent[2].content, /传输中断.*不完整/); assert.match(sent[0].content, /补全未完成/);
+    assert.equal(sent[3].content, '继续'); assert.equal(c.messages.at(-1).state, 'complete');
+    assert.equal(c.interruptedHistory, null); assert.equal(c.history.length, 4);
+    assert.equal(panel.webview.messages.at(-1).interrupted, false);
+    await c.analyze('补充风险'); assert.equal(requests[2].messages[3].content, '继续');
+  } finally { c.dispose(); }
+});
+
+test('手动停止保留可追问的部分内容，迟到回复不污染下一轮', async () => {
+  let callbacks, finish; const requests = [];
+  const { c, panel } = await setup({ request: args => {
+    requests.push(args);
+    if (requests.length > 1) return Promise.resolve('完成补全');
+    callbacks = args; args.onDelta('停止前的正文'); return new Promise(resolve => { finish = resolve; });
+  } });
+  try {
+    const pending = c.open('sh600519'); await tick(); c.stop();
+    assert.equal(callbacks.signal.aborted, true); assert.equal(c.busy, false);
+    assert.equal(c.messages.at(-1).state, 'stopped'); assert.equal(panel.webview.messages.at(-1).canAsk, true);
+    await c.analyze('继续');
+    callbacks.onDelta('迟到内容'); finish('迟到内容'); await pending;
+    assert.equal(c.messages.at(-1).content, '完成补全'); assert.equal(c.messages.at(-1).state, 'complete');
+    assert.doesNotMatch(JSON.stringify(c.history), /迟到内容/); assert.match(requests[1].messages[2].content, /停止前的正文/);
+  } finally { c.dispose(); }
+});
+
+test('首次无正文失败不能追问；恢复请求再失败仍保留上下文，轮数限制不被绕过', async () => {
+  let partial = false; const requests = [];
+  const { c, panel } = await setup({ request: async args => {
+    requests.push(args); if (partial) args.onDelta('部分分析'); throw new Error('AI 响应中断');
+  } });
+  try {
+    await c.open('sh600519'); assert.equal(panel.webview.messages.at(-1).canAsk, false);
+    await c.analyze('继续'); assert.equal(requests.length, 1);
+    partial = true; await c.analyze(); const recovery = c.interruptedHistory;
+    partial = false; await c.analyze('继续');
+    assert.equal(c.interruptedHistory, recovery); assert.equal(panel.webview.messages.at(-1).canAsk, true);
+    partial = true;
+    for (let i = 0; i < 9; i++) await c.analyze('继续');
+    const count = requests.length; await c.analyze('继续');
+    assert.equal(requests.length, count); assert.match(c.status, /10 轮/);
+  } finally { c.dispose(); }
+});
+
+test('重新分析、清空、切股、配置变化和老板键清理中断上下文', async () => {
+  let partial = true; const requests = [];
+  const { c, h, panel } = await setup({ request: async args => {
+    requests.push(args); if (partial) args.onDelta('旧标的正文'); throw new Error('AI 响应中断');
+  } });
+  try {
+    await c.open('sh600519'); assert.ok(c.interruptedHistory);
+    partial = false; await c.analyze(); assert.equal(c.interruptedHistory, null);
+    assert.equal(requests.at(-1).messages.length, 2); assert.equal(panel.webview.messages.at(-1).canAsk, false);
+    partial = true; await c.analyze(); c.clear(); assert.equal(c.interruptedHistory, null);
+    await c.analyze(); partial = false; await c.open('sh510300');
+    assert.equal(c.interruptedHistory, null); assert.doesNotMatch(JSON.stringify(requests.at(-1).messages), /旧标的正文/);
+    partial = true; await c.analyze(); assert.ok(c.interruptedHistory);
+    await h.api.workspace.getConfiguration('aShareTurnover').update('ai.model', 'new-model');
+    assert.equal(c.interruptedHistory, null); assert.equal(c.messages.length, 0); assert.equal(c.history.length, 0);
+    await c.analyze(); c.setHidden(true); assert.equal(c.interruptedHistory, null);
+    c.setHidden(false); assert.equal(panel.webview.messages.at(-1).canAsk, false);
   } finally { c.dispose(); }
 });
 

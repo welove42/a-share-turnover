@@ -4,6 +4,7 @@
 .composer textarea{flex:1;width:0}.composer button{flex-shrink:0;white-space:nowrap;min-width:52px}
 #context-summary{font-size:11px;line-height:1.7;color:var(--vscode-descriptionForeground);margin:0 0 8px;padding:6px 8px;border:1px solid var(--vscode-panel-border);border-radius:4px}
 .result-notice{font-size:12px;color:var(--vscode-descriptionForeground);margin-top:8px}
+#followup-hint{font-size:11px;line-height:1.5;margin:5px 0 0}
 
 .target-button:hover{background:var(--vscode-dropdown-background);border-color:var(--vscode-focusBorder)}
 #target{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -23,7 +23,13 @@
     $('model').textContent = m.model || '尚未配置'; $('target').textContent = m.name;
     $('status').textContent = m.status || (m.configured ? '已配置 · 点击开始分析' : '先配置一次 API，即可随时分析。');
     $('analyze').textContent = m.messages.length ? '重新分析' : '开始分析'; $('analyze').disabled = m.busy;
-    $('stop').hidden = !m.busy; $('send').disabled = m.busy || !m.canAsk; $('question').disabled = m.busy || !m.canAsk;
+    $('stop').hidden = !m.busy; $('send').disabled = m.busy || !m.canAsk || !m.configured;
+    // Drafts stay editable while streaming or after failure; only sending needs context.
+    $('question').disabled = false;
+    $('followup-hint').textContent = m.busy ? '可以先写下问题，等待回复结束或点击停止后发送。'
+      : !m.configured ? '请先在设置中完成 API 配置，再开始分析。'
+      : !m.canAsk ? '先完成一次分析；已收到部分回复时也可继续追问。'
+      : m.interrupted ? '上次回复未完成，可输入“继续”补全，也可直接追问。' : '追问沿用本次行情；重新分析获取新数据。';
     $('welcome').hidden = m.messages.length > 0; $('snapshot').hidden = !m.snapshot;
     $('context-summary').textContent = (m.snapshot?.coverage || []).map(item => item.label + ' ' + item.detail).join(' · ');
     $('context-summary').hidden = !m.snapshot?.coverage?.length;

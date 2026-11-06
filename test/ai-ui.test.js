@@ -16,6 +16,29 @@ function page() {
 }
 const text = node => node.textContent + node.children.map(text).join('');
 
+test('生成期间仍可编辑草稿，中断后可发送追问，状态刷新不清空输入', () => {
+  const p = page();
+  p.receive({ busy: true, canAsk: false });
+  const input = p.nodes.get('question');
+  assert.equal(input.disabled, false); assert.equal(p.nodes.get('send').disabled, true);
+  input.value = '继续'; p.nodes.get('followup').dispatch('submit');
+  assert.equal(input.value, '继续'); assert.equal(p.sent.filter(m => m.type === 'ask').length, 0);
+  p.receive({ busy: false, canAsk: true, interrupted: true });
+  assert.equal(input.value, '继续'); assert.equal(input.disabled, false); assert.equal(p.nodes.get('send').disabled, false);
+  assert.match(p.nodes.get('followup-hint').textContent, /未完成.*继续/);
+  p.nodes.get('followup').dispatch('submit');
+  assert.equal(p.sent.at(-1).type, 'ask'); assert.equal(p.sent.at(-1).text, '继续'); assert.equal(input.value, '');
+});
+
+test('尚无可追问内容或缺少配置时能写草稿，说明不能发送的原因', () => {
+  const p = page();
+  p.receive({ busy: false, canAsk: false });
+  assert.equal(p.nodes.get('question').disabled, false); assert.equal(p.nodes.get('send').disabled, true);
+  assert.match(p.nodes.get('followup-hint').textContent, /先完成一次分析/);
+  p.receive({ busy: false, canAsk: true, configured: false });
+  assert.equal(p.nodes.get('send').disabled, true); assert.match(p.nodes.get('followup-hint').textContent, /API 配置/);
+});
+
 test('失败或停止后，空回复不再显示正在思考；重新分析不能复活旧等待提示', () => {
   const p = page(), answer = { role: 'assistant', content: '', state: 'pending', phase: 'reasoning', elapsedSeconds: 12 };
   const render = busy => p.receive({ busy, messages: [answer] });
