@@ -18,6 +18,27 @@ const aiModel = () => [{ id: 'ai', title: 'AI 分析', actions: [{ id: 'ai.save'
   { key: 'ai.model', label: '模型名称', type: 'string', value: 'test' }
 ] }];
 
+test('自定义颜色按模式展示，选色和 HEX 输入均保存，非法输入不会提交且可重试', () => {
+  const p = page(), groups = [{ id: 'stocks', title: '自选与图表', actions: [], fields: [
+    { key: 'stocks.colorMode', label: '自选配色', type: 'select', value: 'neutral', options: ['neutral', 'custom'].map(value => ({ value, label: value })) },
+    { key: 'stocks.upColor', label: '上涨颜色', type: 'color', value: '#f14c4c', visibleWhen: { key: 'stocks.colorMode', value: 'custom' } }
+  ] }];
+  p.receive({ type: 'state', groups }); const all = () => descendants(p.nodes.get('sections'));
+  const input = all().find(n => n.id === 'field-stocks.upColor'), picker = all().find(n => n.type === 'color');
+  const article = all().find(n => n.tag === 'article' && descendants(n).includes(input));
+  assert.equal(article.hidden, true);
+  groups[0].fields[0].value = 'custom'; p.receive({ type: 'state', groups }); assert.equal(article.hidden, false);
+  picker.value = '#123456'; picker.dispatch('input'); assert.equal(input.value, '#123456'); picker.dispatch('change');
+  assert.equal(p.sent.at(-1).value, '#123456'); assert.equal(input.disabled, true);
+  p.receive({ type: 'result', key: 'stocks.upColor', ok: true });
+  const count = p.sent.length; input.value = '#xyz'; input.dispatch('change'); assert.equal(p.sent.length, count); assert.equal(input.disabled, false);
+  input.value = '#AABBCC'; input.dispatch('change'); assert.equal(p.sent.at(-1).value, '#aabbcc'); assert.equal(picker.value, '#aabbcc');
+  p.receive({ type: 'result', key: 'stocks.upColor', ok: false, error: '保存失败' }); assert.equal(input.disabled, false);
+  descendants(article).find(n => n.textContent === '恢复默认').dispatch('click'); assert.equal(p.sent.at(-1).type, 'reset');
+  p.receive({ type: 'result', key: 'stocks.upColor', ok: true });
+  groups[0].fields[0].value = 'neutral'; p.receive({ type: 'state', groups }); assert.equal(article.hidden, true);
+});
+
 test('Key直接在密码框输入，保存后清空草稿并遮挡；旧密钥不会作为表单值返回', () => {
   const p = page(), groups = aiModel(); p.receive({ type: 'state', groups });
   const all = () => descendants(p.nodes.get('sections')), input = all().find(n => n.id === 'field-ai.apiKey');

@@ -27,6 +27,10 @@ h2 { font-size: 17px; margin: 0 0 12px; } section { margin-top: 28px; }
 .setting-copy label { font-weight: 600; } .setting-copy p { color: var(--vscode-descriptionForeground); line-height: 1.6; margin: 6px 0 0; }
 .control { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; max-width: 350px; }
 .control input[type="text"] { width: 300px; }
+.color-control input[type="text"] { width: 100px; font-family: var(--vscode-editor-font-family, monospace); }
+.color-control input[type="color"] { width: 40px; height: 32px; padding: 3px; cursor: pointer; }
+.color-control input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.color-control input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 2px; }
 .secret-control { width: 300px; display: block; }
 .secret-input { display: flex; align-items: stretch; width: 100%; }
 .secret-input input { width: 100%; min-width: 0; flex: 1; border-radius: 4px 0 0 4px; }

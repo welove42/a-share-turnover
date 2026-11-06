@@ -99,7 +99,7 @@ class OverseasWatchlist {
     }
     const display = this.displayInfo(element.symbol), q = display.quote, stale = display.stale;
     const item = new vscode.TreeItem(q ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]` : `—   —   [${element.symbol}]`, vscode.TreeItemCollapsibleState.None);
-    item.id = `stock:${element.symbol}`; item.contextValue = 'aShareOverseasStock'; item.iconPath = display.error ? new vscode.ThemeIcon('warning') : trendIcon(this.parent.context.extensionUri,q?.percent);
+    item.id = `stock:${element.symbol}`; item.contextValue = 'aShareOverseasStock'; item.iconPath = display.error ? new vscode.ThemeIcon('warning') : trendIcon(this.parent.context.extensionUri,q?.percent,this.parent.config.colors);
     item.description = display.description;
     item.command = { command:'welove42.aShareTurnover.overseas.open', title:'在浏览器查看行情', arguments:[element] };
     const tip = new vscode.MarkdownString(); tip.isTrusted = false;

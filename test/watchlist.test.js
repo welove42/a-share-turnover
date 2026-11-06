@@ -16,6 +16,49 @@ function setup(extra={},load) {
 function dragController(h) {
   return h.trees.get('welove42.aShareTurnover.marketWatch').dragAndDropController;
 }
+
+test('自选配色即时同步 A 股港美股和状态栏，不重复请求行情；默认和中性色可恢复', async () => {
+  const h = setup({ 'aShareTurnover.stocks.symbols': ['sh600519', 'sz000001'], 'aShareTurnover.stocks.hkSymbols': ['hk00700'], 'aShareTurnover.stocks.usSymbols': ['usAAPL'] });
+  const svg = icon => Buffer.from(icon.dark.toString().split(',')[1], 'base64').toString();
+  try {
+    await h.c.refresh(); const requests = h.calls();
+    h.c.quotes.set('sz000001', quote('sz000001', '下跌股', '10', '-2'));
+    for (const [symbol, percent] of [['hk00700', 1], ['usAAPL', -1]]) h.c.overseas.quotes.set(symbol, { ...quote('sh600519'), symbol, percent });
+    const up = () => h.c.getTreeItem(h.c.element('sh600519')).iconPath;
+    const down = () => h.c.getTreeItem(h.c.element('sz000001')).iconPath;
+    assert.equal(h.c.status.color.id, 'charts.red');
+    await h.c.updateSetting('stocks.upColor', '#FFD166');
+    await h.c.updateSetting('stocks.downColor', '#5B9DFF');
+    h.c.emitter.fired.length = 0;
+    await h.c.updateSetting('stocks.colorMode', 'custom');
+    assert.ok(h.c.emitter.fired.includes(undefined));
+    assert.match(svg(up()), /stroke="#ffd166"/); assert.match(svg(down()), /stroke="#5b9dff"/);
+    assert.equal(up().light.toString(), up().dark.toString()); // SVG paint survives selected-row foreground.
+    assert.equal(h.c.status.color, '#ffd166');
+    for (const [market, symbol, color] of [['hk', 'hk00700', '#ffd166'], ['us', 'usAAPL', '#5b9dff']]) {
+      const item = h.c.getTreeItem({ kind: 'overseasStock', market, symbol }); assert.ok(svg(item.iconPath).includes(color));
+    }
+    // A direct settings.json edit uses the same redraw path.
+    await h.api.workspace.getConfiguration('aShareTurnover').update('stocks.colorMode', 'neutral');
+    assert.equal(up().id, 'chevron-up'); assert.equal(down().id, 'chevron-down');
+    assert.equal(h.c.status.color, undefined); assert.match(h.c.status.text, /triangle-up/);
+    await h.c.updateSetting('stocks.colorMode', 'redUpGreenDown');
+    assert.equal(up().dark, 'file:///extension/media/trend-up-dark.svg'); assert.equal(h.c.status.color.id, 'charts.red');
+    assert.equal(h.calls(), requests);
+  } finally { h.c.dispose(); }
+});
+
+test('自定义色不将缺失、平盘、暂停或过期报价染色，非法颜色安全回退', async () => {
+  const h = setup({ 'aShareTurnover.stocks.colorMode': 'custom', 'aShareTurnover.stocks.upColor': '"><script/>', 'aShareTurnover.stocks.downColor': '#123456' });
+  try {
+    h.c.publish(); assert.equal(h.c.status.color, undefined);
+    await h.c.refresh(); assert.equal(h.c.status.color, '#f14c4c');
+    h.c.quotes.set('sh000001', quote('sh000001', '上证指数', '10', '-1')); h.c.publish(); assert.equal(h.c.status.color, '#123456');
+    h.c.quotes.set('sh000001', quote('sh000001', '上证指数', '10', '0')); h.c.publish(); assert.equal(h.c.status.color, undefined);
+    h.c.quotes.set('sh000001', quote('sh000001')); h.c.paused = true; h.c.publish(); assert.equal(h.c.status.color, undefined);
+    h.c.paused = false; h.setNow('2026-10-27T10:30:00+08:00'); h.c.publish(); assert.equal(h.c.status.color, undefined);
+  } finally { h.c.dispose(); }
+});
 test('设置页的添加A股入口只搜索A股，不把港美股加入错误分组', async () => {
   const h = setup(); let pending;
   try {

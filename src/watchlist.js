@@ -8,6 +8,7 @@ const { StockSearch } = require('./stock-search');
 const { StockSettings } = require('./stock-settings');
 const { StockGroups, normalizeGroups, UNGROUPED } = require('./stock-groups');
 const { trendIcon } = require('./trend-icon');
+const { COLOR_KEYS, stockColors, stockStatusColor } = require('./stock-colors');
 const { OverseasWatchlist } = require('./overseas-watchlist');
 const { normalizeOverseas } = require('./overseas-symbols');
 const WATCHLIST_MIME = 'application/vnd.code.tree.welove42.ashareturnover.watchlist';
@@ -52,7 +53,7 @@ class WatchlistController {
         else if (!this.paused) void Promise.all(Object.values(this.overseas.inflight)).then(() => this.overseas.refreshAll());
       }
       const symbolsChanged = JSON.stringify(previous.symbols) !== JSON.stringify(this.config.symbols);
-      const structural = overseasChanged || previous.enabled !== this.config.enabled || symbolsChanged || previous.sortBy !== this.config.sortBy || JSON.stringify(previous.groups) !== JSON.stringify(this.config.groups);
+      const structural = overseasChanged || previous.enabled !== this.config.enabled || symbolsChanged || previous.sortBy !== this.config.sortBy || JSON.stringify(previous.groups) !== JSON.stringify(this.config.groups) || JSON.stringify(previous.colors) !== JSON.stringify(this.config.colors);
       const reload = previous.enabled !== this.config.enabled || symbolsChanged || previous.selected !== this.config.selected;
       if (reload) { this.generation++; this.abort?.abort(); }
       this.publish(structural);
@@ -69,7 +70,7 @@ class WatchlistController {
     // A removed watchlist item cannot remain secretly selected in the status bar.
     if (selected !== INDEX_SYMBOL && !symbols.includes(selected)) selected = INDEX_SYMBOL;
     return { enabled: c.get('stocks.enabled', true), symbols, selected, error, groups: normalizeGroups(this.settings.get('stocks.groups', []), symbols),
-      sortBy: this.settings.get('stocks.sortBy', 'manual'), closedDates: c.get('additionalClosedDates', []) };
+      sortBy: this.settings.get('stocks.sortBy', 'manual'), colors: stockColors((key, fallback) => this.settings.get(key, fallback)), closedDates: c.get('additionalClosedDates', []) };
   }
   start() {
     const c = this.clock(); this.phaseKey = c.date + c.phase;
@@ -154,7 +155,7 @@ class WatchlistController {
     item.command = { command: 'welove42.aShareTurnover.stocks.openChart', title: '查看详细行情图表', arguments: [element.symbol] };
     item.description = this.errors.has(element.symbol) ? '获取失败' : stale ? q && q.date !== this.clock().date ? q.date.slice(5) : '缓存' : '';
     item.iconPath = this.errors.has(element.symbol) ? new vscode.ThemeIcon('warning')
-      : trendIcon(this.context.extensionUri, q?.percent);
+      : trendIcon(this.context.extensionUri, q?.percent, this.config.colors);
     item.tooltip = this.tooltip(element.symbol);
     item.accessibilityInformation = { label: `${q?.name || element.symbol} ${element.symbol}，现价 ${q?.priceText || '未知'}，涨跌幅 ${percentText(q?.percent ?? null)}${stale ? '，非实时或缓存' : ''}` };
     return item;
@@ -204,10 +205,10 @@ class WatchlistController {
     const text = q ? `[${q.name}] ${q.priceText} ${q.percent > 0 ? '$(triangle-up)' : q.percent < 0 ? '$(triangle-down)' : '$(dash)'} (${percentText(q.percent)})${this.paused ? ' · 暂停' : stale ? ' · 未更新' : ''}`
       : `[${symbol === INDEX_SYMBOL ? '上证指数' : symbol}] ${this.errors.has(symbol) ? '获取失败' : '待获取'}`;
     const tooltip = this.tooltip(symbol); tooltip.appendText('\n点击切换上证指数 / 自选股。');
-    const color = !stale && !this.paused && q?.percent ? q.percent > 0 ? 'charts.red' : 'charts.green' : undefined;
+    const color = !stale && !this.paused ? stockStatusColor(q?.percent, this.config.colors) : undefined;
     if (text !== this.statusRendered.text) this.status.text = text;
     if (tooltip.value !== this.statusRendered.tooltip) this.status.tooltip = tooltip;
-    if (color !== this.statusRendered.color) this.status.color = color ? new vscode.ThemeColor(color) : undefined;
+    if (color !== this.statusRendered.color) this.status.color = color?.startsWith('#') ? color : color ? new vscode.ThemeColor(color) : undefined;
     this.statusRendered = { text, tooltip: tooltip.value, color };
     if (!this.statusVisible) { this.status.show(); this.statusVisible = true; }
   }
@@ -274,7 +275,7 @@ class WatchlistController {
   async writeSetting(key, value) {
     const entries = [[key, value]];
     if (key === 'stocks.symbols' && this.config.groups.length) entries.push(['stocks.groups', normalizeGroups(this.config.groups, value)]);
-    return this.writeSettings(entries, key !== 'stocks.groups');
+    return this.writeSettings(entries, key !== 'stocks.groups' && !COLOR_KEYS.has(key));
   }
   async writeSettings(entries, reload = true) {
     this.writingSettings = (this.writingSettings || 0) + 1;

@@ -3,11 +3,12 @@ const vscode = require('vscode');
 const { randomBytes } = require('node:crypto');
 const { normalizeDate } = require('./market');
 const { endpoint, modelName } = require('./ai-client');
+const { COLOR_KEYS, HEX_COLOR } = require('./stock-colors');
 const manifest = require('../package.json');
 const properties = manifest.contributes.configuration.properties;
 const GROUPS = [
   { id: 'market', title: '状态栏与市场', keys: ['enabled', 'comparisonMode', 'showDifferenceAmount', 'colorMode', 'sectors.enabled', 'sectors.category', 'temperature.enabled', 'temperature.colorize'] },
-  { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.symbols', 'stocks.groups', 'stocks.hkSymbols', 'stocks.hkGroups', 'stocks.usSymbols', 'stocks.usGroups', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'] },
+  { id: 'stocks', title: '自选与图表', keys: ['stocks.enabled', 'stocks.colorMode', 'stocks.upColor', 'stocks.downColor', 'stocks.symbols', 'stocks.groups', 'stocks.hkSymbols', 'stocks.hkGroups', 'stocks.usSymbols', 'stocks.usGroups', 'stocks.statusBarSymbol', 'stocks.sortBy', 'charts.defaultMode'] },
   { id: 'assets', title: '指数、基金与商品', keys: ['globalIndices.enabled', 'globalIndices.symbols', 'funds.enabled', 'funds.symbols', 'commodities.enabled', 'commodities.symbols'] },
   { id: 'news', title: '财经新闻', keys: ['news.enabled', 'news.refreshIntervalSeconds'] },
   { id: 'risk', title: '涨跌提醒与风险', keys: ['stockAlerts.mode', 'turnoverAlerts.enabled', 'turnoverAlerts.percent', 'turnoverAlerts.colorize', 'risk.enabled', 'risk.volumePercent', 'risk.dropPercent'] },
@@ -15,6 +16,7 @@ const GROUPS = [
   { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.save', 'ai.test'] }
 ];
 const LABELS = {
+  'stocks.colorMode': '自选配色', 'stocks.upColor': '上涨颜色', 'stocks.downColor': '下跌颜色',
   'ai.baseUrl': 'API 地址', 'ai.model': '模型名称',
   'stockAlerts.mode': '自选股涨跌超过 7% 时提醒',
   'turnoverAlerts.enabled': '大盘放量 / 缩量弹窗提醒', 'turnoverAlerts.percent': '放量 / 缩量提醒阈值（%）', 'turnoverAlerts.colorize': '超过阈值时成交额变色',
@@ -27,6 +29,9 @@ const LABELS = {
   'reminders.enabled': '显示大事倒计时', 'reminders.notifications': '启用事件弹窗', 'reminders.categories': '提醒哪些大事', additionalClosedDates: '补充休市日期'
 };
 const HELP = {
+  'stocks.colorMode': '统一调整 A 股、港股、美股列表的涨跌箭头，以及底部股票行情。跟随主题时不使用红绿区分，保留箭头和涨跌数字。',
+  'stocks.upColor': '点击色块选色，或输入六位 HEX 颜色。修改后立即生效。',
+  'stocks.downColor': '可与上涨使用相同颜色，选中个股后仍保留自定义颜色。',
   'ai.baseUrl': '填写兼容 Chat Completions 的地址，例如 https://api.deepseek.com 或 https://api.openai.com/v1。',
   'ai.model': '填写服务商提供的模型 ID，例如 deepseek-chat。',
   'turnoverAlerts.enabled': '交易期间超过阈值时弹窗，当天放量、缩量各提醒一次，重启不重复；老板键、暂停或关闭成交额时不提醒。',
@@ -42,6 +47,7 @@ const HELP = {
   'reminders.enabled': '在底部显示最近事件，点击看日历。', 'reminders.notifications': '事件前 24 小时和 30 分钟提醒；仅在 VS Code 运行时生效。', 'reminders.categories': '勾选要关注的事件。', additionalClosedDates: '每行一个日期，例如 2026-12-31；只填写额外休市日。'
 };
 const OPTIONS = {
+  'stocks.colorMode': ['红涨绿跌', '跟随主题', '自定义'],
   comparisonMode: ['昨日同一时刻', '昨日全天'], colorMode: ['默认颜色', '放量红色 / 缩量绿色'],
   'charts.defaultMode': ['内置分时', '内置五日分时', '1 分钟 K 线', '5 分钟 K 线', '15 分钟 K 线', '30 分钟 K 线', '60 分钟 K 线', '日 K', '周 K', '月 K', '东方财富图表', '东方财富筹码盘口']
 };
@@ -57,6 +63,11 @@ function validate(key, value, read) {
   if (s.type === 'boolean' && typeof value !== 'boolean' || s.type === 'string' && typeof value !== 'string') throw new Error('设置值格式不正确');
   if (['number', 'integer'].includes(s.type) && (typeof value !== 'number' || !Number.isFinite(value) || s.type === 'integer' && !Number.isInteger(value) || value < s.minimum || value > s.maximum)) throw new Error(`请输入 ${s.minimum}–${s.maximum} 之间的${s.type === 'integer' ? '整数' : '数值'}`);
   if (s.enum && !s.enum.includes(value)) throw new Error('请选择有效选项');
+  if (COLOR_KEYS.has(key) && key !== 'stocks.colorMode') {
+    value = value.trim();
+    if (!HEX_COLOR.test(value)) throw new Error('请输入六位 HEX 颜色，例如 #f14c4c');
+    value = value.toLowerCase();
+  }
   if (key === 'ai.baseUrl') { value = value.trim(); if (value.length > 2048) throw new Error('API 地址过长'); if (value) endpoint(value); }
   if (key === 'ai.model') { value = value.trim(); if (value) value = modelName(value); }
   if (s.type === 'array') {
@@ -91,7 +102,9 @@ class SettingsController {
       const grouping = Object.hasOwn(STOCK_MARKETS, key) && this.stocks?.groupingFor?.(STOCK_MARKETS[key]);
       const options = key === 'stocks.statusBarSymbol' ? [...new Set(['sh000001', ...this.read('stocks.symbols')])].map(value => ({ value, label: value === 'sh000001' ? '上证指数' : `${this.lists['stocks.symbols']?.name(value) || this.stocks?.quotes.get(value)?.name || '名称待获取'} · ${value}` }))
         : (s.enum || s.items?.enum || []).map((value, i) => ({ value, label: OPTIONS[key]?.[i] || (s.enumDescriptions || s.items?.enumDescriptions)?.[i] || value }));
-      return { key, label: LABELS[key], help: HELP[key] || '', type: LISTS.has(key) ? 'list' : key === 'additionalClosedDates' ? 'dates' : options.length ? s.type === 'array' ? 'checks' : 'select' : s.type, options, min: s.minimum, max: s.maximum, value: this.read(key), workspace: c?.workspaceValue !== undefined,
+      const isColor = COLOR_KEYS.has(key) && key !== 'stocks.colorMode';
+      return { key, label: LABELS[key], help: HELP[key] || '', type: isColor ? 'color' : LISTS.has(key) ? 'list' : key === 'additionalClosedDates' ? 'dates' : options.length ? s.type === 'array' ? 'checks' : 'select' : s.type, options, min: s.minimum, max: s.maximum, value: this.read(key), workspace: c?.workspaceValue !== undefined,
+        visibleWhen: isColor ? { key: 'stocks.colorMode', value: 'custom' } : undefined,
         ...(LISTS.has(key) ? { addLabel: ADD_LABELS[key], canEdit: Boolean(this.lists[key]?.edit), items: this.read(key).map(id => ({ id, name: this.lists[key]?.name(id) || '名称待获取' })) } : {}),
         ...(grouping ? { stockGroups: grouping.buckets() } : {}) };
     }) }));

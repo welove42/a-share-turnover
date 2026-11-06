@@ -10,7 +10,7 @@
     let visible = 0;
     for (const [id, section] of sections) {
       let count = 0;
-      for (const row of section.rows) { row.element.hidden = (selected !== 'all' && selected !== id) || !`${section.title} ${row.field.label} ${row.field.help} ${(row.field.items || []).map(item => item.name + ' ' + item.id).join(' ')} ${(row.field.stockGroups || []).map(g => g.name).join(' ')}`.toLowerCase().includes(search); if (!row.element.hidden) count++; }
+      for (const row of section.rows) { const condition = row.field.visibleWhen; row.element.hidden = (selected !== 'all' && selected !== id) || (condition && values[condition.key] !== condition.value) || !`${section.title} ${row.field.label} ${row.field.help} ${(row.field.items || []).map(item => item.name + ' ' + item.id).join(' ')} ${(row.field.stockGroups || []).map(g => g.name).join(' ')}`.toLowerCase().includes(search); if (!row.element.hidden) count++; }
       section.element.hidden = !count; visible += count;
     }
     $('empty').hidden = visible > 0;
@@ -19,11 +19,12 @@
   function apply(row, value) {
     if (row.field.type === 'secret') { updateKeyStatus(); return; }
     if (row.field.key.startsWith('ai.') && ai.dirty) return;
-    if (row.pending || document.activeElement === row.input && ['number', 'integer', 'dates', 'string'].includes(row.field.type)) return;
+    if (row.pending || document.activeElement === row.input && ['number', 'integer', 'dates', 'string', 'color'].includes(row.field.type) || row.picker && document.activeElement === row.picker) return;
     const f = row.field;
     if (f.type === 'boolean') row.input.checked = value;
     else if (f.type === 'checks') for (const input of row.inputs) input.checked = value.includes(input.value);
     else if (f.type === 'list') renderList(row);
+    else if (f.type === 'color') { row.input.value = value; if (/^#[0-9a-f]{6}$/i.test(value)) row.picker.value = value.toLowerCase(); }
     else row.input.value = f.type === 'dates' ? value.join('\n') : value;
   }
   function busy(row, value) { row.pending = value; for (const c of row.controls) c.disabled = value || c.dataset.locked === 'true'; }
@@ -157,9 +158,32 @@
     add.addEventListener('click', () => listAction(row, 'add')); query.addEventListener('input', () => renderList(row));
     element.append(header, query, input, empty, error); rows.set(field.key, row); return row;
   }
+  function makeColor(field) {
+    const element = node('article', '', 'setting'), text = node('div', '', 'setting-copy');
+    const title = node('label', field.label), help = node('p', field.help);
+    const control = node('div', '', 'control color-control'), picker = node('input'), input = node('input');
+    const reset = node('button', '恢复默认', 'reset'), error = node('p', '', 'error');
+    input.id = 'field-' + field.key; input.type = 'text'; input.placeholder = '#f14c4c'; input.maxLength = 7; input.spellcheck = false; input.autocomplete = 'off';
+    input.setAttribute('aria-label', field.label + ' HEX'); title.htmlFor = input.id;
+    help.id = 'help-' + field.key; input.setAttribute('aria-describedby', help.id);
+    picker.type = 'color'; picker.setAttribute('aria-label', '选择' + field.label); picker.setAttribute('aria-describedby', help.id); reset.type = 'button'; error.setAttribute('role', 'alert');
+    text.append(title, help); control.append(picker, input, reset); element.append(text, control, error);
+    const row = { element, field, input, picker, error, controls: [picker, input, reset], pending: false };
+    const save = value => {
+      if (!/^#[0-9a-f]{6}$/i.test(value)) { error.textContent = '请输入六位 HEX 颜色，例如 #f14c4c'; return; }
+      value = value.toLowerCase(); picker.value = value; input.value = value; error.textContent = ''; busy(row, true);
+      $('save-status').textContent = '保存中…'; send({ type: 'save', key: field.key, value });
+    };
+    picker.addEventListener('input', () => { input.value = picker.value; });
+    picker.addEventListener('change', () => save(picker.value));
+    input.addEventListener('change', () => save(input.value.trim()));
+    reset.addEventListener('click', () => { busy(row, true); error.textContent = ''; $('save-status').textContent = '保存中…'; send({ type: 'reset', key: field.key }); });
+    rows.set(field.key, row); return row;
+  }
   function makeField(field) {
     if (field.type === 'list') return makeList(field);
     if (field.type === 'secret') return makeSecret(field);
+    if (field.type === 'color') return makeColor(field);
     const element = node('article', '', 'setting'), text = node('div', '', 'setting-copy'), title = node('label', field.label), help = node('p', field.help);
     title.htmlFor = 'field-' + field.key; text.append(title, help);
     const control = node('div', '', 'control'), error = node('p', '', 'error'); error.setAttribute('role', 'alert');

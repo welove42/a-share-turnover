@@ -24,6 +24,19 @@ test('设置页覆盖所有配置，复用标签，真实保存并响应外部�
   } finally { c.dispose(); }
 });
 
+test('配色设置支持三种模式与 HEX 校验，恢复默认并提供条件颜色控件', async () => {
+  const { h, c, panel, send } = setup();
+  try {
+    const fields = c.model().find(g => g.id === 'stocks').fields;
+    assert.deepEqual(fields.find(f => f.key === 'stocks.colorMode').options.map(o => o.label), ['红涨绿跌', '跟随主题', '自定义']);
+    const color = fields.find(f => f.key === 'stocks.upColor'); assert.equal(color.type, 'color'); assert.equal(color.visibleWhen.value, 'custom');
+    for (const value of ['neutral', 'custom', 'redUpGreenDown']) { await send({ type: 'save', key: 'stocks.colorMode', value }); assert.equal(h.values.get('aShareTurnover.stocks.colorMode'), value); }
+    await send({ type: 'save', key: 'stocks.upColor', value: ' #AABBCC ' }); assert.equal(h.values.get('aShareTurnover.stocks.upColor'), '#aabbcc');
+    for (const value of ['red', '#fff', '#12345678', '#12345g', '"><svg/>', null]) { await send({ type: 'save', key: 'stocks.upColor', value }); assert.equal(panel.webview.messages.at(-1).ok, false); assert.equal(h.values.get('aShareTurnover.stocks.upColor'), '#aabbcc'); }
+    await send({ type: 'reset', key: 'stocks.upColor' }); assert.equal(h.values.get('aShareTurnover.stocks.upColor'), '#f14c4c');
+  } finally { c.dispose(); }
+});
+
 test('大盘成交额提醒在设置页调整开关和阈值，拒绝无效值且支持恢复默认', async () => {
   const { h, c, panel, send } = setup();
   try {

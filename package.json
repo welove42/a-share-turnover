@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.22.5",
+  "version": "1.22.6",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.5.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.22.6.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.js",
     "smoke:news": "node scripts/smoke-news.js",
     "smoke:charts": "node scripts/smoke-charts.js",
@@ -469,6 +469,30 @@
           "default": true,
           "scope": "application",
           "description": "显示自选股侧栏及底部指数/个股行情，与原成交额状态栏独立。"
+        },
+        "aShareTurnover.stocks.colorMode": {
+          "type": "string",
+          "default": "redUpGreenDown",
+          "scope": "application",
+          "enum": ["redUpGreenDown", "neutral", "custom"],
+          "enumDescriptions": ["红涨绿跌", "跟随主题（不区分涨跌颜色）", "自定义上涨和下跌颜色"],
+          "description": "自选股列表箭头和底部股票行情的配色，适用于 A 股、港股和美股自选。"
+        },
+        "aShareTurnover.stocks.upColor": {
+          "type": "string",
+          "default": "#f14c4c",
+          "scope": "application",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "请填写六位 HEX 颜色，例如 #f14c4c。",
+          "description": "自定义上涨颜色，仅在自选配色选择自定义时生效。也可在插件设置页用颜色选择器调整。"
+        },
+        "aShareTurnover.stocks.downColor": {
+          "type": "string",
+          "default": "#55b873",
+          "scope": "application",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "patternErrorMessage": "请填写六位 HEX 颜色，例如 #55b873。",
+          "description": "自定义下跌颜色，仅在自选配色选择自定义时生效。也可在插件设置页用颜色选择器调整。"
         },
         "aShareTurnover.stocks.symbols": {
           "type": "array",
