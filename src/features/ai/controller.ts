@@ -378,6 +378,7 @@ class AiAnalysisController {
     const intent = (this.openIntent = (this.openIntent || 0) + 1);
     await vscode.commands.executeCommand(`${VIEW}.focus`);
     if (this.hidden || this.disposed || intent !== this.openIntent) return;
+    this.historyVisible = false;
     if (symbol && (symbol === 'market' || /^(?:sh|sz|bj)\d{6}$/.test(symbol))) return this.selectTarget(symbol);
     if (!this.target) return this.choose();
     this.publish();
