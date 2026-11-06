@@ -133,7 +133,7 @@ test('首次无正文失败不能追问；恢复请求再失败仍保留上下�
   } finally { c.dispose(); }
 });
 
-test('重新分析、清空、切股、配置变化和老板键清理中断上下文', async () => {
+test('新分析和切股隔离上下文，老板键隐藏内容并在恢复时保留原对话', async () => {
   let partial = true; const requests = [];
   const { c, h, panel } = await setup({ request: async args => {
     requests.push(args); if (partial) args.onDelta('旧标的正文'); throw new Error('AI 响应中断');
@@ -149,8 +149,60 @@ test('重新分析、清空、切股、配置变化和老板键清理中断上�
     await h.api.workspace.getConfiguration('aShareTurnover').update('ai.model', 'new-model');
     assert.equal(c.interruptedHistory, null); assert.equal(c.messages.length, 0); assert.equal(c.history.length, 0);
     await c.analyze(); c.setHidden(true); assert.equal(c.interruptedHistory, null);
-    c.setHidden(false); assert.equal(panel.webview.messages.at(-1).canAsk, false);
+    c.setHidden(false); assert.equal(panel.webview.messages.at(-1).canAsk, true);
   } finally { c.dispose(); }
+});
+
+test('重启后恢复正文、快照、中断上下文及草稿，不自动请求或泄露Key', async () => {
+  const { c, h, panel } = await setup({ request: async args => { args.onDelta('收到部分回复'); throw new Error('AI 回复中断'); } });
+  let restored, calls = 0;
+  try {
+    await c.open('sh600519'); const id = c.sessionId;
+    panel.webview.receive.fire({ type: 'draft', token: c.token, sessionRevision: c.sessionRevision, text: '继续补全风险' });
+    await c.saveCurrent(); c.dispose(); await c.archive.write;
+    restored = new c.constructor(h.context, { config: () => configuration, request: async args => {
+      calls++; assert.match(args.messages[2].content, /收到部分回复.*\n\n.*不完整/); return '恢复后补全';
+    } });
+    const view = h.api.window.createWebviewPanel('restore', '', 1, {}); restored.resolveWebviewView(view); await restored.ready;
+    assert.equal(restored.sessionId, id); assert.equal(restored.target, 'sh600519'); assert.equal(calls, 0);
+    assert.equal(view.webview.messages.at(-1).draft, '继续补全风险'); assert.equal(view.webview.messages.at(-1).canAsk, true);
+    assert.deepEqual(restored.snapshot, sample()); assert.match(restored.status, /当时行情/);
+    await restored.open('sh600519'); assert.equal(calls, 0);
+    await restored.analyze('继续'); assert.equal(calls, 1); assert.equal(restored.messages.at(-1).content, '恢复后补全');
+    assert.doesNotMatch(JSON.stringify([...h.store.values()]), /never-send-to-webview/);
+  } finally { restored?.dispose(); c.dispose(); }
+});
+
+test('切回个股恢复该股对话，重新分析另存一段，历史选择和清空真正生效', async () => {
+  const { c, h, requests } = await setup();
+  try {
+    await c.open('sh600519'); const first = c.sessionId;
+    await c.open('sh510300'); assert.equal(requests.length, 2);
+    await c.open('sh600519'); assert.equal(c.sessionId, first); assert.equal(requests.length, 2);
+    await c.analyze(); const second = c.sessionId;
+    assert.notEqual(second, first); assert.equal(c.archive.read().sessions.length, 3);
+    h.api.window.showQuickPick = async items => items.find(i => i.id === first);
+    await c.showHistory(); assert.equal(c.sessionId, first); assert.equal(requests.length, 3);
+    c.clear(); await c.archive.write;
+    assert.equal(c.archive.read().sessions.length, 2); assert.equal(c.archive.read().sessions.some(s => s.id === first), false);
+    h.api.window.showQuickPick = async items => items.find(i => i.id === 'delete-all' || i.remove);
+    await c.showHistory(); assert.deepEqual(c.archive.read().sessions, []); assert.equal(c.messages.length, 0);
+  } finally { c.dispose(); }
+});
+
+test('流式自动保存可在异常关闭后恢复，并拒绝旧页面草稿覆盖新对话', async () => {
+  let end; const { c, h, panel } = await setup({ request: args => { args.onDelta('关闭前的部分'); return new Promise(resolve => { end = resolve; }); } });
+  let restored;
+  try {
+    const pending = c.open('sh600519'); await tick(); await c.saveCurrent();
+    restored = new c.constructor(h.context, { config: () => configuration, request: async () => '完成' }); await restored.ready;
+    assert.equal(restored.busy, false); assert.equal(restored.messages.at(-1).state, 'stopped');
+    assert.match(restored.messages.at(-1).notice, /窗口关闭/); assert.ok(restored.interruptedHistory);
+    const oldRevision = c.sessionRevision; c.clear();
+    panel.webview.receive.fire({ type: 'draft', token: c.token, sessionRevision: oldRevision, text: '旧页面草稿' });
+    assert.equal(c.draft, ''); end('迟到结果'); await pending;
+    assert.equal(c.messages.length, 0);
+  } finally { c.dispose(); restored?.dispose(); }
 });
 
 test('零正文失败、停止、重试均收尾，迟到进度不覆盖新请求', async () => {

@@ -2,8 +2,16 @@
   'use strict';
   const vscode = acquireVsCodeApi(), token = document.body.dataset.token;
   const $ = id => document.getElementById(id), send = (type, rest = {}) => vscode.postMessage({ type, token, ...rest });
-  for (const id of ['settings', 'choose', 'analyze', 'stop', 'clear']) $(id).addEventListener('click', () => send(id));
-  $('followup').addEventListener('submit', event => { event.preventDefault(); const text = $('question').value.trim(); if (text && !$('send').disabled) { send('ask', { text }); $('question').value = ''; } });
+  for (const id of ['settings', 'choose', 'analyze', 'stop', 'clear', 'history', 'diagnostics']) $(id).addEventListener('click', () => send(id));
+  let sessionRevision;
+  let canSend = false;
+  function resizeComposer() {
+    const input = $('question'); input.style.height = 'auto'; input.style.height = Math.min(180, Math.max(72, input.scrollHeight)) + 'px';
+    $('send').disabled = !canSend || !input.value.trim();
+  }
+  $('question').addEventListener('input', () => { resizeComposer(); send('draft', { text: $('question').value, sessionRevision }); });
+  $('followup').addEventListener('submit', event => { event.preventDefault(); const text = $('question').value.trim(); if (text && !$('send').disabled) { send('ask', { text }); $('question').value = ''; resizeComposer(); } });
+  window.addEventListener('resize', resizeComposer);
   $('question').addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('followup').requestSubmit(); } });
   let last = '', data = '', count = 0;
   // Use text nodes only: remote model output cannot execute HTML or command links.
@@ -20,10 +28,11 @@
   }
   window.addEventListener('message', event => {
     const m = event.data; if (m?.token !== token || m.type !== 'state') return;
+    if (m.sessionRevision !== sessionRevision) { sessionRevision = m.sessionRevision; $('question').value = m.draft || ''; last = ''; count = 0; $('messages').replaceChildren(); }
     $('model').textContent = m.model || '尚未配置'; $('target').textContent = m.name;
     $('status').textContent = m.status || (m.configured ? '已配置 · 点击开始分析' : '先配置一次 API，即可随时分析。');
     $('analyze').textContent = m.messages.length ? '重新分析' : '开始分析'; $('analyze').disabled = m.busy;
-    $('stop').hidden = !m.busy; $('send').disabled = m.busy || !m.canAsk || !m.configured;
+    $('stop').hidden = !m.busy; canSend = !m.busy && m.canAsk && m.configured; resizeComposer();
     // Drafts stay editable while streaming or after failure; only sending needs context.
     $('question').disabled = false;
     $('followup-hint').textContent = m.busy ? '可以先写下问题，等待回复结束或点击停止后发送。'
@@ -33,6 +42,7 @@
     $('welcome').hidden = m.messages.length > 0; $('snapshot').hidden = !m.snapshot;
     $('context-summary').textContent = (m.snapshot?.coverage || []).map(item => item.label + ' ' + item.detail).join(' · ');
     $('context-summary').hidden = !m.snapshot?.coverage?.length;
+    $('save-warning').textContent = m.saveWarning || ''; $('save-warning').hidden = !m.saveWarning;
     const q = m.snapshot?.quote, daily = m.snapshot?.daily;
     const time = q?.timestamp ? String(q.timestamp).replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/, '$1-$2-$3 $4:$5:$6 北京') : '报价时间缺失';
     $('snapshot').querySelector('summary').textContent = m.snapshot ? `${q?.cached ? '缓存报价' : '行情快照'} · ${time}${daily?.date ? ' · 日K ' + daily.date : ''}` : '本次行情数据';

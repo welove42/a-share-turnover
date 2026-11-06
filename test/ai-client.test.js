@@ -1,6 +1,6 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict'), http = require('node:http');
-const { endpoint, secretId, complete, requestBody } = require('../src/ai-client');
+const { endpoint, secretId, complete, requestBody, diagnosticText } = require('../src/ai-client');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function server(t, handle) {
   const s = http.createServer(handle); await new Promise(resolve => s.listen(0, '127.0.0.1', resolve));
@@ -136,4 +136,31 @@ test('正文后连接异常断开说明是中断，不误报完全无法连接',
   let received = '';
   await assert.rejects(complete({ ...args(url), onDelta: value => { received += value; } }), /连接中断.*继续追问/);
   assert.equal(received, '已收部分');
+});
+
+test('诊断区分空闲超时与完成标记，不记录Key、正文或推理内容', async t => {
+  let finish = false;
+  const url = await server(t, (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write('data: {"choices":[{"delta":{"reasoning_content":"private thinking"}}]}\n\n');
+    res.write('data: {"choices":[{"delta":{"content":"private answer"}}]}\n\n');
+    if (finish) res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+    else { const timer = setInterval(() => res.write(': heartbeat\n\n'), 20); res.on('close', () => clearInterval(timer)); }
+  });
+  let diagnostic;
+  await assert.rejects(complete({ ...args(url), idleTimeoutMs: 150, onDiagnostic: value => { diagnostic = value; } }), /中途停了/);
+  assert.equal(diagnostic.outcome, 'idle_timeout'); assert.equal(diagnostic.contentChars, 14);
+  assert.equal(diagnostic.contentEvents, 1); assert.equal(diagnostic.reasoningEvents, 1); assert.ok(diagnostic.heartbeatEvents > 0);
+  assert.ok(diagnostic.lastByteMs > diagnostic.lastContentMs); assert.equal(diagnostic.finishReason, null);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /private|secret-test-key|test-model/);
+  finish = true; await complete({ ...args(url), onDiagnostic: value => { diagnostic = value; } });
+  assert.equal(diagnostic.outcome, 'complete'); assert.equal(diagnostic.finishReason, 'stop');
+  assert.equal(diagnostic.doneSeen, false); assert.equal(diagnostic.httpStatus, 200);
+});
+
+test('诊断中文说明区分无网络数据与只有心跳，不臆测具体上游原因', () => {
+  const d = { outcome: 'idle_timeout', elapsedMs: 100000, idleTimeoutMs: 90000, lastByteMs: 10000, contentChars: 100 };
+  assert.match(diagnosticText(d), /不能区分服务端停顿、网关或网络中断/);
+  assert.match(diagnosticText({ ...d, lastByteMs: 99000 }), /连接仍有数据/);
+  assert.match(diagnosticText({ outcome: 'complete', firstContentMs: 2500, elapsedMs: 15000, finishReason: 'stop' }), /正常完成[\s\S]*2.50 秒[\s\S]*stop/);
 });

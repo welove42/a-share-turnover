@@ -4,17 +4,29 @@ function page() {
   const nodes = new Map(), sent = []; let receive;
   function element(tag) {
     const handlers = {};
-    return { tagName: tag.toUpperCase(), children: [], dataset: {}, value: '', textContent: '', hidden: false, disabled: false, scrollHeight: 0, scrollTop: 0, clientHeight: 0,
+    return { tagName: tag.toUpperCase(), children: [], dataset: {}, style: {}, value: '', textContent: '', hidden: false, disabled: false, scrollHeight: 0, scrollTop: 0, clientHeight: 0,
       append(...children) { this.children.push(...children); }, replaceChildren(...children) { this.children = children; },
       get lastElementChild() { return this.children.at(-1); }, querySelector() { return this.summary ||= element('summary'); },
       addEventListener(type, fn) { handlers[type] = fn; }, dispatch(type) { handlers[type]?.({ preventDefault() {} }); }
     };
   }
   const document = { body: { dataset: { token: 'test' } }, createElement: element, getElementById: id => { if (!nodes.has(id)) nodes.set(id, element(id)); return nodes.get(id); } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/ai-analysis.js'), 'utf8'), { document, window: { addEventListener: (_, fn) => { receive = fn; } }, acquireVsCodeApi: () => ({ postMessage: m => sent.push(m) }) });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/ai-analysis.js'), 'utf8'), { document, window: { addEventListener: (type, fn) => { if (type === 'message') receive = fn; } }, acquireVsCodeApi: () => ({ postMessage: m => sent.push(m) }) });
   return { nodes, sent, receive: state => receive({ data: { token: 'test', type: 'state', configured: true, name: '测试', messages: [], ...state } }) };
 }
 const text = node => node.textContent + node.children.map(text).join('');
+
+test('切换历史恢复草稿与等长对话，普通状态更新不覆盖正在输入的文字', () => {
+  const p = page();
+  p.receive({ sessionRevision: 1, draft: '旧草稿', messages: [{ role: 'assistant', content: '旧对话' }] });
+  assert.equal(p.nodes.get('question').value, '旧草稿');
+  p.nodes.get('question').value = '正在写'; p.nodes.get('question').dispatch('input');
+  assert.equal(p.sent.at(-1).type, 'draft'); assert.equal(p.sent.at(-1).sessionRevision, 1);
+  p.receive({ sessionRevision: 1, draft: '旧草稿' }); assert.equal(p.nodes.get('question').value, '正在写');
+  p.receive({ sessionRevision: 2, draft: '另一段草稿', messages: [{ role: 'assistant', content: '新对话' }] });
+  assert.equal(p.nodes.get('question').value, '另一段草稿'); assert.equal(p.nodes.get('messages').children.length, 1);
+  assert.doesNotMatch(text(p.nodes.get('messages')), /旧对话/);
+});
 
 test('生成期间仍可编辑草稿，中断后可发送追问，状态刷新不清空输入', () => {
   const p = page();
@@ -37,6 +49,15 @@ test('尚无可追问内容或缺少配置时能写草稿，说明不能发送�
   assert.match(p.nodes.get('followup-hint').textContent, /先完成一次分析/);
   p.receive({ busy: false, canAsk: true, configured: false });
   assert.equal(p.nodes.get('send').disabled, true); assert.match(p.nodes.get('followup-hint').textContent, /API 配置/);
+});
+
+test('追问输入框自动增高并限制最大高度，空白不发送', () => {
+  const p = page(); p.receive({ busy: false, canAsk: true });
+  const input = p.nodes.get('question'); assert.equal(p.nodes.get('send').disabled, true);
+  input.value = '较长的追问'; input.scrollHeight = 135; input.dispatch('input');
+  assert.equal(input.style.height, '135px'); assert.equal(p.nodes.get('send').disabled, false);
+  input.scrollHeight = 500; input.dispatch('input'); assert.equal(input.style.height, '180px');
+  input.value = '  '; input.dispatch('input'); assert.equal(p.nodes.get('send').disabled, true);
 });
 
 test('失败或停止后，空回复不再显示正在思考；重新分析不能复活旧等待提示', () => {
