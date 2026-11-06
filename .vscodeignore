@@ -9,3 +9,9 @@ package-lock.json
 .gitignore
 *.vsix
 *.zip
+src/**
+tsconfig*.json
+*.tsbuildinfo
+dist/**/*.map
+docs/ARCHITECTURE.zh-CN.md
+.prettierrc.json

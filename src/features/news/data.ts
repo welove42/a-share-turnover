@@ -1,0 +1,96 @@
+import type { NewsArticle } from '../../shared/types';
+import { requestJson } from '../../core/network/http';
+const SOURCES = { eastmoney: '东方财富' };
+function plain(value: unknown): string {
+  return typeof value === 'string'
+    ? value
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
+        .trim()
+        .slice(0, 20000)
+    : '';
+}
+function parseNews(payload: any): NewsArticle[] {
+  if (String(payload?.code) !== '1' || !Array.isArray(payload?.data?.fastNewsList))
+    throw new Error('东方财富快讯接口返回异常');
+  const source = 'eastmoney',
+    rows = payload.data.fastNewsList;
+  const articles: NewsArticle[] = [];
+  for (const row of rows) {
+    const id = String(row.code ?? '');
+    const title = plain(row.title) || plain(row.summary).slice(0, 150);
+    const publishedAt = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(row.showTime || '')
+      ? Date.parse(row.showTime.replace(' ', 'T') + '+08:00')
+      : NaN;
+    if (!/^[\w-]{1,100}$/.test(id) || !title || !Number.isFinite(publishedAt)) continue;
+    articles.push({
+      key: `${source}:${id}`,
+      id,
+      source,
+      title,
+      body: plain(row.summary) || title,
+      publishedAt,
+      stocks: Array.isArray(row.stocks)
+        ? row.stocks
+            .map((s) => plain(s.name))
+            .filter(Boolean)
+            .join('、')
+        : ''
+    });
+  }
+  return mergeNews([], articles).items;
+}
+function isArticle(item: any): item is NewsArticle {
+  return (
+    item &&
+    SOURCES[item.source] &&
+    /^[\w-]{1,100}$/.test(item.id) &&
+    item.key === `${item.source}:${item.id}` &&
+    typeof item.title === 'string' &&
+    item.title.length > 0 &&
+    item.title.length <= 20000 &&
+    typeof item.body === 'string' &&
+    item.body.length <= 20000 &&
+    typeof item.stocks === 'string' &&
+    Number.isFinite(item.publishedAt) &&
+    item.publishedAt > 0 &&
+    item.publishedAt < 8640000000000000
+  );
+}
+function mergeNews(existing: NewsArticle[], incoming: NewsArticle[], limit = 200) {
+  const map = new Map(existing.filter(isArticle).map((item) => [item.key, item]));
+  const added: NewsArticle[] = [];
+  for (const item of incoming) {
+    if (!isArticle(item)) continue;
+    if (!map.has(item.key)) added.push(item);
+    map.set(item.key, item);
+  }
+  return {
+    items: [...map.values()]
+      .sort((a, b) => b.publishedAt - a.publishedAt || b.key.localeCompare(a.key))
+      .slice(0, limit),
+    added
+  };
+}
+class NewsProvider {
+  declare request: typeof requestJson;
+
+  constructor(request = requestJson) {
+    this.request = request;
+  }
+  async load(signal?: AbortSignal): Promise<NewsArticle[]> {
+    const url =
+      'https://np-listapi.eastmoney.com/comm/web/getFastNewsList?client=web&biz=web_724&fastColumn=102&sortEnd=&pageSize=50&req_trace=1';
+    const headers = { Referer: 'https://finance.eastmoney.com/' };
+    const payload = await this.request(url, signal, headers);
+    if (signal?.aborted) throw new Error('新闻请求已取消');
+    return parseNews(payload);
+  }
+}
+export { SOURCES, plain, parseNews, isArticle, mergeNews, NewsProvider };

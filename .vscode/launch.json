@@ -2,11 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "运行 A股成交额插件",
+      "name": "运行牛来盯盘",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/src/**/*.js"]
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.js"
+      ],
+      "preLaunchTask": "npm: build"
     }
   ]
 }
