@@ -32,9 +32,36 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
           </div>
         </header>
         <section class="target">
-          <button id="choose" type="button" class="target-button" title="选择自选股或大盘">
-            <span id="target">选择分析对象</span><span class="target-chevron" aria-hidden="true"></span>
-          </button>
+          <div id="target-picker" class="target-picker">
+            <button
+              id="choose"
+              type="button"
+              class="target-button"
+              title="选择自选股或大盘"
+              aria-expanded="false"
+              aria-controls="target-menu"
+              aria-haspopup="listbox"
+            >
+              <span id="target">选择分析对象</span><span class="target-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="target-menu" class="target-menu" hidden>
+              <input
+                id="target-search"
+                type="search"
+                role="combobox"
+                aria-label="搜索分析对象"
+                aria-controls="target-options"
+                aria-expanded="false"
+                aria-autocomplete="list"
+                placeholder="搜索自选名称或代码"
+                autocomplete="off"
+                spellcheck="false"
+                maxlength="100"
+              />
+              <div id="target-options" role="listbox" aria-label="自选股与大盘"></div>
+              <p id="target-empty" role="status" hidden>没有匹配的自选股或大盘</p>
+            </div>
+          </div>
           <div class="toolbar">
             <button id="analyze">开始分析</button><button id="stop" class="secondary" hidden>停止</button
             ><button id="clear" class="quiet" title="删除当前这段本地对话">清空</button>

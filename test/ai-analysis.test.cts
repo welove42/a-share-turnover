@@ -70,6 +70,87 @@ test('未配置不请求，配置后点击即分析；追问沿用快照，重�
     c.dispose();
   }
 });
+test('页内对象选择提供自选与大盘，打开和刷新名单不调用 AI，不再弹 QuickPick', async () => {
+  const stocks = {
+    config: { symbols: ['sh601138', 'sh563530', 'sh601138', 'hk00700'] },
+    quotes: new Map([
+      ['sh601138', { name: '工业富联' }],
+      ['sh563530', { name: '卫星ETF易方达' }]
+    ])
+  };
+  const { h, c, panel, requests } = await setup({ stocks });
+  h.api.window.showQuickPick = () => {
+    throw new Error('不能使用编辑器中央选择框');
+  };
+  try {
+    await c.open();
+    const state = panel.webview.messages.at(-1);
+    assert.equal(state.targetPickerRequest, 1);
+    assert.deepEqual(state.targetOptions, [
+      { symbol: 'market', label: '沪深大盘' },
+      { symbol: 'sh601138', label: '工业富联' },
+      { symbol: 'sh563530', label: '卫星ETF易方达' }
+    ]);
+    panel.webview.receive.fire({ token: c.token, type: 'refreshTargets' });
+    assert.equal(requests.length, 0);
+    assert.equal(panel.webview.messages.at(-1).targetPickerRequest, 1);
+    for (const message of [
+      { token: 'wrong', symbol: 'market' },
+      { token: c.token, symbol: 'sh600519' },
+      { token: c.token, symbol: 'hk00700' },
+      { token: c.token, symbol: { code: 'market' } }
+    ])
+      panel.webview.receive.fire({ type: 'selectTarget', ...message });
+    await tick();
+    assert.equal(requests.length, 0);
+    panel.webview.receive.fire({ token: c.token, type: 'selectTarget', symbol: 'sh601138' });
+    await tick();
+    assert.equal(c.target, 'sh601138');
+    assert.equal(requests.length, 1);
+    panel.webview.receive.fire({ token: c.token, type: 'selectTarget', symbol: 'sh601138' });
+    await tick();
+    assert.equal(requests.length, 1);
+    panel.webview.receive.fire({ token: c.token, type: 'selectTarget', symbol: 'market' });
+    await tick();
+    assert.equal(c.target, 'market');
+    assert.equal(requests.length, 2);
+    panel.webview.receive.fire({ token: c.token, type: 'selectTarget', symbol: 'sh601138' });
+    await tick();
+    assert.equal(c.target, 'sh601138');
+    assert.equal(requests.length, 2);
+    assert.match(c.status, /已恢复历史/);
+    c.setHidden(true);
+    panel.webview.receive.fire({ token: c.token, type: 'selectTarget', symbol: 'market' });
+    await tick();
+    assert.equal(requests.length, 2);
+  } finally {
+    c.dispose();
+  }
+});
+
+test('从图表打开非自选标的仍保留当前选项，名单随自选更新且不暴露其他设置', async () => {
+  const stocks = { config: { symbols: [], otherSetting: 'private-value' }, quotes: new Map() };
+  const { c, panel } = await setup({ stocks });
+  try {
+    await c.open('sh600519');
+    assert.deepEqual(
+      c.targetOptions().map((item) => item.symbol),
+      ['market', 'sh600519']
+    );
+    stocks.config.symbols.push('sh601138');
+    stocks.quotes.set('sh601138', { name: '工业富联', privateValue: 'must-not-send' });
+    panel.webview.receive.fire({ token: c.token, type: 'refreshTargets' });
+    const options = panel.webview.messages.at(-1).targetOptions;
+    assert.deepEqual(
+      options.map((item) => item.symbol),
+      ['market', 'sh601138', 'sh600519']
+    );
+    assert.doesNotMatch(JSON.stringify(options), /private-value|must-not-send/);
+  } finally {
+    c.dispose();
+  }
+});
+
 test('行情不可用不计费；重复点击不并发；切换标的阻止旧结果覆盖', async () => {
   let resolve,
     calls = 0;

@@ -1,5 +1,6 @@
 /** 右侧分析面板的会话状态机。会话切换时递增代次，迟到的网络响应不能覆盖新会话。 */
 import { html } from './view';
+import type { AnalysisTargetOption } from '../../shared/types';
 import type { AnalysisDependencies } from './dependencies';
 import type {
   AiConfiguration,
@@ -62,6 +63,7 @@ class AiAnalysisController {
   declare createdAt: number | null;
   declare target: string | undefined;
   declare selectionIntent: number | undefined;
+  private targetPickerRequest = 0;
   declare historyItems:
     | any[]
     | {
@@ -166,8 +168,12 @@ class AiAnalysisController {
       if (this.hidden || this.disposed || this.view !== view || message?.token !== token) return;
       if (message.type === 'ready') this.publish();
       else if (message.type === 'settings') this.openSettings();
-      else if (message.type === 'choose') void this.choose();
-      else if (message.type === 'analyze') void this.analyze();
+      else if (message.type === 'refreshTargets') this.publish();
+      else if (message.type === 'selectTarget') {
+        // Validate against host-owned choices; a Webview message cannot analyze an arbitrary code.
+        if (typeof message.symbol === 'string' && this.targetOptions().some((item) => item.symbol === message.symbol))
+          void this.selectTarget(message.symbol);
+      } else if (message.type === 'analyze') void this.analyze();
       else if (message.type === 'stop') this.stop();
       else if (message.type === 'clear') this.clear();
       else if (message.type === 'history') void this.showHistory();
@@ -199,6 +205,8 @@ class AiAnalysisController {
       type: 'state',
       token: this.token,
       target: this.target,
+      targetOptions: this.targetOptions(),
+      targetPickerRequest: this.targetPickerRequest,
       name: this.name(),
       model: this.config().model,
       configured: this.configured,
@@ -385,19 +393,24 @@ class AiAnalysisController {
   }
   async choose() {
     if (this.hidden || this.disposed) return;
-    const selected = await privateUI.showQuickPick(
-      [
-        { label: '沪深大盘', symbol: 'market' },
-        ...(this.stocks?.config.symbols || []).map((symbol) => ({
-          label: this.stocks?.quotes.get(symbol)?.name || symbol,
-          description: symbol,
-          symbol
-        }))
-      ],
-      { title: 'AI 分析', placeHolder: '选择个股、场内 ETF 或大盘' }
+    this.targetPickerRequest++;
+    this.publish();
+  }
+  targetOptions(): AnalysisTargetOption[] {
+    const symbols = [...new Set([...(this.stocks?.config.symbols || []), this.target])].filter(
+      (symbol): symbol is string => typeof symbol === 'string' && /^(?:sh|sz|bj)\d{6}$/.test(symbol)
     );
-    if (!selected || this.hidden || this.disposed) return;
-    return this.selectTarget(selected.symbol);
+    return [
+      { symbol: 'market', label: '沪深大盘' },
+      ...symbols.map((symbol) => ({
+        symbol,
+        label: (
+          this.stocks?.quotes.get(symbol)?.name ||
+          (symbol === this.target && this.snapshot?.quote?.name) ||
+          symbol
+        ).slice(0, 100)
+      }))
+    ];
   }
   retainInterruptedTurn() {
     const turn = this.pendingTurn;

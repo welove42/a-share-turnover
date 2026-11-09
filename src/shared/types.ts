@@ -3,6 +3,12 @@ export type NullableNumber = number | null;
 export type Log = (message: string) => void;
 export type AsyncSource<T> = (signal?: AbortSignal) => Promise<T>;
 
+/** 分析对象选择只发送公开名称和代码，不发送行情控制器或用户配置。 */
+export interface AnalysisTargetOption {
+  symbol: string;
+  label: string;
+}
+
 /** ETF 折溢价只使用同一报价快照；行情时间不代表 IOPV 的独立更新时间。 */
 export interface EtfQuote {
   symbol: string;

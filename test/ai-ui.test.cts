@@ -6,10 +6,12 @@ const test = require('node:test'),
   path = require('node:path');
 function page() {
   const nodes = new Map(),
-    sent = [];
+    sent = [],
+    documentHandlers = new Map();
   let receive;
   function element(tag) {
     const handlers = {};
+    const attributes = new Map();
     return {
       tagName: tag.toUpperCase(),
       children: [],
@@ -22,6 +24,24 @@ function page() {
       scrollHeight: 0,
       scrollTop: 0,
       clientHeight: 0,
+      setAttribute(key, value) {
+        attributes.set(key, String(value));
+      },
+      getAttribute(key) {
+        return attributes.get(key) ?? null;
+      },
+      removeAttribute(key) {
+        attributes.delete(key);
+      },
+      contains(target) {
+        return target === this || this.children.some((n) => n.contains(target));
+      },
+      focus() {
+        document.activeElement = this;
+      },
+      scrollIntoView() {
+        this.scrolled = true;
+      },
       append(...children) {
         this.children.push(...children);
       },
@@ -37,16 +57,25 @@ function page() {
       addEventListener(type, fn) {
         handlers[type] = fn;
       },
-      dispatch(type) {
-        handlers[type]?.({ preventDefault() {} });
+      dispatch(type, event = {}) {
+        handlers[type]?.({ target: this, preventDefault() {}, ...event });
       }
     };
   }
   const document = {
     body: { dataset: { token: 'test' } },
     createElement: element,
+    addEventListener(type, fn) {
+      documentHandlers.set(type, fn);
+    },
     getElementById: (id) => {
-      if (!nodes.has(id)) nodes.set(id, element(id));
+      if (!nodes.has(id)) {
+        const child = element(id);
+        nodes.set(id, child);
+        if (['choose', 'target-menu'].includes(id)) document.getElementById('target-picker').append(child);
+        if (['target-search', 'target-options', 'target-empty'].includes(id))
+          document.getElementById('target-menu').append(child);
+      }
       return nodes.get(id);
     }
   };
@@ -62,12 +91,124 @@ function page() {
   return {
     nodes,
     sent,
+    document,
+    documentEvent: (type, event) => documentHandlers.get(type)?.(event),
     receive: (state) =>
       receive({ data: { token: 'test', type: 'state', configured: true, name: '测试', messages: [], ...state } })
   };
 }
 const text = (node) => node.textContent + node.children.map(text).join('');
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
+
+const targets = [
+  { symbol: 'market', label: '沪深大盘' },
+  { symbol: 'sh601138', label: '工业富联' },
+  { symbol: 'sh563530', label: '卫星ETF易方达' },
+  { symbol: 'sz002475', label: '立讯精密' }
+];
+
+test('分析下拉在页面内展开，按名称和代码过滤，点击选中且展开搜索不调用分析', () => {
+  const p = page();
+  p.receive({ targetOptions: targets, target: 'sh601138' });
+  const button = p.nodes.get('choose'),
+    menu = p.nodes.get('target-menu'),
+    search = p.nodes.get('target-search'),
+    list = p.nodes.get('target-options');
+  button.dispatch('click');
+  assert.equal(menu.hidden, false);
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  assert.equal(p.document.activeElement, search);
+  assert.equal(list.children.length, 4);
+  assert.equal(list.children[1].getAttribute('aria-selected'), 'true');
+  search.value = '卫星';
+  search.dispatch('input');
+  assert.equal(list.children.length, 1);
+  assert.match(text(list), /sh563530/);
+  search.value = 'SZ002475';
+  search.dispatch('input');
+  assert.equal(list.children.length, 1);
+  assert.match(text(list), /立讯精密/);
+  assert.deepEqual(
+    p.sent.map((m) => m.type),
+    ['ready', 'refreshTargets']
+  );
+  list.children[0].dispatch('click');
+  assert.equal(menu.hidden, true);
+  assert.equal(p.sent.at(-1).type, 'selectTarget');
+  assert.equal(p.sent.at(-1).symbol, 'sz002475');
+  assert.equal(p.document.activeElement, button);
+});
+
+test('下拉支持方向键和 Enter，输入法确认不误选；无结果、Esc 和点击空白不切换对象', () => {
+  const p = page();
+  p.receive({ targetOptions: targets, target: 'market' });
+  const button = p.nodes.get('choose'),
+    search = p.nodes.get('target-search'),
+    menu = p.nodes.get('target-menu'),
+    list = p.nodes.get('target-options');
+  button.dispatch('keydown', { key: 'ArrowDown' });
+  search.dispatch('keydown', { key: 'ArrowDown' });
+  assert.equal(search.getAttribute('aria-activedescendant'), list.children[1].id);
+  search.dispatch('keydown', { key: 'Enter', isComposing: true });
+  search.dispatch('keydown', { key: 'Enter', keyCode: 229 });
+  assert.equal(p.sent.filter((m) => m.type === 'selectTarget').length, 0);
+  search.dispatch('keydown', { key: 'Enter' });
+  assert.equal(p.sent.at(-1).symbol, 'sh601138');
+  button.dispatch('click');
+  search.value = '不存在';
+  search.dispatch('input');
+  assert.equal(p.nodes.get('target-empty').hidden, false);
+  assert.equal(search.getAttribute('aria-activedescendant'), null);
+  search.dispatch('keydown', { key: 'Enter' });
+  search.dispatch('keydown', { key: 'Escape' });
+  assert.equal(menu.hidden, true);
+  button.dispatch('click');
+  p.documentEvent('pointerdown', { target: p.nodes.get('question') });
+  assert.equal(menu.hidden, true);
+  assert.equal(p.sent.filter((m) => m.type === 'selectTarget').length, 1);
+});
+
+test('分析进度刷新不清空搜索，名单更新保留输入；历史打开和外部切股收起下拉', () => {
+  const p = page(),
+    state = { targetOptions: targets, target: 'sh601138', targetPickerRequest: 0 };
+  p.receive(state);
+  p.nodes.get('choose').dispatch('click');
+  const search = p.nodes.get('target-search');
+  search.value = 'ETF';
+  search.dispatch('input');
+  p.receive({ ...state, busy: true, status: '正在接收分析…' });
+  assert.equal(search.value, 'ETF');
+  assert.equal(p.nodes.get('target-options').children.length, 1);
+  p.receive({ ...state, targetOptions: [...targets, { symbol: 'sh510300', label: '沪深300ETF' }] });
+  assert.equal(search.value, 'ETF');
+  assert.equal(p.nodes.get('target-options').children.length, 2);
+  p.receive({ ...state, historyVisible: true });
+  assert.equal(p.nodes.get('target-menu').hidden, true);
+  p.receive(state);
+  p.nodes.get('choose').dispatch('click');
+  p.receive({ ...state, target: 'sz002475' });
+  assert.equal(p.nodes.get('target-menu').hidden, true);
+});
+
+test('未选对象的开始分析能打开页内列表，取消后不被状态刷新重新弹出，名称作为安全文本显示', () => {
+  const p = page(),
+    state = { targetPickerRequest: 1, targetOptions: [{ symbol: 'market', label: '<img onerror=alert(1)>' }] };
+  p.receive(state);
+  assert.equal(p.nodes.get('target-menu').hidden, false);
+  assert.match(text(p.nodes.get('target-options')), /<img/);
+  assert.equal(
+    descendants(p.nodes.get('target-options')).some((n) => n.tagName === 'IMG'),
+    false
+  );
+  p.nodes.get('target-search').dispatch('keydown', { key: 'Escape' });
+  p.receive({ ...state, status: '状态更新' });
+  assert.equal(p.nodes.get('target-menu').hidden, true);
+  p.receive({ ...state, targetPickerRequest: 2 });
+  assert.equal(p.nodes.get('target-menu').hidden, false);
+  const restored = page();
+  restored.receive({ ...state, target: 'market' });
+  assert.equal(restored.nodes.get('target-menu').hidden, true);
+});
 
 test('分析结论单独突出，原因与观察条件渲染为列表，用户消息不伪装成结论', () => {
   const p = page();

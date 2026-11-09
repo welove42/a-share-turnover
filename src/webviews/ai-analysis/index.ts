@@ -1,6 +1,7 @@
 /** 页面只负责展示与交互。模型输出使用文本节点渲染，历史操作交给扩展主进程。 */
 import { elements } from '../shared/dom';
 import { renderAnalysisText } from './text';
+import { TargetPicker } from './target-picker';
 interface PageElements {
   model: HTMLElement;
   history: HTMLButtonElement;
@@ -8,6 +9,11 @@ interface PageElements {
   settings: HTMLButtonElement;
   choose: HTMLButtonElement;
   target: HTMLElement;
+  'target-picker': HTMLElement;
+  'target-menu': HTMLElement;
+  'target-search': HTMLInputElement;
+  'target-options': HTMLElement;
+  'target-empty': HTMLElement;
   analyze: HTMLButtonElement;
   stop: HTMLButtonElement;
   clear: HTMLButtonElement;
@@ -39,8 +45,20 @@ interface PageElements {
     token = document.body.dataset.token;
   const $ = elements<PageElements>(),
     send = (type, rest = {}) => vscode.postMessage({ type, token, ...rest });
-  for (const id of ['settings', 'choose', 'analyze', 'stop', 'clear', 'history', 'diagnostics', 'historyClose'])
+  for (const id of ['settings', 'analyze', 'stop', 'clear', 'history', 'diagnostics', 'historyClose'])
     $(id).addEventListener('click', () => send(id));
+  const targetPicker = new TargetPicker(
+    {
+      root: $('target-picker'),
+      button: $('choose'),
+      menu: $('target-menu'),
+      search: $('target-search'),
+      list: $('target-options'),
+      empty: $('target-empty')
+    },
+    (symbol) => send('selectTarget', { symbol }),
+    () => send('refreshTargets')
+  );
   let deleteId = '',
     lastHistory = '';
   const confirmDelete = (id) => {
@@ -93,6 +111,7 @@ interface PageElements {
   window.addEventListener('message', (event) => {
     const m = event.data;
     if (m?.token !== token || m.type !== 'state') return;
+    targetPicker.update(m.targetOptions || [], m.target, m.targetPickerRequest || 0, Boolean(m.historyVisible));
     $('history-panel').hidden = !m.historyVisible;
     if (!m.historyVisible) {
       deleteId = '';
