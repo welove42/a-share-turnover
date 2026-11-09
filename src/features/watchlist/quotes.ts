@@ -1,6 +1,7 @@
 import type { StockQuote, QuoteBatch } from '../../shared/types';
 import { requestQuoteText } from '../../core/network/http';
 import { normalizeDate, timeToMinute } from '../turnover/market';
+import { parseEtfQuote } from '../funds/etf-quote';
 
 const MAX_STOCKS = 100;
 const INDEX_SYMBOL = 'sh000001';
@@ -82,7 +83,8 @@ function parseQuotes(text: string, symbols: string[]): QuoteBatch {
         timestamp: q[30],
         high: signedNumber(q[33]),
         low: signedNumber(q[34]),
-        turnoverRate: supportsTurnover(symbol) ? turnoverRate(q[38]) : null
+        turnoverRate: supportsTurnover(symbol) ? turnoverRate(q[38]) : null,
+        ...(q[61] === 'ETF' ? { etf: parseEtfQuote(symbol, q) } : {})
       });
     } catch (error) {
       errors.set(symbol, error.message);

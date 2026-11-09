@@ -9,6 +9,7 @@ import { requestJson } from '../../core/network/http';
 import { normalizeSymbol, supportsTurnover, turnoverRate, dailyExtremes } from '../watchlist/quotes';
 import { normalizeDate, timeToMinute } from '../turnover/market';
 import { MinuteFeed } from '../turnover/minute-feed';
+import { isEtfCandidate, parseEtfQuote } from '../funds/etf-quote';
 const PERIODS = { daily: 'day', weekly: 'week', monthly: 'month' };
 const MINUTES = ['m1', 'm5', 'm15', 'm30', 'm60'];
 
@@ -63,6 +64,8 @@ function metadata(data, symbol) {
     turnoverApplicable: eligible,
     turnoverRate: rate,
     turnoverTimestamp: rate === null ? null : timestamp,
+    etfEligible: isEtfCandidate(symbol) && (!q[61] || q[61] === 'ETF'),
+    etf: parseEtfQuote(symbol, q),
     ...extremes,
     dailyQuoteTimestamp: extremes.dailyHigh !== null || extremes.dailyLow !== null ? timestamp : null
   };

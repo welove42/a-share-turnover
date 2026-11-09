@@ -1,6 +1,7 @@
 /** 图表在浏览器本地绘制；切换副图无需请求网络，价格与成交量保持各自的缩放范围。 */
 import type { PriceBar, IndicatorLine, IndicatorSeries } from '../../shared/types';
-interface ChartData {
+import { renderEtfReference, type EtfReferenceData } from './etf-reference';
+interface ChartData extends EtfReferenceData {
   symbol: string;
   mode: string;
   name: string;
@@ -46,6 +47,7 @@ interface PageElements {
   quote: HTMLElement;
   turnover: HTMLElement;
   detail: HTMLElement;
+  'etf-reference': HTMLElement;
   'history-status': HTMLElement;
   'average-detail': HTMLElement;
   'indicator-detail': HTMLElement;
@@ -231,6 +233,7 @@ import * as marketIndicators from '../../shared/indicators';
         $('meta').textContent = '';
         $('quote').textContent = '';
         $('turnover').textContent = '';
+        renderEtfReference($('etf-reference'), {}, Date.now());
         $('detail').textContent = '移动鼠标查看价格、成交量与指标。';
         $('history-status').textContent = '';
         $('average-detail').textContent = '';
@@ -907,9 +910,11 @@ import * as marketIndicators from '../../shared/indicators';
       $('status').className = 'error';
       $('status').textContent =
         `${message.message}${message.preserve ? '；保留上次成功数据，等待下次刷新。' : '。可重试或在浏览器打开。'}`;
+      if (data) renderEtfReference($('etf-reference'), data, Date.now(), true);
     }
     if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
       data = { ...message.data, dates: message.data.dates || [] } as ChartData;
+      renderEtfReference($('etf-reference'), data, Date.now());
       updateZoom();
       $('status').className = '';
       $('status').textContent = '';

@@ -300,7 +300,12 @@ class ChartController {
         if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
         const needsHistory =
           data.turnoverApplicable && mode !== 'intraday' && typeof this.provider.loadHistoricalTurnover === 'function';
-        state.data = needsHistory ? { ...data, historicalStatus: 'loading' } : data;
+        const needsEtf = data.etfEligible && !data.etf;
+        state.data = {
+          ...data,
+          ...(needsHistory ? { historicalStatus: 'loading' } : {}),
+          ...(data.etfEligible ? { etfStatus: needsEtf ? 'loading' : 'ready' } : {})
+        };
         this.cache.delete(key);
         this.cache.set(key, { data: state.data, at: state.lastAttempt });
         if (this.cache.size > 40) this.cache.delete(this.cache.keys().next().value);
@@ -316,13 +321,17 @@ class ChartController {
         const tasks: Promise<void>[] = [];
         // Quote and historical enrichment never delay the first chart render.
         const needsExtremes = Object.hasOwn(data, 'dailyHigh') && (data.dailyHigh === null || data.dailyLow === null);
-        if ((data.turnoverApplicable && data.turnoverRate === null) || needsExtremes)
+        if ((data.turnoverApplicable && data.turnoverRate === null) || needsExtremes || needsEtf)
           tasks.push(
             (async () => {
               try {
                 const result = await this.quoteProvider.load([state.symbol], abort.signal);
                 if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
                 const quote = result.quotes.get(state.symbol);
+                if (needsEtf) {
+                  if (quote) enrich({ etf: quote.etf, etfStatus: quote.etf ? 'ready' : 'unavailable' });
+                  else enrich({ etfStatus: 'error', etfError: 'ETF 参考数据获取失败，可刷新重试。' });
+                }
                 if (!quote || !/^\d{14}$/.test(quote.timestamp || '')) return;
                 try {
                   normalizeDate(quote.timestamp.slice(0, 8));
@@ -350,6 +359,7 @@ class ChartController {
                 }
                 if (Object.keys(patch).length) enrich(patch);
               } catch {
+                if (needsEtf) enrich({ etfStatus: 'error', etfError: 'ETF 参考数据获取失败，可刷新重试。' });
                 /* A quote failure must not prevent the chart from rendering. */
               }
             })()

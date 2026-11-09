@@ -67,6 +67,11 @@ svg text.daily-extreme-label { fill: var(--vscode-foreground, #d9e1ee); stroke: 
 .detail-value { color: var(--vscode-foreground, #d9e1ee); font-weight: 500; }
 .detail-value.rising { color: var(--chart-up); }
 .detail-value.falling { color: var(--chart-down); }
+#etf-reference { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--vscode-panel-border, #354053); font-variant-numeric: tabular-nums; }
+.etf-title { margin-bottom: 5px; font-weight: 600; }
+.etf-meta { margin: 4px 0 0; color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; line-height: 1.6; }
+.etf-status { margin: 4px 0 0; color: var(--vscode-descriptionForeground, #9caec5); }
+.etf-status:empty { display: none; }
 #indicator-detail, #average-detail, #history-status { margin: 5px 0 0; line-height: 1.6; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground, #9caec5); }
 #indicator-detail:empty, #average-detail:empty, #history-status:empty { display: none; }
 .note { margin: 7px 0; }

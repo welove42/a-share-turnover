@@ -3,6 +3,18 @@ export type NullableNumber = number | null;
 export type Log = (message: string) => void;
 export type AsyncSource<T> = (signal?: AbortSignal) => Promise<T>;
 
+/** ETF 折溢价只使用同一报价快照；行情时间不代表 IOPV 的独立更新时间。 */
+export interface EtfQuote {
+  symbol: string;
+  price: NullableNumber;
+  iopv: NullableNumber;
+  premiumRate: NullableNumber;
+  quoteTimestamp: string | null;
+  timestampMs: NullableNumber;
+  source: string;
+  notice: string;
+}
+
 /** 行情缺失使用 null，不能用 0 冒充停牌、无数据或无涨跌。 */
 export interface StockQuote {
   symbol: string;
@@ -17,6 +29,7 @@ export interface StockQuote {
   high: NullableNumber;
   low: NullableNumber;
   turnoverRate: NullableNumber;
+  etf?: EtfQuote;
   source?: string;
   cached?: boolean;
 }

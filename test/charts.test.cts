@@ -31,6 +31,79 @@ function setup(load) {
   };
 }
 
+test('ETF 参考数据异步补查不阻塞图表，切股后旧结果不能回写', async () => {
+  const h = setup((symbol, mode) => ({ symbol, mode, name: 'ETF', bars: [{ close: 1 }], etfEligible: true }));
+  let resolveQuote, aborted;
+  h.c.quoteProvider = {
+    load: (_, signal) => {
+      aborted = signal;
+      return new Promise((resolve) => {
+        resolveQuote = resolve;
+      });
+    }
+  };
+  try {
+    await h.c.open('sh510300');
+    const s = h.c.panels.get('sh510300'),
+      pending = h.mode(s, 'intraday');
+    await new Promise(setImmediate);
+    assert.equal(s.data.etfStatus, 'loading');
+    assert.equal(s.data.bars[0].close, 1);
+    const etf = { symbol: 'sh510300', price: 1.1, iopv: 1, premiumRate: 10 };
+    resolveQuote({ quotes: new Map([['sh510300', { etf }]]) });
+    await pending;
+    assert.equal(s.data.etfStatus, 'ready');
+    assert.equal(s.data.etf.premiumRate, 10);
+    h.setNow('2026-10-26T10:31:00+08:00');
+    const old = h.c.refresh(s);
+    await new Promise(setImmediate);
+    const done = resolveQuote;
+    await h.c.open('sh600519');
+    assert.equal(aborted.aborted, true);
+    done({ quotes: new Map([['sh510300', { etf }]]) });
+    await old;
+    assert.equal(s.data, null);
+    assert.equal(s.symbol, 'sh600519');
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('完整 ETF 报价不增加网络请求，补查失败或确认非 ETF 不伪造数据', async () => {
+  const h = setup((symbol, mode) => ({
+    symbol,
+    mode,
+    bars: [{ close: 1 }],
+    etfEligible: true,
+    etf: { symbol, price: 1, iopv: 1, premiumRate: 0 }
+  }));
+  let calls = 0;
+  h.c.quoteProvider = {
+    load: async () => {
+      calls++;
+      throw new Error('网络断开');
+    }
+  };
+  try {
+    await h.c.open('sh510300');
+    const s = h.c.panels.get('sh510300');
+    await h.mode(s, 'intraday');
+    assert.equal(s.data.etfStatus, 'ready');
+    assert.equal(calls, 0);
+    h.c.provider.load = async (symbol, mode) => ({ symbol, mode, bars: [{ close: 2 }], etfEligible: true });
+    h.setNow('2026-10-26T10:31:00+08:00');
+    await h.c.refresh(s);
+    assert.equal(s.data.etfStatus, 'error');
+    assert.equal(s.data.bars[0].close, 2);
+    h.c.quoteProvider.load = async () => ({ quotes: new Map([['sh510300', {}]]) });
+    h.setNow('2026-10-26T10:32:00+08:00');
+    await h.c.refresh(s);
+    assert.equal(s.data.etfStatus, 'unavailable');
+  } finally {
+    h.c.dispose();
+  }
+});
+
 test('历史换手率异步按日期对齐，切股后的旧结果不能覆盖新图表', async () => {
   const h = setup((symbol, mode) => ({
     symbol,
@@ -266,7 +339,10 @@ test('首次详情默认内置分时，设置与显式类型可覆盖，HTML不�
     assert.equal(s.mode, 'intraday');
     assert.doesNotMatch(s.panel.webview.html, /<iframe[^>]+\ssrc=/);
     assert.ok(s.panel.webview.html.indexOf('id="detail"') < s.panel.webview.html.indexOf('id="plot"'));
-    assert.match(s.panel.webview.html, /class="selected-details"[^>]*>\s*<div id="detail"/);
+    assert.match(
+      s.panel.webview.html,
+      /class="selected-details"[^>]*>\s*<section id="etf-reference"[^>]*hidden><\/section>\s*<div id="detail"/
+    );
     assert.doesNotMatch(s.panel.webview.html, /id="daily-extremes"/);
     await h.mode(s, 'intraday');
     assert.equal(h.calls(), 1);

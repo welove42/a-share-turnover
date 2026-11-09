@@ -75,6 +75,7 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
           <section id="local" ${isWebMode(mode) ? ' hidden' : ''} aria-label="插件内行情图表">
             <div class="chart-tools"><span id="quote"></span><span id="turnover"></span></div>
             <div class="selected-details" aria-label="行情明细">
+              <section id="etf-reference" aria-label="ETF 最新参考数据" hidden></section>
               <div id="detail">移动鼠标查看价格、成交量与指标。</div>
               <p id="history-status" role="status"></p>
               <p id="average-detail"></p>

@@ -5,7 +5,7 @@ const fs = require('node:fs'),
   path = require('node:path'),
   vm = require('node:vm');
 
-function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
+function page({ mode = 'intraday', chips = true, saved = {}, symbol = 'sh600105' } = {}) {
   const nodes = new Map(),
     messages = [],
     receivers = [],
@@ -76,7 +76,7 @@ function page({ mode = 'intraday', chips = true, saved = {} } = {}) {
     return value;
   }
   body = node('body', {
-    symbol: 'sh600105',
+    symbol,
     token: 'test-token',
     mode,
     regularUrl: 'https://quote.eastmoney.com/basic/full.html?mcid=1.600105',
@@ -177,6 +177,93 @@ const sampleBars = Array.from({ length: 240 }, (_, i) => ({
 }));
 const descendants = (item) => [item, ...item.children.flatMap(descendants)];
 const rendered = (p) => [...descendants(p.nodes.get('svg')), ...descendants(p.nodes.get('indicator-svg'))];
+
+test('ETF 顶部独立展示折溢价和 IOPV，历史悬停不改变最新参考数值', () => {
+  const p = page({ mode: 'daily', symbol: 'sh510300' });
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  p.advance(Date.parse('2026-11-09T10:30:30+08:00'));
+  const etf = {
+    symbol: 'sh510300',
+    price: 4.145,
+    iopv: 4.1404,
+    premiumRate: 0.11,
+    quoteTimestamp: '20261109103029',
+    timestampMs: Date.parse('2026-11-09T10:30:29+08:00'),
+    source: '腾讯行情',
+    notice: ''
+  };
+  const d = {
+    symbol: 'sh510300',
+    mode: 'daily',
+    name: '测试ETF',
+    date: '2026-11-09',
+    source: '腾讯行情',
+    bars: sampleBars,
+    etfEligible: true,
+    etfStatus: 'ready',
+    etf
+  };
+  p.receive({ type: 'data', data: d });
+  const box = p.nodes.get('etf-reference');
+  assert.equal(box.hidden, false);
+  assert.match(box.textContent, /\+0.11%（溢价）.*IOPV.*4.1404.*4.145/);
+  assert.match(box.textContent, /行情时间 2026-11-09 10:30:29/);
+  assert.match(box.textContent, /无独立更新时间/);
+  const before = box.textContent;
+  p.nodes.get('plot').dispatch('pointermove', { clientX: 77, clientY: 100 });
+  assert.equal(box.textContent, before);
+  assert.doesNotMatch(p.nodes.get('chart-tooltip').textContent, /IOPV|溢价/);
+  assert.ok(descendants(box).some((n) => n.className === 'detail-value rising'));
+  p.receive({ type: 'data', data: { ...d, etf: { ...etf, premiumRate: -0.11 } } });
+  assert.match(box.textContent, /-0.11%（折价）/);
+  assert.ok(descendants(box).some((n) => n.className === 'detail-value falling'));
+  p.receive({ type: 'select-mode', mode: 'intraday' });
+  assert.equal(box.hidden, true);
+});
+
+test('ETF 参考时间过旧、未来、缺失和请求失败有清楚提示，非 ETF 不占位', () => {
+  const p = page({ mode: 'daily', symbol: 'sh510300' }),
+    now = Date.parse('2026-11-09T10:30:30+08:00');
+  p.advance(now);
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  const etf = {
+    symbol: 'sh510300',
+    price: 4.145,
+    iopv: 4.1404,
+    premiumRate: 0.11,
+    quoteTimestamp: '20261106093000',
+    timestampMs: now - 86400000,
+    source: '腾讯行情',
+    notice: ''
+  };
+  const d = {
+    symbol: 'sh510300',
+    mode: 'daily',
+    date: '2026-11-09',
+    bars: sampleBars,
+    etfEligible: true,
+    etfStatus: 'ready',
+    etf
+  };
+  const box = p.nodes.get('etf-reference');
+  p.receive({ type: 'data', data: d });
+  assert.match(box.textContent, /较早行情/);
+  p.receive({ type: 'error', mode: 'daily', preserve: true, message: '请求失败' });
+  assert.match(box.textContent, /更新失败，保留上次数据/);
+  p.receive({ type: 'data', data: { ...d, etf: { ...etf, timestampMs: now + 120000 } } });
+  assert.match(box.textContent, /行情时间异常/);
+  assert.doesNotMatch(box.textContent, /4.1404|0.11%/);
+  p.receive({ type: 'data', data: { ...d, etf: { ...etf, iopv: null, premiumRate: null, notice: '暂无有效 IOPV' } } });
+  assert.match(box.textContent, /折溢价率 —.*IOPV.*—/);
+  p.receive({ type: 'data', data: { ...d, etf: undefined, etfStatus: 'loading' } });
+  assert.match(box.textContent, /正在获取 ETF/);
+  p.receive({ type: 'data', data: { ...d, etf: undefined, etfStatus: 'error' } });
+  assert.match(box.textContent, /获取失败/);
+  p.receive({ type: 'data', data: { ...d, etf: undefined, etfStatus: 'unavailable' } });
+  assert.equal(box.hidden, true);
+  p.receive({ type: 'data', data: { ...d, etfEligible: false } });
+  assert.equal(box.hidden, true);
+});
 test('K线放大缩小按钮与 Ctrl 滚轮调整显示范围，普通滚轮不拦截', () => {
   const p = page({ mode: 'daily', saved: { range: 60 } });
   p.receive({ type: 'select-mode', mode: 'daily' });
