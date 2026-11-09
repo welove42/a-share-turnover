@@ -18,6 +18,7 @@ import { endpoint, modelName, secretId, complete, diagnosticText } from './clien
 import { AnalysisContext, SYSTEM } from './context';
 import { AiHistoryStore } from './history';
 import { listModels } from './models';
+import { analysisPayload } from './technical-context';
 const VIEW = 'welove42.aShareTurnover.aiAnalysis';
 const PHASES = {
   connecting: '正在连接 AI 服务…',
@@ -504,13 +505,15 @@ class AiAnalysisController {
         this.resetCurrent();
         this.sessionId = randomUUID();
         this.createdAt = Date.now();
-        this.status = '正在汇总个股、大盘、所属板块、全球市场和财经快讯…';
+        this.status = '正在汇总月线、周线、日线、分时及市场环境…';
         this.publish();
         const snapshot = await this.collect(this.target, abort.signal);
         if (!active()) return;
         this.snapshot = snapshot;
       }
-      const content = followup ? question.trim() : '请分析这份行情快照：\n' + JSON.stringify(this.snapshot);
+      const content = followup
+        ? question.trim()
+        : '分析以下多周期行情快照：\n' + JSON.stringify(analysisPayload(this.snapshot));
       const prior = followup ? followupHistory : [];
       const user: ChatMessage = { role: 'user', content };
       const answer: AnalysisMessage = {

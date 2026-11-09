@@ -73,8 +73,8 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
         <main id="conversation" tabindex="0" aria-label="分析内容">
           <div id="welcome">
             <h2>边写代码，边看分析</h2>
-            <p>选择个股、场内 ETF 或大盘，自动带入个股、大盘、所属板块、全球市场及财经快讯。</p>
-            <p>先看一句话结论，再看原因、接下来盯什么和最需要小心的地方。</p>
+            <p>选择个股、场内 ETF 或大盘，结合月线、周线、日线、分时及市场环境分析。</p>
+            <p>先看整体判断，再看各周期走势、观察条件和主要风险。缺失数据会标明。</p>
             <p>首次使用，在设置中填写 API 地址、模型和 Key。</p>
             <p class="muted">仅点击分析、追问或测试连接时调用，由你的 API 服务商计费。</p>
           </div>

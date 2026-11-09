@@ -72,6 +72,8 @@ export interface AnalysisSnapshot {
   notes: string[];
   quote?: PublicMarketSection;
   daily?: PublicMarketSection;
+  timeframes?: Partial<Record<'daily' | 'weekly' | 'monthly' | 'intraday', PublicMarketSection>>;
+  etf?: PublicMarketSection;
   market?: PublicMarketSection;
   sectors?: PublicMarketSection;
   globalMarkets?: PublicMarketSection;

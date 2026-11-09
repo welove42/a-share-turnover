@@ -17,7 +17,7 @@ export function renderAnalysisText(element: Element, text: string, assistant: bo
     // Also accept a fully bold heading, a common variation from compatible models.
     const heading =
       line.match(/^\s{0,3}#{1,4}\s+(.+?)\s*#*\s*$/)?.[1] ??
-      line.match(/^\s*\*\*(一句话结论|为什么这么看|接下来盯什么|最需要小心)[：:]?\*\*\s*$/)?.[1];
+      line.match(/^\s*\*\*(一句话结论|为什么这么看|各周期怎么看|接下来盯什么|最需要小心)[：:]?\*\*\s*$/)?.[1];
     if (heading) {
       section = document.createElement('section');
       const summary = assistant && /^(?:一句话结论|一句话判断|先说结论|结论)[：:]?$/.test(heading.replace(/\*\*/g, ''));

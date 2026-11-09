@@ -70,6 +70,41 @@ test('未配置不请求，配置后点击即分析；追问沿用快照，重�
     c.dispose();
   }
 });
+test('多周期实际请求只携带一次摘要，追问和历史保留完整快照，旧快照不会伪造周月数据', async () => {
+  const snapshot = {
+    ...sample(),
+    coverage: [{ label: '多周期', detail: '齐全' }],
+    daily: { date: '2026-11-09', indicators: { MA20: 20 } },
+    timeframes: {
+      monthly: { state: '偏弱' },
+      weekly: { state: '偏弱' },
+      daily: { state: '偏强' },
+      intraday: { time: '1500' }
+    }
+  };
+  let count = 0;
+  const { c, requests } = await setup({
+    collect: async () => {
+      count++;
+      return snapshot;
+    }
+  });
+  try {
+    await c.open('sh600519');
+    const sent = JSON.parse(requests[0].messages[1].content.split('\n').slice(1).join('\n'));
+    assert.deepEqual(sent.timeframes, snapshot.timeframes);
+    assert.equal(sent.daily, undefined);
+    assert.equal(sent.coverage, undefined);
+    assert.deepEqual(c.snapshot, snapshot);
+    assert.match(requests[0].messages[0].content, /周期冲突/);
+    assert.match(requests[0].messages[0].content, /旧对话没有多周期/);
+    await c.analyze('为什么周线和日线不同？');
+    assert.equal(count, 1);
+    assert.equal(requests[1].messages[1].content, requests[0].messages[1].content);
+  } finally {
+    c.dispose();
+  }
+});
 test('页内对象选择提供自选与大盘，打开和刷新名单不调用 AI，不再弹 QuickPick', async () => {
   const stocks = {
     config: { symbols: ['sh601138', 'sh563530', 'sh601138', 'hk00700'] },
@@ -640,7 +675,7 @@ test('首次请求和后续追问确实包含完整背景，配置未完成时�
 });
 test('行情白名单、交易量单位和技术指标正确；缓存与缺失有说明', async () => {
   const bars = Array.from({ length: 90 }, (_, i) => ({
-    time: `2026-${i}`,
+    time: new Date(Date.UTC(2026, 6, 1 + i)).toISOString().slice(0, 10),
     open: i + 1,
     high: i + 3,
     low: i,
@@ -682,7 +717,8 @@ test('行情白名单、交易量单位和技术指标正确；缓存与缺失�
   });
   const data = await context.collect('sh600519');
   assert.equal(data.quote.cached, true);
-  assert.equal(data.daily.bars.length, 60);
+  assert.equal(data.daily.bars.length, 3);
+  assert.equal(data.daily.sample.used, 90);
   assert.equal(data.daily.indicators.MA5, 89);
   assert.equal(data.daily.volumeUnit, '手');
   assert.match(data.notes.join(''), /缓存/);

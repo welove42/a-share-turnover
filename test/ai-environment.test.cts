@@ -108,6 +108,11 @@ test('个股分析自动收集大盘、真实所属板块、全球基准、商�
   const { env, calls } = fixture({ globals: { selectedIds } });
   let requested;
   const context = new AnalysisContext({
+    historyProvider: {
+      load: async () => {
+        throw new Error('历史测试源不可用');
+      }
+    },
     stocks,
     environment: env,
     now: () => new Date(NOW),
@@ -145,7 +150,7 @@ test('个股分析自动收集大盘、真实所属板块、全球基准、商�
   assert.deepEqual(selectedIds, ['100.NDX']);
   assert.deepEqual(requested, ['sh600519', ...BENCHMARKS]);
   assert.equal(result.relativeStrength.comparisons.find((r) => r.name === '白酒Ⅱ').difference, 1.5);
-  assert.equal(result.coverage.length, 6);
+  assert.equal(result.coverage.length, 7);
   assert.doesNotMatch(JSON.stringify(result), /private/);
   assert.match(SYSTEM, /触|条件/);
   assert.match(SYSTEM, /全球市场/);
@@ -233,6 +238,11 @@ test('外围齐全也不能在个股行情全部缺失时调用分析；不输�
     }
   });
   const context = new AnalysisContext({
+    historyProvider: {
+      load: async () => {
+        throw new Error('历史测试源不可用');
+      }
+    },
     environment: env,
     now: () => new Date(NOW),
     quoteProvider: { load: async () => ({ quotes: new Map() }) },
