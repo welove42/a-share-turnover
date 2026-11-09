@@ -27,6 +27,7 @@ function harness(configuration = {}) {
       return this;
     }
   }
+  const documentOpened = new EventEmitter();
   const changes = new EventEmitter(),
     values = new Map(Object.entries(configuration));
   const trees = new Map(),
@@ -247,7 +248,16 @@ function harness(configuration = {}) {
         return uri;
       }
     },
+    languages: {
+      setTextDocumentLanguage: async (document, languageId) => {
+        document.languageId = languageId;
+        documentOpened.fire(document);
+        return document;
+      }
+    },
     workspace: {
+      textDocuments: [],
+      onDidOpenTextDocument: documentOpened.event,
       onDidChangeConfiguration: changes.event,
       getConfiguration: (section = '') => ({
         get: (key, fallback) => (values.has(section + '.' + key) ? values.get(section + '.' + key) : fallback),
@@ -300,6 +310,7 @@ function harness(configuration = {}) {
     }
   };
   return {
+    documentOpened,
     api,
     context,
     load,

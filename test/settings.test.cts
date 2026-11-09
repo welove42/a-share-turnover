@@ -16,13 +16,14 @@ function setup(options = {}) {
   };
   return { h, c, panel, send, validate, GROUPS };
 }
-test('设置页覆盖所有配置，复用标签，真实保存并响应外部修改', async () => {
+test('设置页覆盖常用配置，复用标签，真实保存并响应外部修改', async () => {
   const { h, c, panel, send, GROUPS } = setup();
   try {
     assert.deepEqual(
       GROUPS.flatMap((g) => g.keys).sort(),
       Object.keys(manifest.contributes.configuration.properties)
         .map((k) => k.replace('aShareTurnover.', ''))
+        .filter((k) => k !== 'news.enabled') // Legacy enable/disable remains available in VS Code settings.
         .sort()
     );
     c.open();
@@ -152,17 +153,23 @@ test('无效配置、未授权命令和过期页面不能写入；老板键关�
     c.dispose();
   }
 });
-test('新闻设置只保留开关和刷新间隔，无来源切换或 Token 入口', async () => {
-  const { c, panel, send } = setup();
+test('新闻设置以默认开启的标题高亮替换启用开关，保存和恢复默认生效', async () => {
+  const { h, c, panel, send } = setup();
   try {
     await send({ type: 'ready' });
     const news = panel.webview.messages.at(-1).groups.find((g) => g.id === 'news');
     assert.deepEqual(
       news.fields.map((f) => f.key),
-      ['news.enabled', 'news.refreshIntervalSeconds']
+      ['news.highlightTitles', 'news.refreshIntervalSeconds']
     );
     assert.deepEqual(news.actions, []);
-    assert.match(news.fields[0].help, /东方财富.*无需登录/);
+    assert.equal(news.fields[0].label, '高亮新闻标题');
+    assert.equal(news.fields[0].value, true);
+    assert.match(news.fields[0].help, /关闭.*普通/);
+    await send({ type: 'save', key: 'news.highlightTitles', value: false });
+    assert.equal(h.values.get('aShareTurnover.news.highlightTitles'), false);
+    await send({ type: 'reset', key: 'news.highlightTitles' });
+    assert.equal(h.values.get('aShareTurnover.news.highlightTitles'), true);
     assert.equal(
       manifest.contributes.commands.some((c) => /news\.(source|setToken)$/.test(c.command)),
       false

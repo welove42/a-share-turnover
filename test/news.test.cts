@@ -214,3 +214,177 @@ test('新闻标题保持单行、多段正文保留换行，正文中的标记�
   assert.equal(text.split('\n').filter((line) => line.startsWith('🕒 时间：')).length, 1);
   assert.doesNotMatch(text, /\u001b\[/);
 });
+
+const HIGHLIGHTED = 'a-share-news-output',
+  PLAIN = 'a-share-news-plain';
+function outputDocument(languageId = HIGHLIGHTED, scheme = 'output') {
+  return { languageId, uri: { scheme }, isClosed: false };
+}
+async function settleStyle(style) {
+  // Changing a document language also emits an open event; wait for its queued reconciliation.
+  let pending;
+  do {
+    pending = style.pending;
+    await pending;
+  } while (pending !== style.pending);
+}
+
+test('普通模式启动不着色；切换样式保留原输出、未读和暂停状态，不请求新闻', async () => {
+  const manifest = require('../package.json');
+  assert.equal(manifest.contributes.configuration.properties['aShareTurnover.news.highlightTitles'].default, true);
+  assert.ok(manifest.contributes.languages.some((l) => l.id === PLAIN));
+  assert.equal(
+    manifest.contributes.grammars.some((g) => g.language === PLAIN),
+    false
+  );
+  const h = setup({ 'aShareTurnover.news.highlightTitles': false });
+  try {
+    assert.equal(h.c.output.languageId, PLAIN);
+    await h.c.refresh();
+    const output = h.c.output,
+      lines = [...output.lines];
+    const document = outputDocument(PLAIN);
+    h.api.workspace.textDocuments.push(document);
+    h.documentOpened.fire(document);
+    await h.c.togglePause();
+    h.c.unread = 3;
+    for (const value of [true, false]) {
+      await h.api.workspace.getConfiguration('aShareTurnover').update('news.highlightTitles', value);
+      await settleStyle(h.c.outputStyle);
+      assert.equal(document.languageId, value ? HIGHLIGHTED : PLAIN);
+      assert.equal(h.c.output, output);
+      assert.deepEqual(output.lines, lines);
+      assert.equal(h.c.unread, 3);
+      assert.equal(h.c.paused, true);
+      assert.equal(h.calls(), 1);
+      assert.equal(output.shown, 0);
+    }
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('切换高亮不中断正在加载的新闻，也不额外发起请求', async () => {
+  let finish, signal;
+  const h = setup({}, async (s) => {
+    signal = s;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  try {
+    const loading = h.c.refresh();
+    await h.api.workspace.getConfiguration('aShareTurnover').update('news.highlightTitles', false);
+    await settleStyle(h.c.outputStyle);
+    assert.equal(signal.aborted, false);
+    assert.equal(h.c.inflight, loading);
+    assert.equal(h.calls(), 1);
+    finish([article(1)]);
+    await loading;
+    assert.equal(h.c.items.length, 1);
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('首次打开和重新创建输出文档使用最新设置，不修改其他输出或用户文件', async () => {
+  const h = setup();
+  try {
+    await h.api.workspace.getConfiguration('aShareTurnover').update('news.highlightTitles', false);
+    await settleStyle(h.c.outputStyle);
+    const others = [outputDocument('Log'), outputDocument('log'), outputDocument(HIGHLIGHTED, 'file')];
+    const closed = { ...outputDocument(), isClosed: true };
+    h.api.workspace.textDocuments.push(...others, closed);
+    for (const doc of others) h.documentOpened.fire(doc);
+    for (let i = 0; i < 2; i++) {
+      const doc = outputDocument();
+      h.api.workspace.textDocuments.push(doc);
+      h.documentOpened.fire(doc);
+      await settleStyle(h.c.outputStyle);
+      assert.equal(doc.languageId, PLAIN);
+      doc.isClosed = true;
+    }
+    assert.deepEqual(
+      others.map((d) => d.languageId),
+      ['Log', 'log', HIGHLIGHTED]
+    );
+    assert.equal(closed.languageId, HIGHLIGHTED);
+    assert.equal(h.c.output.shown, 0);
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('异步切换中的快速往返最终采用最新设置', async () => {
+  const h = setup();
+  try {
+    await settleStyle(h.c.outputStyle);
+    const doc = outputDocument();
+    h.api.workspace.textDocuments.push(doc);
+    const original = h.api.languages.setTextDocumentLanguage;
+    let release;
+    h.api.languages.setTextDocumentLanguage = async (...args) => {
+      h.api.languages.setTextDocumentLanguage = original;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return original(...args);
+    };
+    const config = h.api.workspace.getConfiguration('aShareTurnover');
+    await config.update('news.highlightTitles', false);
+    assert.equal(typeof release, 'function');
+    await config.update('news.highlightTitles', true);
+    release();
+    await settleStyle(h.c.outputStyle);
+    assert.equal(doc.languageId, HIGHLIGHTED);
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('语言切换失败可在再次打开时恢复，销毁后不修改文档', async () => {
+  const h = setup();
+  try {
+    await settleStyle(h.c.outputStyle);
+    const doc = outputDocument();
+    h.api.workspace.textDocuments.push(doc);
+    const original = h.api.languages.setTextDocumentLanguage;
+    const logs = [];
+    h.c.outputStyle.log = (message) => logs.push(message);
+    h.api.languages.setTextDocumentLanguage = async () => {
+      throw new Error('unavailable');
+    };
+    await h.api.workspace.getConfiguration('aShareTurnover').update('news.highlightTitles', false);
+    await settleStyle(h.c.outputStyle);
+    assert.equal(logs.length, 1);
+    h.api.languages.setTextDocumentLanguage = original;
+    h.documentOpened.fire(doc);
+    await settleStyle(h.c.outputStyle);
+    assert.equal(doc.languageId, PLAIN);
+    h.c.outputStyle.dispose();
+    doc.languageId = HIGHLIGHTED;
+    h.documentOpened.fire(doc);
+    await h.c.outputStyle.setHighlighted(false);
+    assert.equal(doc.languageId, HIGHLIGHTED);
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('关闭新闻或使用老板键时切换高亮不显示新闻，也不启动刷新', async () => {
+  for (const disabled of [true, false]) {
+    const h = setup({ 'aShareTurnover.news.enabled': !disabled });
+    try {
+      if (!disabled) h.c.setHidden(true);
+      h.c.start();
+      await h.api.workspace.getConfiguration('aShareTurnover').update('news.highlightTitles', false);
+      await settleStyle(h.c.outputStyle);
+      assert.equal(h.c.config.enabled, !disabled);
+      assert.equal(h.c.statusVisible, false);
+      assert.equal(h.c.output.shown, 0);
+      assert.equal(h.calls(), 0);
+    } finally {
+      h.c.dispose();
+    }
+  }
+});

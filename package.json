@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.9",
+  "version": "1.23.10",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.9.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.10.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -65,6 +65,10 @@
       {
         "id": "a-share-news-output",
         "aliases": ["牛来盯盘新闻"]
+      },
+      {
+        "id": "a-share-news-plain",
+        "aliases": []
       }
     ],
     "grammars": [
@@ -634,6 +638,12 @@
           "maximum": 300,
           "scope": "application",
           "description": "7×24快讯刷新间隔（秒），休市期间也刷新。支持暂停，默认不弹出桌面通知。"
+        },
+        "aShareTurnover.news.highlightTitles": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "高亮并加粗新闻标题，区分正文与时间来源；关闭后使用普通输出样式。切换立即生效，不清空已有新闻。"
         },
         "aShareTurnover.globalIndices.enabled": {
           "type": "boolean",

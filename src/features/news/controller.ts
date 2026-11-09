@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { shanghaiClock } from '../turnover/market';
 import { SOURCES, isArticle, mergeNews, NewsProvider } from './data';
 import type { NewsArticle } from '../../shared/types';
-const NEWS_OUTPUT_LANGUAGE = 'a-share-news-output';
+import { NewsOutputStyle, NEWS_OUTPUT_LANGUAGE } from './output-style';
 function articleText(item) {
   const c = shanghaiClock(new Date(item.publishedAt));
   return `${item.title}\n\n来源：${SOURCES[item.source]}　${c.date} ${c.time}（北京）\n\n${item.body}${item.stocks ? '\n\n相关股票：' + item.stocks : ''}\n`;
@@ -34,6 +34,7 @@ class NewsController {
   declare paused: boolean;
   declare config: {
     enabled: boolean;
+    highlightTitles: boolean;
     source: string;
     interval: number;
   };
@@ -41,6 +42,7 @@ class NewsController {
   declare statusRendered: { text?: string; tooltip?: string };
   declare statusVisible: boolean;
   declare output: vscode.OutputChannel;
+  declare outputStyle: NewsOutputStyle;
   declare documentProvider: vscode.Disposable;
   declare listener: vscode.Disposable;
   declare timer: NodeJS.Timeout | undefined;
@@ -79,13 +81,19 @@ class NewsController {
     this.statusRendered = {};
     this.statusVisible = false;
     // A dedicated language colors only this output channel and follows the user's syntax theme.
-    this.output = vscode.window.createOutputChannel('财经新闻7×24资讯', NEWS_OUTPUT_LANGUAGE);
+    this.outputStyle = new NewsOutputStyle(this.config.highlightTitles, this.log);
+    this.output = vscode.window.createOutputChannel('财经新闻7×24资讯', this.outputStyle.languageId);
     this.documentProvider = vscode.workspace.registerTextDocumentContentProvider('a-share-news', {
       provideTextDocumentContent: (uri) => this.documents.get(uri.path) || '该快讯已过期，请刷新列表后重新打开。'
     });
     this.listener = vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration('aShareTurnover.news')) return;
+      const previous = this.config;
       this.config = this.readConfig();
+      if (previous.highlightTitles !== this.config.highlightTitles)
+        void this.outputStyle.setHighlighted(this.config.highlightTitles);
+      // Styling does not cancel a fetch, request news, or change unread/pause state.
+      if (previous.enabled === this.config.enabled && previous.interval === this.config.interval) return;
       this.generation++;
       this.abort?.abort();
       this.publish();
@@ -101,6 +109,7 @@ class NewsController {
     // Ignore the retired news.source setting, including existing xuangubao selections.
     return {
       enabled: c.get('news.enabled', true),
+      highlightTitles: c.get<boolean>('news.highlightTitles', true) !== false,
       source: 'eastmoney',
       interval: Math.max(10, Math.min(300, Number.isFinite(seconds) ? seconds : 30)) * 1000
     };
@@ -236,7 +245,8 @@ class NewsController {
     this.disposed = true;
     clearInterval(this.timer);
     this.abort?.abort();
-    for (const resource of [this.listener, this.documentProvider, this.status, this.output]) resource.dispose();
+    for (const resource of [this.listener, this.documentProvider, this.status, this.outputStyle, this.output])
+      resource.dispose();
   }
 }
 export { NewsController, articleText, articleOutput, NEWS_OUTPUT_LANGUAGE };

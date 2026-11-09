@@ -54,7 +54,7 @@ const GROUPS = [
       'commodities.symbols'
     ]
   },
-  { id: 'news', title: '财经新闻', keys: ['news.enabled', 'news.refreshIntervalSeconds'] },
+  { id: 'news', title: '财经新闻', keys: ['news.highlightTitles', 'news.refreshIntervalSeconds'] },
   {
     id: 'risk',
     title: '涨跌提醒与风险',
@@ -108,7 +108,7 @@ const LABELS = {
   'funds.symbols': '关注的基金',
   'commodities.enabled': '显示全球商品',
   'commodities.symbols': '关注的商品',
-  'news.enabled': '启用新闻',
+  'news.highlightTitles': '高亮新闻标题',
   'news.refreshIntervalSeconds': '刷新间隔（秒）',
   'risk.enabled': '启用风险提示',
   'risk.volumePercent': '成交额变化阈值（%）',
@@ -151,7 +151,7 @@ const HELP = {
   'globalIndices.enabled': '启用全球指数栏目。',
   'funds.enabled': '启用净值和持仓收益栏目。',
   'commodities.enabled': '启用黄金、原油等商品栏目。',
-  'news.enabled': '使用东方财富公开快讯，无需登录。点击底部新闻入口打开资讯面板。',
+  'news.highlightTitles': '默认开启，标题高亮加粗；关闭后恢复普通输出样式。切换立即生效。',
   'news.refreshIntervalSeconds': '10–300 秒；休市期间也会更新。',
   'risk.enabled': '需同时开启成交额和自选行情。放缩量与上证跌幅同时达到阈值时提示。',
   'risk.volumePercent': '例如 30，表示成交额比昨日同刻增加或减少至少 30%。',
