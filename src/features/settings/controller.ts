@@ -126,7 +126,7 @@ const HELP = {
   'stocks.upColor': '点击色块选色，或输入六位 HEX 颜色。修改后立即生效。',
   'stocks.downColor': '可与上涨使用相同颜色，选中个股后仍保留自定义颜色。',
   'ai.baseUrl': '填写兼容 Chat Completions 的地址，例如 https://api.deepseek.com 或 https://api.openai.com/v1。',
-  'ai.model': '填写服务商提供的模型 ID，例如 deepseek-chat。',
+  'ai.model': '获取列表后选择，也可输入自定义模型 ID；选择后保存。是否支持分析可用“测试连接”确认。',
   'turnoverAlerts.enabled':
     '交易期间超过阈值时弹窗，当天放量、缩量各提醒一次，重启不重复；老板键、暂停或关闭成交额时不提醒。',
   'turnoverAlerts.percent':
@@ -405,7 +405,7 @@ class SettingsController {
   configureAi(panel, token, message) {
     if (
       this.aiTask ||
-      !['save', 'test', 'clear'].includes(message.operation) ||
+      !['save', 'test', 'clear', 'models'].includes(message.operation) ||
       typeof message.id !== 'string' ||
       !/^[\w-]{1,64}$/.test(message.id)
     )
@@ -439,12 +439,13 @@ class SettingsController {
           check();
           return;
         }
-        const url = validate('ai.baseUrl', message.url),
-          model = modelName(message.model);
+        const url = validate('ai.baseUrl', message.url);
         endpoint(url);
         const key = message.key;
         if (typeof key !== 'string' || key.length > 4096 || /[\r\n]/.test(key))
           throw new Error('请输入有效的 API Key。');
+        if (message.operation === 'models') return { url, model: '' };
+        const model = modelName(message.model);
         const c = vscode.workspace.getConfiguration('aShareTurnover');
         if (this.read('ai.baseUrl') !== url) await c.update('ai.baseUrl', url, vscode.ConfigurationTarget.Global);
         check();
@@ -463,6 +464,12 @@ class SettingsController {
     this.aiTaskPromise = prepare
       .then(async (config) => {
         check();
+        let models: string[] | undefined;
+        if (message.operation === 'models') {
+          post({ type: 'aiProgress', note: '正在获取模型列表' });
+          models = await this.ai.getModels({ url: config!.url, key: message.key, signal: task.abort.signal });
+          check();
+        }
         if (message.operation === 'test') {
           const phases = {
             connecting: '正在连接服务',
@@ -486,15 +493,20 @@ class SettingsController {
           ok: true,
           saved: task.saved,
           operation: message.operation,
+          ...(models ? { models } : {}),
           elapsedMs: Date.now() - task.started,
           note:
-            message.operation === 'test'
-              ? '连接成功，可以开始分析。'
-              : message.operation === 'clear'
-                ? '已清除当前接口的 Key。'
-                : this.ai.configured
-                  ? '配置已保存。'
-                  : '配置已保存，请填写 API Key 后开始分析。'
+            message.operation === 'models'
+              ? models?.length
+                ? `已获取 ${models.length} 个模型，请选择后保存。是否支持分析可用“测试连接”确认。`
+                : '接口未返回可用模型，可手动输入模型 ID。'
+              : message.operation === 'test'
+                ? '连接成功，可以开始分析。'
+                : message.operation === 'clear'
+                  ? '已清除当前接口的 Key。'
+                  : this.ai.configured
+                    ? '配置已保存。'
+                    : '配置已保存，请填写 API Key 后开始分析。'
         });
       })
       .catch((error) => {
@@ -506,7 +518,9 @@ class SettingsController {
           cancelled: task.abort.signal.aborted || error.name === 'AbortError',
           error:
             task.abort.signal.aborted || error.name === 'AbortError'
-              ? '测试已取消。'
+              ? message.operation === 'models'
+                ? '获取模型列表已取消。'
+                : '测试已取消。'
               : error.message || '操作失败，请重试。'
         });
       })

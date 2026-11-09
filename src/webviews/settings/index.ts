@@ -1,5 +1,6 @@
 /** 设置页面通过消息提交更改；Key 输入只发送至安全存储，不放进 Webview 持久状态。 */
 import { elements } from '../shared/dom';
+import { ModelPicker } from './model-picker';
 interface PageElements {
   'save-status': HTMLElement;
   categories: HTMLElement;
@@ -22,11 +23,12 @@ interface PageElements {
   const ai: {
     dirty: boolean;
     sequence: number;
-    pending: { id: string; operation: string; started: number; note: string } | null;
+    pending: { id: string; operation: string; started: number; note: string; revision: number } | null;
+    modelsRevision: number;
     timer: number | null;
     cancel?: HTMLButtonElement;
     result?: HTMLElement;
-  } = { dirty: false, sequence: 0, pending: null, timer: null };
+  } = { dirty: false, sequence: 0, pending: null, timer: null, modelsRevision: 0 };
   const send = (value) => api.postMessage({ ...value, token });
   const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string) => {
     const e = document.createElement(tag);
@@ -75,7 +77,10 @@ interface PageElements {
     else if (f.type === 'color') {
       row.input.value = value;
       if (/^#[0-9a-f]{6}$/i.test(value)) row.picker.value = value.toLowerCase();
-    } else row.input.value = f.type === 'dates' ? value.join('\n') : value;
+    } else {
+      if (f.key === 'ai.baseUrl' && row.input.value !== value) invalidateModels();
+      row.input.value = f.type === 'dates' ? value.join('\n') : value;
+    }
   }
   function busy(row, value) {
     row.pending = value;
@@ -102,8 +107,14 @@ interface PageElements {
     for (const [key, row] of rows) if (key.startsWith('ai.')) busy(row, locked);
     for (const [id, b] of actions) if (id.startsWith('ai.')) b.disabled = locked;
     const testing = locked && ai.pending?.operation === 'test';
+    const listing = locked && ai.pending?.operation === 'models';
+    if (locked) rows.get('ai.model')?.modelPicker?.close();
     if (actions.has('ai.test')) actions.get('ai.test').textContent = testing ? '测试中…' : '测试连接';
-    if (ai.cancel) ai.cancel.hidden = !testing;
+    if (actions.has('ai.models')) actions.get('ai.models').textContent = listing ? '获取中…' : '获取列表';
+    if (ai.cancel) {
+      ai.cancel.hidden = !testing && !listing;
+      ai.cancel.textContent = listing ? '取消获取' : '取消测试';
+    }
     updateKeyStatus();
   }
   function showAiResult(text, kind) {
@@ -122,11 +133,26 @@ interface PageElements {
     const id = 'ai-' + ++ai.sequence,
       url = rows.get('ai.baseUrl').input.value,
       model = rows.get('ai.model').input.value;
-    ai.pending = { id, operation, started: Date.now(), note: operation === 'clear' ? '正在清除 Key' : '正在保存配置' };
+    ai.pending = {
+      id,
+      operation,
+      started: Date.now(),
+      revision: ai.modelsRevision,
+      note: operation === 'models' ? '正在获取模型列表' : operation === 'clear' ? '正在清除 Key' : '正在保存配置'
+    };
     lockAi(true);
     waitingAi();
     ai.timer = setInterval(waitingAi, 1000);
     send({ type: 'aiConfigure', id, operation, url, model, key: rows.get('ai.apiKey').input.value });
+  }
+  function invalidateModels() {
+    ai.modelsRevision++;
+    rows.get('ai.model')?.modelPicker?.setOptions([]);
+  }
+  function aiChanged() {
+    ai.dirty = true;
+    updateKeyStatus();
+    showAiResult('配置已修改，点击保存或测试连接。', 'idle');
   }
   function makeSecret(field) {
     const element = node('article', '', 'setting'),
@@ -136,7 +162,7 @@ interface PageElements {
     title.htmlFor = 'field-' + field.key;
     copy.append(title, help);
     const control = node('div', '', 'control secret-control'),
-      line = node('div', '', 'secret-input'),
+      line = node('div', '', 'secret-input compound-input'),
       input = node('input');
     input.id = title.htmlFor;
     input.type = 'password';
@@ -144,7 +170,7 @@ interface PageElements {
     input.spellcheck = false;
     input.maxLength = 4096;
     input.setAttribute('aria-label', 'API Key');
-    const reveal = node('button', '显示', 'secret-reveal');
+    const reveal = node('button', '显示', 'secret-reveal compound-action');
     reveal.type = 'button';
     reveal.setAttribute('aria-label', '显示本次输入的 API Key');
     reveal.setAttribute('aria-pressed', 'false');
@@ -153,6 +179,7 @@ interface PageElements {
       input.type = shown ? 'text' : 'password';
       reveal.textContent = shown ? '隐藏' : '显示';
       reveal.setAttribute('aria-pressed', String(shown));
+      reveal.setAttribute('aria-label', `${shown ? '隐藏' : '显示'}本次输入的 API Key`);
     });
     const meta = node('div', '', 'secret-meta'),
       saved = node('span', '', 'muted'),
@@ -177,9 +204,8 @@ interface PageElements {
       pending: false
     };
     input.addEventListener('input', () => {
-      ai.dirty = true;
-      updateKeyStatus();
-      showAiResult('配置已修改，点击保存或测试连接。', 'idle');
+      invalidateModels();
+      aiChanged();
     });
     rows.set(field.key, row);
     return row;
@@ -469,7 +495,21 @@ interface PageElements {
     input.setAttribute('aria-label', field.label);
     help.id = 'help-' + field.key;
     input.setAttribute('aria-describedby', help.id);
-    control.append(input);
+    let modelPicker: ModelPicker | undefined, modelActions: HTMLElement | undefined;
+    if (field.key === 'ai.model') {
+      element.className += ' model-setting';
+      control.className += ' model-control';
+      const line = node('div', '', 'model-line');
+      modelActions = node('div', '', 'model-actions');
+      const get = node('button', '获取列表');
+      get.type = 'button';
+      get.addEventListener('click', () => configureAi('models'));
+      actions.set('ai.models', get);
+      modelPicker = new ModelPicker(input, aiChanged);
+      modelActions.append(get);
+      line.append(modelPicker.element, modelActions);
+      control.append(line);
+    } else control.append(input);
     const row = {
       element,
       field,
@@ -477,13 +517,15 @@ interface PageElements {
       inputs,
       error,
       controls: field.type === 'checks' ? inputs : [input],
+      modelPicker,
+      modelActions,
       pending: false
     };
     if (field.key.startsWith('ai.')) {
+      if (modelPicker) row.controls.push(modelPicker.toggle);
       input.addEventListener('input', () => {
-        ai.dirty = true;
-        updateKeyStatus();
-        showAiResult('配置已修改，点击保存或测试连接。', 'idle');
+        if (field.key === 'ai.baseUrl') invalidateModels();
+        aiChanged();
       });
     } else if (field.type !== 'list') {
       const reset = node('button', '恢复默认', 'reset');
@@ -554,12 +596,14 @@ interface PageElements {
       section.append(toolbar);
       if (group.id === 'ai') {
         section.className = 'ai-settings';
+        const test = actions.get('ai.test');
+        if (test) rows.get('ai.model')?.modelActions?.append(test);
         ai.cancel = node('button', '取消测试');
         ai.cancel.hidden = true;
         ai.cancel.type = 'button';
         ai.cancel.addEventListener('click', () => {
           if (ai.pending) {
-            ai.pending!.note = '正在取消测试';
+            ai.pending!.note = ai.pending.operation === 'models' ? '正在取消获取' : '正在取消测试';
             waitingAi();
             send({ type: 'aiCancel', id: ai.pending.id });
           }
@@ -640,6 +684,7 @@ interface PageElements {
       waitingAi();
     }
     if (m.type === 'aiResult' && m.id === ai.pending?.id) {
+      const pending = ai.pending!;
       clearInterval(ai.timer ?? undefined);
       ai.timer = null;
       ai.pending = null;
@@ -649,11 +694,27 @@ interface PageElements {
         row.input.type = 'password';
         row.reveal.textContent = '显示';
         row.reveal.setAttribute('aria-pressed', 'false');
+        row.reveal.setAttribute('aria-label', '显示本次输入的 API Key');
         if (m.saved) ai.dirty = false;
       }
       lockAi(false);
+      if (m.operation === 'clear' && m.ok) invalidateModels();
+      if (m.operation === 'models' && m.ok) {
+        if (pending.revision !== ai.modelsRevision) {
+          showAiResult('API 地址或 Key 已变化，请重新获取模型列表。', 'idle');
+          return;
+        }
+        rows.get('ai.model').modelPicker.setOptions(Array.isArray(m.models) ? m.models : [], Boolean(m.models?.length));
+      }
       const elapsed = m.operation === 'test' && m.ok ? ` 耗时 ${(m.elapsedMs / 1000).toFixed(1)} 秒。` : '';
-      const failure = m.operation === 'test' ? '测试失败：' : m.operation === 'clear' ? '清除失败：' : '保存失败：';
+      const failure =
+        m.operation === 'models'
+          ? '获取失败：'
+          : m.operation === 'test'
+            ? '测试失败：'
+            : m.operation === 'clear'
+              ? '清除失败：'
+              : '保存失败：';
       showAiResult(
         (m.ok ? '✓ ' + m.note : m.cancelled ? m.error : failure + m.error) + elapsed,
         m.ok ? 'success' : m.cancelled ? 'idle' : 'error'

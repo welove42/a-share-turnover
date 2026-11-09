@@ -17,6 +17,7 @@ import * as privateUI from '../../core/ui/privacy';
 import { endpoint, modelName, secretId, complete, diagnosticText } from './client';
 import { AnalysisContext, SYSTEM } from './context';
 import { AiHistoryStore } from './history';
+import { listModels } from './models';
 const VIEW = 'welove42.aShareTurnover.aiAnalysis';
 const PHASES = {
   connecting: '正在连接 AI 服务…',
@@ -88,6 +89,7 @@ class AiAnalysisController {
   declare output: vscode.OutputChannel | undefined;
   declare stocks: AnalysisDependencies['stocks'];
   declare request: typeof complete;
+  declare requestModels: typeof listModels;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -99,11 +101,12 @@ class AiAnalysisController {
       news,
       collect,
       request = complete,
+      requestModels = listModels,
       config = readConfig,
       openSettings = () => {}
     }: AnalysisDependencies = {}
   ) {
-    Object.assign(this, { context, stocks, request, config, openSettings });
+    Object.assign(this, { context, stocks, request, requestModels, config, openSettings });
     const source = collect ? null : new AnalysisContext({ stocks, market, globals, commodities, news });
     this.collect = collect || ((target, signal) => source!.collect(target, signal));
     this.messages = [];
@@ -611,6 +614,14 @@ class AiAnalysisController {
       throw new Error('API Key 保存失败，请重试。');
     }
     await this.updateConfiguration();
+  }
+  async getModels({ url, key = '', signal }: { url: string; key?: string; signal?: AbortSignal }) {
+    if (this.hidden || this.disposed || signal?.aborted) throw new Error('获取模型列表已取消。');
+    const address = endpoint(url);
+    // A draft URL can only use a freshly entered key or the secret bound to that exact endpoint.
+    const value = key.trim() ? key : (await this.context.secrets.get(secretId(address))) || '';
+    if (this.hidden || this.disposed || signal?.aborted) throw new Error('获取模型列表已取消。');
+    return this.requestModels({ url: address, key: value, signal });
   }
   async clearKey(expectedUrl = this.config().url) {
     if (this.hidden || this.disposed) throw new Error('操作已取消');

@@ -5,10 +5,10 @@ const { harness } = require('./vscode-mock.cts');
 const manifest = require('../package.json');
 const { secretId } = require('../dist/features/ai/client.js');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-async function setupAi(request = async () => '连接成功') {
+async function setupAi(request = async () => '连接成功', requestModels = undefined) {
   const h = harness({ 'aShareTurnover.ai.baseUrl': 'https://example.com/v1', 'aShareTurnover.ai.model': 'test' });
   const { AiAnalysisController } = h.load('../dist/features/ai/controller.js');
-  const ai = new AiAnalysisController(h.context, { request });
+  const ai = new AiAnalysisController(h.context, { request, requestModels });
   await ai.ready;
   const { SettingsController } = h.load('../dist/features/settings/controller.js'),
     settings = new SettingsController(h.context, { ai });
@@ -187,6 +187,86 @@ test('AI设置只写全局、校验URL与模型、不注册明文Key配置', asy
     );
   } finally {
     c.dispose();
+  }
+});
+test('获取模型可使用未保存URL和Key、不要求模型名、不修改配置或触发分析', async () => {
+  const calls = [];
+  const x = await setupAi(
+    () => {
+      throw Error('不得调用分析');
+    },
+    async (args) => {
+      calls.push(args);
+      return ['model-new'];
+    }
+  );
+  try {
+    const before = [...x.h.values];
+    x.send({
+      type: 'aiConfigure',
+      id: 'models-1',
+      operation: 'models',
+      url: 'https://new.example/custom',
+      model: '',
+      key: 'draft-key'
+    });
+    await x.settings.aiTaskPromise;
+    assert.equal(calls[0].url, 'https://new.example/custom/chat/completions');
+    assert.equal(calls[0].key, 'draft-key');
+    assert.deepEqual([...x.h.values], before);
+    assert.equal(x.h.secrets.size, 0);
+    const result = x.panel.webview.messages.filter((m) => m.type === 'aiResult').at(-1);
+    assert.equal(result.saved, false);
+    assert.deepEqual(result.models, ['model-new']);
+    assert.doesNotMatch(JSON.stringify(x.panel.webview.messages), /draft-key/);
+    await x.ai.saveKey('stored-key', 'https://example.com/v1');
+    await x.ai.getModels({ url: 'https://example.com/v1/chat/completions', key: '' });
+    assert.equal(calls.at(-1).key, 'stored-key');
+    await x.ai.getModels({ url: 'https://other.example/v1', key: '' });
+    assert.equal(calls.at(-1).key, '');
+  } finally {
+    x.close();
+  }
+});
+test('模型获取禁止并发、可取消，老板键或关闭页面后丢弃迟到结果', async () => {
+  let resolve,
+    signal,
+    count = 0;
+  const x = await setupAi(undefined, (args) => {
+    signal = args.signal;
+    count++;
+    return new Promise((r) => (resolve = r));
+  });
+  try {
+    const message = {
+      type: 'aiConfigure',
+      operation: 'models',
+      url: 'https://example.com/v1',
+      model: '',
+      key: 'draft'
+    };
+    x.send({ ...message, id: 'models-1' });
+    await tick();
+    x.send({ ...message, id: 'duplicate' });
+    assert.equal(count, 1);
+    x.send({ type: 'aiCancel', id: 'models-1' });
+    assert.equal(signal.aborted, true);
+    resolve(['late']);
+    await x.settings.aiTaskPromise;
+    const result = x.panel.webview.messages.filter((m) => m.type === 'aiResult').at(-1);
+    assert.equal(result.ok, false);
+    assert.equal(result.cancelled, true);
+    assert.equal(result.models, undefined);
+    x.send({ ...message, id: 'models-2' });
+    await tick();
+    x.settings.setHidden(true);
+    assert.equal(signal.aborted, true);
+    const before = x.panel.webview.messages.length;
+    resolve(['late']);
+    await x.settings.aiTaskPromise;
+    assert.equal(x.panel.webview.messages.length, before);
+  } finally {
+    x.close();
   }
 });
 test('右侧视图、菜单在老板键时隐藏；侧栏行情图标保持原样', () => {

@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.5",
+  "version": "1.23.6",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.5.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.6.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -892,7 +892,7 @@
           "default": "",
           "scope": "application",
           "maxLength": 160,
-          "description": "AI 模型 ID，由用户服务商提供，例如 deepseek-chat。只在主动分析、追问或测试连接时请求。"
+          "description": "AI 模型 ID。可在插件设置页点击“获取列表”后选择，也可手动填写，例如 deepseek-chat。"
         }
       }
     },

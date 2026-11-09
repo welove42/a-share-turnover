@@ -13,6 +13,7 @@ import type { CommodityProvider } from '../commodities/data';
 import type { NewsProvider } from '../news/data';
 import type { AiSectorProvider } from './sector-data';
 import type { complete } from './client';
+import type { listModels } from './models';
 import type { AiConfiguration, AnalysisSnapshot } from './types';
 
 /** 使用已有行情控制器作为缓存来源；不把它们的持仓或密钥传给 AI。 */
@@ -41,6 +42,7 @@ export interface EnvironmentDependencies extends ContextSources {
 export interface AnalysisDependencies extends ContextSources {
   collect?: (target: string, signal?: AbortSignal) => Promise<AnalysisSnapshot>;
   request?: typeof complete;
+  requestModels?: typeof listModels;
   config?: () => AiConfiguration;
   openSettings?: () => void;
 }

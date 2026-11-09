@@ -22,10 +22,17 @@ function page() {
       hidden: false,
       disabled: false,
       append(...children) {
-        this.children.push(...children);
+        for (const child of children) {
+          if (child.parentElement)
+            child.parentElement.children = child.parentElement.children.filter((n) => n !== child);
+          child.parentElement = this;
+          this.children.push(child);
+        }
       },
       replaceChildren(...children) {
-        this.children = children;
+        this.children.forEach((child) => (child.parentElement = null));
+        this.children = [];
+        this.append(...children);
       },
       setAttribute(k, v) {
         attributes[k] = v;
@@ -33,15 +40,27 @@ function page() {
       getAttribute(k) {
         return attributes[k];
       },
-      addEventListener(k, f) {
-        handlers[k] = f;
+      removeAttribute(k) {
+        delete attributes[k];
       },
-      dispatch(k) {
-        handlers[k]?.();
+      contains(child) {
+        return this === child || this.children.some((n) => n.contains(child));
+      },
+      focus() {
+        document.activeElement = this;
+      },
+      scrollIntoView() {},
+      addEventListener(k, f) {
+        (handlers[k] ||= []).push(f);
+      },
+      dispatch(k, event = {}) {
+        for (const handler of handlers[k] || [])
+          handler({ target: this, preventDefault() {}, stopPropagation() {}, ...event });
       }
     };
   }
   const document = {
+    ...element('document'),
     body: { dataset: { token: 'test' } },
     activeElement: null,
     createElement: element,
@@ -64,7 +83,7 @@ function page() {
     },
     acquireVsCodeApi: () => ({ postMessage: (m) => sent.push(m) })
   });
-  return { nodes, sent, timers, receive: (message) => receive({ data: { token: 'test', ...message } }) };
+  return { nodes, sent, timers, document, receive: (message) => receive({ data: { token: 'test', ...message } }) };
 }
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
 const model = () => [
@@ -101,6 +120,119 @@ const aiModel = () => [
   }
 ];
 
+test('模型列表页内获取、搜索选择和手填，不覆盖当前模型或Key、不自动保存', () => {
+  const p = page(),
+    groups = aiModel();
+  p.receive({ type: 'state', groups });
+  const all = () => descendants(p.nodes.get('sections'));
+  const model = all().find((n) => n.id === 'field-ai.model'),
+    key = all().find((n) => n.id === 'field-ai.apiKey');
+  key.value = 'fixture-key';
+  key.dispatch('input');
+  all()
+    .find((n) => n.textContent === '获取列表')
+    .dispatch('click');
+  const request = p.sent.at(-1);
+  assert.equal(request.operation, 'models');
+  assert.equal(request.key, 'fixture-key');
+  assert.equal(model.disabled, true);
+  p.receive({
+    type: 'aiResult',
+    id: request.id,
+    operation: 'models',
+    ok: true,
+    saved: false,
+    models: ['alpha', 'model-b', 'test'],
+    note: '已获取3个模型'
+  });
+  assert.equal(model.disabled, false);
+  assert.equal(model.value, 'test');
+  assert.equal(key.value, 'fixture-key');
+  assert.equal(model.getAttribute('aria-expanded'), 'true');
+  model.value = 'model';
+  model.dispatch('input');
+  const options = all().filter((n) => n.getAttribute('role') === 'option');
+  assert.deepEqual(
+    options.map((n) => n.textContent),
+    ['model-b']
+  );
+  const sentCount = p.sent.length;
+  options[0].dispatch('click');
+  assert.equal(model.value, 'model-b');
+  assert.equal(p.sent.length, sentCount);
+  p.receive({ type: 'state', groups });
+  assert.equal(model.value, 'model-b');
+  model.value = 'custom/provider-model';
+  model.dispatch('input');
+  assert.match(all().find((n) => n.className === 'model-empty').textContent, /直接输入/);
+  all()
+    .find((n) => n.textContent === '保存配置')
+    .dispatch('click');
+  assert.equal(p.sent.at(-1).model, 'custom/provider-model');
+  assert.equal(p.sent.at(-1).key, 'fixture-key');
+  const testButton = all().find((n) => n.textContent === '测试连接');
+  assert.equal(testButton.parentElement.className, 'model-actions');
+});
+test('模型列表键盘、输入法、焦点离开及API地址变化的处理', () => {
+  const p = page();
+  p.receive({ type: 'state', groups: aiModel() });
+  const all = () => descendants(p.nodes.get('sections'));
+  const model = all().find((n) => n.id === 'field-ai.model'),
+    url = all().find((n) => n.id === 'field-ai.baseUrl');
+  all()
+    .find((n) => n.textContent === '获取列表')
+    .dispatch('click');
+  p.receive({
+    type: 'aiResult',
+    id: p.sent.at(-1).id,
+    operation: 'models',
+    ok: true,
+    models: ['a', 'b'],
+    note: '已获取'
+  });
+  model.dispatch('keydown', { key: 'Enter', isComposing: true });
+  assert.equal(model.value, 'test');
+  model.dispatch('keydown', { key: 'ArrowDown' });
+  model.dispatch('keydown', { key: 'Enter' });
+  assert.equal(model.value, 'b');
+  model.dispatch('keydown', { key: 'ArrowDown' });
+  assert.equal(model.getAttribute('aria-expanded'), 'true');
+  model.dispatch('keydown', { key: 'Escape' });
+  assert.equal(model.getAttribute('aria-expanded'), 'false');
+  model.dispatch('keydown', { key: 'ArrowDown' });
+  p.document.dispatch('pointerdown');
+  assert.equal(model.getAttribute('aria-expanded'), 'false');
+  url.value = 'https://new.example/v1';
+  url.dispatch('input');
+  model.dispatch('keydown', { key: 'ArrowDown' });
+  assert.match(all().find((n) => n.className === 'model-empty').textContent, /先点击/);
+});
+test('模型获取失败或取消保留手填内容，旧请求结果不能覆盖新候选', () => {
+  const p = page();
+  p.receive({ type: 'state', groups: aiModel() });
+  const all = () => descendants(p.nodes.get('sections')),
+    button = all().find((n) => n.textContent === '获取列表');
+  const model = all().find((n) => n.id === 'field-ai.model');
+  model.value = 'my-model';
+  model.dispatch('input');
+  button.dispatch('click');
+  const first = p.sent.at(-1);
+  all()
+    .find((n) => n.textContent === '取消获取')
+    .dispatch('click');
+  assert.equal(p.sent.at(-1).type, 'aiCancel');
+  p.receive({ type: 'aiResult', id: first.id, operation: 'models', ok: false, cancelled: true, error: '已取消' });
+  assert.equal(button.disabled, false);
+  assert.equal(model.value, 'my-model');
+  button.dispatch('click');
+  const second = p.sent.at(-1);
+  p.receive({ type: 'aiResult', id: first.id, operation: 'models', ok: true, models: ['stale'] });
+  assert.equal(button.disabled, true);
+  p.receive({ type: 'aiResult', id: second.id, operation: 'models', ok: false, error: 'HTTP 404：不支持' });
+  assert.equal(model.value, 'my-model');
+  assert.equal(model.disabled, false);
+  assert.match(all().find((n) => n.className === 'ai-result').textContent, /获取失败.*404/);
+});
 test('自定义颜色按模式展示，选色和 HEX 输入均保存，非法输入不会提交且可重试', () => {
   const p = page(),
     groups = [
