@@ -1,5 +1,6 @@
 /** 页面只负责展示与交互。模型输出使用文本节点渲染，历史操作交给扩展主进程。 */
 import { elements } from '../shared/dom';
+import { renderAnalysisText } from './text';
 interface PageElements {
   model: HTMLElement;
   history: HTMLButtonElement;
@@ -89,24 +90,6 @@ interface PageElements {
   let last = '',
     data = '',
     count = 0;
-  // Use text nodes only: remote model output cannot execute HTML or command links.
-  function renderText(element, text) {
-    element.replaceChildren();
-    for (const line of text.split('\n')) {
-      const p = document.createElement('div');
-      if (/^#{1,4}\s/.test(line)) {
-        p.className = 'heading';
-        p.textContent = line.replace(/^#{1,4}\s+/, '');
-      } else {
-        for (const part of line.split(/(\*\*[^*]+\*\*)/g)) {
-          const span = document.createElement(part.startsWith('**') && part.endsWith('**') ? 'strong' : 'span');
-          span.textContent = span.tagName === 'STRONG' ? part.slice(2, -2) : part;
-          p.append(span);
-        }
-      }
-      element.append(p);
-    }
-  }
   window.addEventListener('message', (event) => {
     const m = event.data;
     if (m?.token !== token || m.type !== 'state') return;
@@ -230,7 +213,7 @@ interface PageElements {
           item.notice || (item.state === 'stopped' ? '已停止分析。' : m.status || '未收到分析正文，请重新分析。');
         const content = item.content || (pending ? waiting : fallback);
         if ((article as HTMLElement).dataset.content !== content) {
-          renderText(article.children[1], content);
+          renderAnalysisText(article.children[1], content, item.role === 'assistant');
           (article as HTMLElement).dataset.content = content;
         }
         article.lastElementChild!.textContent = item.content ? (pending ? waiting : item.notice || '') : '';

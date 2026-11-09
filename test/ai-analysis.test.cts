@@ -51,10 +51,17 @@ test('未配置不请求，配置后点击即分析；追问沿用快照，重�
     await c.analyze();
     assert.equal(requests.length, 1);
     assert.equal(collects, 1);
+    // Output guidance must reach the actual request, including follow-ups to saved conversations.
+    assert.match(requests[0].messages[0].content, /## 一句话结论/);
+    assert.match(requests[0].messages[0].content, /## 接下来盯什么/);
+    assert.match(requests[0].messages[0].content, /必要术语当场翻译/);
+    assert.doesNotMatch(requests[0].messages[0].content, /600至900/);
     await c.analyze('有什么风险？');
     assert.equal(collects, 1);
     assert.equal(requests[1].messages.length, 4);
     assert.equal(requests[1].messages.at(-1).content, '有什么风险？');
+    assert.equal(requests[1].messages[0].content, requests[0].messages[0].content);
+    assert.match(requests[1].messages[0].content, /追问直接回答当前问题/);
     await c.analyze();
     assert.equal(collects, 2);
     assert.equal(c.history.length, 2);

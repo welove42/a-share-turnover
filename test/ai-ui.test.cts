@@ -67,6 +67,61 @@ function page() {
   };
 }
 const text = (node) => node.textContent + node.children.map(text).join('');
+const descendants = (node) => [node, ...node.children.flatMap(descendants)];
+
+test('分析结论单独突出，原因与观察条件渲染为列表，用户消息不伪装成结论', () => {
+  const p = page();
+  const content =
+    '## 一句话结论\n**短线偏弱**，先看能否守住今天的涨幅。\n\n## 为什么这么看\n- 价格涨了，但成交比昨天少。\n- 同行涨得更多，它跟涨较弱。\n\n## 接下来盯什么\n1. 成交增加且涨幅扩大，再看是否变强。\n2. 跌回开盘附近，要小心反弹结束。\n\n## 最需要小心\n外围行情是上一交易日，不能当作同步走势。';
+  p.receive({
+    messages: [
+      { role: 'user', content: '## 一句话结论\n帮我看下' },
+      { role: 'assistant', content, state: 'complete' }
+    ]
+  });
+  const [user, answer] = p.nodes.get('messages').children;
+  assert.equal(
+    descendants(user).some((n) => n.className?.includes('analysis-summary')),
+    false
+  );
+  const summary = descendants(answer).find((n) => n.className?.includes('analysis-summary'));
+  assert.match(text(summary), /短线偏弱/);
+  assert.doesNotMatch(text(summary), /同行|外围/);
+  assert.equal(descendants(answer).filter((n) => n.tagName === 'LI').length, 4);
+  assert.equal(descendants(answer).filter((n) => n.tagName === 'STRONG').length, 1);
+  assert.match(text(answer), /上一交易日/);
+});
+
+test('流式回复和历史普通文本完整保留，加粗标题可识别，外部 HTML 和命令链接只作为文本', () => {
+  const p = page(),
+    answer = { role: 'assistant', content: '## 一句话', state: 'pending' };
+  p.receive({ busy: true, messages: [answer] });
+  answer.content =
+    '**一句话结论**\n数据不足，暂时看不清。\n## 为什么这么看\n- <img src=x onerror=alert(1)>\n- [打开](command:workbench.action.closeWindow)';
+  p.receive({ busy: true, messages: [answer] });
+  const root = p.nodes.get('messages');
+  assert.match(text(root), /数据不足/);
+  assert.equal(descendants(root).filter((n) => n.className?.includes('analysis-summary')).length, 1);
+  assert.equal(
+    descendants(root).some((n) => ['IMG', 'SCRIPT', 'A'].includes(n.tagName)),
+    false
+  );
+  assert.match(text(root), /onerror=alert\(1\)/);
+  answer.content = '旧历史没有标题。\n仍显示完整正文。\n\n3. 第三项\n7. 第七项';
+  answer.state = 'complete';
+  p.receive({ busy: false, messages: [answer] });
+  assert.match(text(root), /旧历史没有标题.*仍显示完整正文/);
+  assert.equal(
+    descendants(root).some((n) => n.className?.includes('analysis-summary')),
+    false
+  );
+  assert.deepEqual(
+    descendants(root)
+      .filter((n) => n.tagName === 'LI')
+      .map((n) => n.value),
+    [3, 7]
+  );
+});
 
 test('历史在分析面板内显示，恢复及删除均通过本页面操作', () => {
   const p = page();
