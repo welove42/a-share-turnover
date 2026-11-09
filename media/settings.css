@@ -19,6 +19,8 @@ input, select, textarea { font: inherit; color: var(--vscode-input-foreground); 
 #search { width: 100%; } input[type="number"] { width: 120px; } input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--vscode-button-background); cursor: pointer; }
 textarea { width: 100%; min-width: 0; resize: vertical; } select { max-width: min(280px, 100%); }
 :focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+/* Input focus changes the existing 1px border only; no additional ring or size change. */
+input:not([type="checkbox"]):focus, select:focus, textarea:focus { border-color: var(--vscode-focusBorder); outline: none; box-shadow: none; }
 .hint, .muted { color: var(--vscode-descriptionForeground); font-size: 12px; }
 #dependencies { color: var(--vscode-editorWarning-foreground); } #dependencies:empty { display: none; }
 h2 { font-size: 17px; margin: 0 0 12px; } section { margin-top: 28px; }
@@ -33,9 +35,9 @@ h2 { font-size: 17px; margin: 0 0 12px; } section { margin-top: 28px; }
 .color-control input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 .color-control input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 2px; }
 .secret-control { width: 300px; display: block; }
-/* The wrapper owns the border/focus ring; revealing a password must not change its width. */
+/* Composite inputs share one border; revealing a password must not change its width. */
 .compound-input { display: flex; align-items: stretch; width: 100%; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; background: var(--vscode-input-background); }
-.compound-input:focus-within { border-color: var(--vscode-focusBorder); outline: 1px solid var(--vscode-focusBorder); outline-offset: 0; }
+.compound-input:focus-within { border-color: var(--vscode-focusBorder); outline: none; box-shadow: none; }
 .control .compound-input input { width: 0; min-width: 0; flex: 1; border: 0; border-radius: 3px 0 0 3px; outline: none; background: transparent; }
 .compound-action { flex: none; border: 0; border-left: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 0 3px 3px 0; padding: 6px 10px; }
 .compound-action:focus-visible { outline-offset: -3px; }
