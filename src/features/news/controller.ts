@@ -1,13 +1,18 @@
 import * as vscode from 'vscode';
 import { shanghaiClock } from '../turnover/market';
 import { SOURCES, isArticle, mergeNews, NewsProvider } from './data';
+import type { NewsArticle } from '../../shared/types';
+const NEWS_OUTPUT_LANGUAGE = 'a-share-news-output';
 function articleText(item) {
   const c = shanghaiClock(new Date(item.publishedAt));
   return `${item.title}\n\n来源：${SOURCES[item.source]}　${c.date} ${c.time}（北京）\n\n${item.body}${item.stocks ? '\n\n相关股票：' + item.stocks : ''}\n`;
 }
-function articleOutput(item) {
+function articleOutput(item: NewsArticle) {
   const c = shanghaiClock(new Date(item.publishedAt));
-  return `📣 ${item.title}\n📄 摘要：${item.body}${item.stocks ? '\n📈 相关股票：' + item.stocks : ''}\n🕒 时间：${c.date} ${c.time}（北京）　来源：${SOURCES[item.source]}\n────────────────────────────────`;
+  const singleLine = (text: string) => text.replace(/[\r\n\u2028\u2029]+/g, ' ');
+  // Indent body continuations so a quoted heading/clock marker cannot be mistaken for an article field.
+  const body = item.body.replace(/\r\n?|[\u2028\u2029]/g, '\n').replace(/\n/g, '\n   ');
+  return `📣 ${singleLine(item.title)}\n📄 摘要：${body}${item.stocks ? '\n📈 相关股票：' + singleLine(item.stocks) : ''}\n🕒 时间：${c.date} ${c.time}（北京）　来源：${SOURCES[item.source]}\n────────────────────────────────`;
 }
 class NewsController {
   declare context: any;
@@ -73,7 +78,8 @@ class NewsController {
     this.status.command = 'welove42.aShareTurnover.news.show';
     this.statusRendered = {};
     this.statusVisible = false;
-    this.output = vscode.window.createOutputChannel('财经新闻7×24资讯');
+    // A dedicated language colors only this output channel and follows the user's syntax theme.
+    this.output = vscode.window.createOutputChannel('财经新闻7×24资讯', NEWS_OUTPUT_LANGUAGE);
     this.documentProvider = vscode.workspace.registerTextDocumentContentProvider('a-share-news', {
       provideTextDocumentContent: (uri) => this.documents.get(uri.path) || '该快讯已过期，请刷新列表后重新打开。'
     });
@@ -233,4 +239,4 @@ class NewsController {
     for (const resource of [this.listener, this.documentProvider, this.status, this.output]) resource.dispose();
   }
 }
-export { NewsController, articleText, articleOutput };
+export { NewsController, articleText, articleOutput, NEWS_OUTPUT_LANGUAGE };

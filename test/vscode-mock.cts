@@ -213,9 +213,10 @@ function harness(configuration = {}) {
         statuses.push(item);
         return item;
       },
-      createOutputChannel: (name) => {
+      createOutputChannel: (name, languageId) => {
         const channel = {
           name,
+          languageId,
           lines: [],
           shown: 0,
           hidden: 0,

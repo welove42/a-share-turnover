@@ -187,6 +187,7 @@ test('新闻只使用底部输出，包含全文和时间；无变化不重写�
     h.c.publish();
     assert.deepEqual(h.c.status.writes, writes);
     assert.equal(h.c.output.name, '财经新闻7×24资讯');
+    assert.equal(h.c.output.languageId, 'a-share-news-output');
     assert.match(h.c.output.lines[0], /📣.*\n📄 摘要：测试全文\n🕒 时间：/);
     assert.equal(h.trees.size, 0);
     h.c.unread = 2;
@@ -196,4 +197,20 @@ test('新闻只使用底部输出，包含全文和时间；无变化不重写�
   } finally {
     h.c.dispose();
   }
+});
+
+test('新闻标题保持单行、多段正文保留换行，正文中的标记不会伪装成标题或时间', () => {
+  const h = harness();
+  const { articleOutput } = h.load('../dist/features/news/controller.js');
+  const text = articleOutput({
+    ...article(1),
+    title: '第一行\r\n第二行',
+    body: '正文\r\n📣 正文引用\u2028🕒 时间：正文引用',
+    stocks: '股票甲\n股票乙'
+  });
+  assert.match(text, /^📣 第一行 第二行\n/);
+  assert.match(text, /📄 摘要：正文\n   📣 正文引用\n   🕒 时间：正文引用\n📈 相关股票：股票甲 股票乙/);
+  assert.equal(text.split('\n').filter((line) => line.startsWith('📣 ')).length, 1);
+  assert.equal(text.split('\n').filter((line) => line.startsWith('🕒 时间：')).length, 1);
+  assert.doesNotMatch(text, /\u001b\[/);
 });

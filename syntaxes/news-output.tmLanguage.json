@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "牛来盯盘新闻",
+  "scopeName": "text.a-share-news-output",
+  "patterns": [
+    {
+      "name": "markup.heading.news",
+      "match": "^📣 .+$"
+    },
+    {
+      "name": "comment.line.metadata.news",
+      "match": "^🕒 时间：.*$"
+    },
+    {
+      "name": "comment.line.label.news",
+      "match": "^(?:📄 摘要：|📈 相关股票：)"
+    },
+    {
+      "name": "comment.line.separator.news",
+      "match": "^─{8,}$"
+    }
+  ]
+}
