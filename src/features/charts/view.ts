@@ -88,6 +88,14 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
                 ><button type="button" id="zoom-out" aria-label="缩小K线" title="缩小K线（Ctrl + 滚轮向下）">−</button>
               </div>
             </div>
+            <div id="history-tools" class="history-tools" role="group" aria-label="历史走势" hidden>
+              <button type="button" id="history-older" title="向前浏览，到达边界时加载更早K线">更早</button>
+              <button type="button" id="history-newer" title="向后浏览已加载K线">较新</button>
+              <button type="button" id="history-all" title="分批加载数据源提供的全部历史">全部历史</button>
+              <button type="button" id="history-latest" title="回到最近180根K线">最新</button>
+            </div>
+            <p id="range-info"></p>
+            <p id="history-progress" role="status" aria-live="polite"></p>
             <p id="meta"></p>
             <p id="status" role="status" aria-live="polite"></p>
             <div id="plot" tabindex="0" role="group" aria-label="行情价格、成交量及技术指标">
@@ -104,6 +112,10 @@ function chartHtml(webview, context, symbol, token, mode = 'intraday') {
               <div id="chart-tooltip" hidden></div>
             </div>
             <p class="note" id="indicator-note"></p>
+            <p class="note">
+              日 / 周 / 月K可用“更早 /
+              较新”翻看历史；缩小到边界会自动补载，“全部历史”加载至数据源最早记录，“最新”返回近期走势。
+            </p>
             <p class="note">
               在顶部切换周期，成交量下方切换副图指标。分时黄色线为当日成交均价；5日分时按交易日分区，均价与副图指标每日重置，历史日期缺少昨收时涨跌幅显示为空。成交量柱高按所显示周期线性缩放；分时柱颜色按相邻分钟价格涨跌判断，首分钟参考昨收，缺少参考价或价格不变显示中性色。K线换手率为对应周期值，5日分时显示当日全天换手率（最后一天为数据源最新值）；来源东方财富，沪深日周月K及5日分时可使用搜狐备用；数据缺失时显示“—”。K线含
               MA5 / MA10 / MA20 / MA30 / MA60，成交量含 VMA5 /

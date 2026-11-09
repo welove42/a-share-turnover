@@ -70,7 +70,7 @@ function metadata(data, symbol) {
     dailyQuoteTimestamp: extremes.dailyHigh !== null || extremes.dailyLow !== null ? timestamp : null
   };
 }
-function parseChart(payload, input, mode) {
+function parseChart(payload, input, mode, allowEmpty = false) {
   const symbol = normalizeSymbol(input);
   if (mode !== 'intraday' && !Object.hasOwn(PERIODS, mode) && !MINUTES.includes(mode)) throw new Error('图表类型无效');
   const data = payload?.code === 0 && payload.data?.[symbol];
@@ -180,8 +180,16 @@ function parseChart(payload, input, mode) {
     }
     date = bars.at(-1)?.time;
   }
-  if (!bars.length) throw new Error('暂无有效成交数据（可能尚未开盘、停牌或行情源暂不支持）');
-  return { symbol, mode, ...meta, date, adjustment, bars: bars.slice(-300), source: '腾讯行情' };
+  if (!bars.length && !allowEmpty) throw new Error('暂无有效成交数据（可能尚未开盘、停牌或行情源暂不支持）');
+  return {
+    symbol,
+    mode,
+    ...meta,
+    date,
+    adjustment,
+    bars: Object.hasOwn(PERIODS, mode) ? bars : bars.slice(-300),
+    source: '腾讯行情'
+  };
 }
 function parseFiveDayChart(payload, input) {
   const symbol = normalizeSymbol(input),
@@ -252,7 +260,8 @@ class ChartProvider {
     ];
     if (!supportsTurnover(symbol) || !klt) return new Map();
     // Five-day intraday and daily use the same klt but need different history windows.
-    const key = `${symbol}:${mode}`,
+    const windowDates = (options.bars || []).map((bar) => (bar.date || bar.time).slice(0, 10)).sort();
+    const key = `${symbol}:${mode}:${windowDates[0] || ''}:${windowDates.at(-1) || ''}`,
       cached = this.turnoverCache.get(key),
       now = Date.now();
     if (cached && now - cached.at < 60000 && !options.force) {
@@ -260,7 +269,8 @@ class ChartProvider {
       return cached.rates;
     }
     const market = symbol.startsWith('sh') ? 1 : 0;
-    const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${symbol.slice(2)}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=300`;
+    const limit = Math.min(16000, Math.max(300, (options.bars?.length || 0) + 20));
+    const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${symbol.slice(2)}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=${limit}`;
     const failures: string[] = [];
     const eastmoney = async (address) => {
       const payload = await this.request(address, signal, { Referer: 'https://quote.eastmoney.com/' });
@@ -372,6 +382,17 @@ class ChartProvider {
       ? `https://ifzq.gtimg.cn/appstock/app/kline/mkline?param=${symbol},${mode},,240`
       : `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},${PERIODS[mode]},,,240,qfq`;
     return parseChart(await this.request(url, signal), symbol, mode);
+  }
+  async loadEarlier(input: string, mode: string, before: string, signal?: AbortSignal) {
+    const symbol = normalizeSymbol(input);
+    if (!Object.hasOwn(PERIODS, mode) || !/^\d{4}-\d{2}-\d{2}$/.test(before)) throw new Error('历史查询参数无效');
+    normalizeDate(before.replaceAll('-', ''));
+    if (signal?.aborted) throw new Error('历史查询已取消');
+    // Inclusive end keeps one shared bar for checking the adjustment base between pages.
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},${PERIODS[mode]},,${before},640,qfq`;
+    const payload = await this.request(url, signal);
+    if (signal?.aborted) throw new Error('历史查询已取消');
+    return parseChart(payload, symbol, mode, true);
   }
 }
 export { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, parseFiveDayChart, ChartProvider };

@@ -1,6 +1,7 @@
 /** 图表在浏览器本地绘制；切换副图无需请求网络，价格与成交量保持各自的缩放范围。 */
 import type { PriceBar, IndicatorLine, IndicatorSeries } from '../../shared/types';
 import { renderEtfReference, type EtfReferenceData } from './etf-reference';
+import { MAX_HISTORY_BARS, supportsHistory } from '../../features/charts/history';
 interface ChartData extends EtfReferenceData {
   symbol: string;
   mode: string;
@@ -22,6 +23,8 @@ interface ChartData extends EtfReferenceData {
   historicalError?: string;
   historicalSource?: string;
   historicalFetchedAt?: string;
+  historyComplete?: boolean;
+  historyReset?: boolean;
 }
 interface HoverState {
   bars: PriceBar[];
@@ -54,6 +57,13 @@ interface PageElements {
   'zoom-tools': HTMLElement;
   'zoom-in': HTMLButtonElement;
   'zoom-out': HTMLButtonElement;
+  'history-tools': HTMLElement;
+  'history-older': HTMLButtonElement;
+  'history-newer': HTMLButtonElement;
+  'history-all': HTMLButtonElement;
+  'history-latest': HTMLButtonElement;
+  'history-progress': HTMLElement;
+  'range-info': HTMLElement;
   meta: HTMLElement;
   status: HTMLElement;
   plot: HTMLElement;
@@ -111,11 +121,13 @@ import * as marketIndicators from '../../shared/indicators';
   const indicatorButtons = [...document.querySelectorAll<HTMLButtonElement>('button[data-indicator]')];
   let mode = 'intraday',
     data: ChartData | null = null,
-    range =
-      Number.isInteger(saved.range) && saved.range >= 30 && saved.range <= 240 && saved.range % 30 === 0
-        ? saved.range
-        : 180,
+    range = Number.isInteger(saved.range) && saved.range >= 30 && saved.range <= MAX_HISTORY_BARS ? saved.range : 180,
     hover: HoverState | null = null;
+  let windowEnd: string | null = null,
+    pendingEnd: string | null = null,
+    historyBusy = false,
+    fitHistory = false,
+    pendingRange: number | null = null;
   let webTimer: number | null = null,
     pendingUrl = '',
     lastWebLoad = -Infinity;
@@ -217,6 +229,16 @@ import * as marketIndicators from '../../shared/indicators';
     $('web-chart').hidden = !isWebMode(mode);
     $('local').hidden = isWebMode(mode);
     $('zoom-tools').hidden = isIntraday(mode) || isWebMode(mode);
+    $('history-tools').hidden = !supportsHistory(mode);
+    if (changed) {
+      windowEnd = null;
+      pendingEnd = null;
+      historyBusy = false;
+      fitHistory = false;
+      pendingRange = null;
+      $('history-progress').textContent = '';
+      $('range-info').textContent = '';
+    }
     if (isWebMode(mode)) {
       loadWeb();
     } else {
@@ -247,13 +269,93 @@ import * as marketIndicators from '../../shared/indicators';
   }
   function updateZoom() {
     $('zoom-in').disabled = range <= 30;
-    $('zoom-out').disabled = range >= 240 || (data?.mode === mode && range >= data.bars.length);
+    const canLoad = supportsHistory(mode) && !data?.historyComplete;
+    $('zoom-out').disabled =
+      historyBusy ||
+      range >= MAX_HISTORY_BARS ||
+      (!canLoad && Boolean(data?.mode === mode && range >= data.bars.length));
+    const end = viewEnd();
+    $('history-older').disabled = !data || historyBusy || (end <= range && !canLoad);
+    $('history-newer').disabled = !data || end >= data.bars.length;
+    $('history-latest').disabled = !data || (windowEnd === null && !fitHistory);
+    $('history-all').disabled = !data || historyBusy || (fitHistory && Boolean(data.historyComplete));
   }
+  function viewEnd(): number {
+    if (!data) return 0;
+    if (windowEnd === null) return data.bars.length;
+    let index = data.bars.length - 1;
+    while (index >= 0 && data.bars[index].time > windowEnd) index--;
+    return Math.max(1, index + 1);
+  }
+  function requestHistory(all = false) {
+    if (!data || historyBusy || !supportsHistory(mode) || data.historyComplete) return;
+    historyBusy = true;
+    updateZoom();
+    $('history-progress').textContent = '正在加载更早走势…';
+    send('history', { all });
+  }
+  function pan(direction: number) {
+    if (!data || !supportsHistory(mode)) return;
+    pendingEnd = null;
+    pendingRange = null;
+    fitHistory = false;
+    if (hover) hover.active = false;
+    const end = viewEnd(),
+      step = Math.max(1, Math.round(Math.min(range, data.bars.length) * 0.8));
+    if (direction < 0 && end <= range) {
+      if (!data.historyComplete) {
+        pendingEnd = data.bars[0].time;
+        requestHistory();
+      }
+      return;
+    }
+    const next = Math.max(Math.min(range, data.bars.length), Math.min(data.bars.length, end + direction * step));
+    windowEnd = next === data.bars.length ? null : data.bars[next - 1].time;
+    updateZoom();
+    draw();
+  }
+  $('history-older').addEventListener('click', () => pan(-1));
+  $('history-newer').addEventListener('click', () => pan(1));
+  $('history-latest').addEventListener('click', () => {
+    windowEnd = null;
+    pendingEnd = null;
+    fitHistory = false;
+    pendingRange = null;
+    range = 180;
+    if (hover) hover.active = false;
+    remember();
+    updateZoom();
+    draw();
+  });
+  $('history-all').addEventListener('click', () => {
+    if (!data) return;
+    fitHistory = true;
+    windowEnd = null;
+    pendingEnd = null;
+    range = Math.max(30, data.bars.length);
+    if (hover) hover.active = false;
+    requestHistory(true);
+    updateZoom();
+    draw();
+  });
   function zoom(direction) {
     if (isIntraday(mode) || isWebMode(mode) || !data || data.mode !== mode) return false;
-    const next = Math.max(30, Math.min(240, range + direction * 30));
-    if (next === range || (direction > 0 && range >= data.bars.length)) return false;
-    range = next;
+    pendingEnd = null;
+    const next = Math.max(
+      30,
+      Math.min(
+        MAX_HISTORY_BARS,
+        range < 240 ? range + direction * 30 : Math.round((direction > 0 ? range * 1.5 : range / 1.5) / 30) * 30
+      )
+    );
+    if (next === range) return false;
+    fitHistory = false;
+    if (direction < 0) pendingRange = null;
+    if (direction > 0 && next > data.bars.length && supportsHistory(mode) && !data.historyComplete) {
+      pendingRange = next;
+      requestHistory();
+    }
+    range = Math.max(30, Math.min(next, data.bars.length));
     remember();
     updateZoom();
     draw();
@@ -297,12 +399,16 @@ import * as marketIndicators from '../../shared/indicators';
     const all = data.bars,
       candles = !isIntraday(mode),
       fiveDay = mode === 'intraday5';
-    let start = candles ? Math.max(0, all.length - range) : 0;
+    const end = candles ? viewEnd() : all.length;
+    let start = candles ? Math.max(0, end - range) : 0;
     if (candles && hover?.active) {
       const selectedIndex = all.findIndex((b) => b.time === hover!.bars[hover!.index].time);
       if (selectedIndex >= 0) start = Math.min(start, selectedIndex);
     }
-    const bars = candles ? all.slice(start, start + range) : all;
+    const bars = candles ? all.slice(start, Math.min(end, start + range)) : all;
+    $('range-info').textContent = supportsHistory(mode)
+      ? `${bars[0].time} — ${bars.at(-1)!.time} · 显示 ${bars.length} / 已加载 ${all.length} 根`
+      : '';
     const { calculate, movingAverage } = marketIndicators;
     const compute = (name) => {
       if (!fiveDay) return calculate(all, name)!;
@@ -471,7 +577,12 @@ import * as marketIndicators from '../../shared/indicators';
         y2: yy,
         class: i === 0 ? 'grid volume-grid' : 'volume-grid volume-grid-guide'
       });
-      add('text', { x: L - 8, y: yy + 4, 'text-anchor': 'end', class: 'volume-tick' }, volume((maxVolume * i) / 3));
+      // The panel heading already specifies lots; omit the suffix so long-history peaks fit the axis gutter.
+      add(
+        'text',
+        { x: L - 8, y: yy + 4, 'text-anchor': 'end', class: 'volume-tick' },
+        volume((maxVolume * i) / 3).replace(/手$/, '')
+      );
     }
     add('text', { x: L, y: V - 10 }, '成交量 · 手');
     if (mode === 'intraday' && data.previousClose)
@@ -506,6 +617,11 @@ import * as marketIndicators from '../../shared/indicators';
         (width / (candles ? bars.length : fiveDay ? data.dates.length * 241 : 241)) * (candles ? 0.65 : 0.85)
       )
     );
+    // Batch dense candle/volume geometry into paths so decades of daily bars do not create tens of thousands of DOM nodes.
+    const dense = candles && bars.length > 800;
+    const shapes = new Map<string, { wicks: string[]; bodies: string[]; volumes: string[] }>();
+    const rectangle = (x: number, y: number, w: number, h: number) =>
+      `M${x.toFixed(2)},${y.toFixed(2)}h${w.toFixed(2)}v${h.toFixed(2)}h${(-w).toFixed(2)}Z`;
     bars.forEach((bar, i) => {
       const baseline = candles
         ? bar.open
@@ -524,6 +640,22 @@ import * as marketIndicators from '../../shared/indicators';
             : bar.close < baseline
               ? down
               : 'var(--vscode-descriptionForeground)';
+      const vh = (bar.volume / maxVolume) * (VB - V);
+      if (dense) {
+        if (!shapes.has(color)) shapes.set(color, { wicks: [], bodies: [], volumes: [] });
+        const shape = shapes.get(color)!;
+        shape.wicks.push(`M${xx.toFixed(2)},${y(bar.high).toFixed(2)}V${y(bar.low).toFixed(2)}`);
+        shape.bodies.push(
+          rectangle(
+            xx - barWidth / 2,
+            Math.min(y(bar.open), y(bar.close)),
+            barWidth,
+            Math.max(1, Math.abs(y(bar.open) - y(bar.close)))
+          )
+        );
+        shape.volumes.push(rectangle(xx - barWidth / 2, VB - vh, barWidth, vh));
+        return;
+      }
       if (candles) {
         add('line', { x1: xx, x2: xx, y1: y(bar.high), y2: y(bar.low), stroke: color, 'stroke-width': 1 });
         add('rect', {
@@ -534,9 +666,13 @@ import * as marketIndicators from '../../shared/indicators';
           fill: color
         });
       }
-      const vh = (bar.volume / maxVolume) * (VB - V);
       add('rect', { x: xx - barWidth / 2, y: VB - vh, width: barWidth, height: vh, fill: color, class: 'volume-bar' });
     });
+    for (const [color, shape] of shapes) {
+      add('path', { d: shape.wicks.join(''), stroke: color, 'stroke-width': 1, fill: 'none' });
+      add('path', { d: shape.bodies.join(''), fill: color });
+      add('path', { d: shape.volumes.join(''), fill: color, class: 'volume-bar' });
+    }
     averages.forEach((a, index) => {
       drawSeries(a, y, candles ? 'price-average' : 'intraday-average');
       addLegend(a, { x: L + index * 175, y: 21, class: candles ? a.name.toLowerCase() : 'series-0' }, priceOrDash);
@@ -590,8 +726,19 @@ import * as marketIndicators from '../../shared/indicators';
       indicatorData.levels.forEach((level) =>
         add('line', { x1: L, x2: R, y1: iy(level), y2: iy(level), class: 'baseline' })
       );
+      const histogramShapes = new Map<string, string[]>();
       histogram?.forEach((value, i) => {
         if (value === 0) return;
+        if (dense) {
+          const color = value >= 0 ? up : down;
+          if (!histogramShapes.has(color)) histogramShapes.set(color, []);
+          histogramShapes
+            .get(color)!
+            .push(
+              rectangle(x(bars[i], i) - barWidth / 2, Math.min(iy(0), iy(value)), barWidth, Math.abs(iy(0) - iy(value)))
+            );
+          return;
+        }
         add('rect', {
           x: x(bars[i], i) - barWidth / 2,
           y: Math.min(iy(0), iy(value)),
@@ -601,6 +748,8 @@ import * as marketIndicators from '../../shared/indicators';
           class: 'indicator-bar'
         });
       });
+      for (const [color, paths] of histogramShapes)
+        add('path', { d: paths.join(''), fill: color, class: 'indicator-bar' });
       if (fiveDay) indicatorData.lines.forEach((s) => drawSeries(s, iy, 'indicator-line'));
       else
         lines.forEach((s) => {
@@ -674,7 +823,7 @@ import * as marketIndicators from '../../shared/indicators';
     if (selected >= 0) pointAt(selected);
     else {
       $('chart-tooltip').hidden = true;
-      detail(bars.at(-1)!, all.length - 1);
+      detail(bars.at(-1)!, start + bars.length - 1);
     }
   }
   const numberOrDash = (value) => (isFiniteNumber(value) ? value.toFixed(4) : '—');
@@ -898,6 +1047,16 @@ import * as marketIndicators from '../../shared/indicators';
       return;
     }
     if (message.mode && message.mode !== mode) return;
+    if (message.type === 'history-state') {
+      historyBusy = Boolean(message.busy);
+      $('history-progress').textContent = message.message || '';
+      if (!historyBusy) {
+        pendingRange = null;
+        pendingEnd = null;
+      }
+      updateZoom();
+      return;
+    }
     if (message.type === 'refresh' && isWebMode(mode)) {
       loadWeb(true);
       return;
@@ -913,7 +1072,24 @@ import * as marketIndicators from '../../shared/indicators';
       if (data) renderEtfReference($('etf-reference'), data, Date.now(), true);
     }
     if (message.type === 'data' && message.data?.mode === mode && message.data.symbol === symbol) {
+      const firstData = !data;
       data = { ...message.data, dates: message.data.dates || [] } as ChartData;
+      if (data.historyReset) {
+        windowEnd = null;
+        pendingEnd = null;
+        fitHistory = false;
+        pendingRange = null;
+        hover = null;
+        $('history-progress').textContent = '复权价格已更新，请重新加载更早历史。';
+      }
+      if (pendingEnd && data.bars[0].time < pendingEnd) {
+        windowEnd = pendingEnd;
+        pendingEnd = null;
+      }
+      if (fitHistory) range = Math.max(30, data.bars.length);
+      else if (pendingRange !== null) range = Math.max(30, Math.min(pendingRange, data.bars.length));
+      else if (!isIntraday(mode) && (firstData || data.historyReset))
+        range = Math.max(30, Math.min(range, data.bars.length));
       renderEtfReference($('etf-reference'), data, Date.now());
       updateZoom();
       $('status').className = '';

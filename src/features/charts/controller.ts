@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { normalizeSymbol, INDEX_SYMBOL, StockProvider, dailyExtremes } from '../watchlist/quotes';
 import { POLL_MS, session, normalizeDate, timeToMinute } from '../turnover/market';
 import { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } from './data';
+import { prependHistory, retainHistory, supportsHistory, MAX_HISTORY_BARS } from './history';
 
 interface ChartPanel {
   symbol: string;
@@ -244,6 +245,8 @@ class ChartController {
   receive(state, message) {
     if (this.disposed || this.panels.get(state.symbol) !== state || !message || message.token !== state.token) return;
     if (message.action === 'external') return this.openExternal(state.symbol, state.mode);
+    if (message.action === 'history' && state.ready && supportsHistory(state.mode))
+      return this.loadOlder(state, message.all === true);
     if (message.action === 'indicator' && state.ready && !isWebMode(state.mode)) {
       this.selectIndicator(state, message.indicator);
       return;
@@ -270,14 +273,93 @@ class ChartController {
     } else if (message.action === 'refresh' && state.ready && !isWebMode(state.mode)) return this.refresh(state, true);
   }
   cancel(state) {
+    if (state.historyInflight)
+      this.send(state, {
+        type: 'history-state',
+        mode: state.mode,
+        busy: false,
+        message: '历史加载已暂停，已加载走势保留。'
+      });
     state.generation++;
     state.abort?.abort();
     state.abort = null;
     state.inflight = null;
+    state.historyAbort?.abort();
+    state.historyAbort = null;
+    state.historyInflight = null;
+  }
+  loadOlder(state, all = false) {
+    if (this.disposed || this.hidden || !state.ready || !state.panel.visible || !supportsHistory(state.mode))
+      return Promise.resolve();
+    if (state.historyInflight) return state.historyInflight;
+    const generation = state.generation,
+      mode = state.mode,
+      symbol = state.symbol;
+    const abort = (state.historyAbort = new AbortController());
+    const active = () => !this.disposed && !abort.signal.aborted && state.generation === generation;
+    const status = (busy, message = '') => this.send(state, { type: 'history-state', mode, busy, message });
+    status(true, '正在加载更早走势…');
+    state.historyInflight = (async () => {
+      try {
+        await Promise.resolve();
+        if (state.inflight) await state.inflight;
+        if (!active()) return;
+        if (!state.data?.bars?.length || typeof this.provider.loadEarlier !== 'function')
+          throw new Error('请先加载当前K线后重试');
+        let pages = 0;
+        while (!state.data.historyComplete && pages < 30) {
+          if (state.data.bars.length >= MAX_HISTORY_BARS) throw new Error('历史记录达到容量上限');
+          const older = await this.provider.loadEarlier(symbol, mode, state.data.bars[0].time, abort.signal);
+          if (!active()) return;
+          state.data = prependHistory(state.data, older);
+          this.cache.set(`${symbol}:${mode}`, { data: state.data, at: state.lastAttempt });
+          this.send(state, { type: 'data', data: state.data });
+          status(
+            true,
+            `已加载 ${state.data.bars[0].time} 至 ${state.data.bars.at(-1).time}，共 ${state.data.bars.length} 根…`
+          );
+          pages++;
+          if (!all) break;
+        }
+        if (all && !state.data.historyComplete) throw new Error('本次历史加载已暂停，可再次点击“全部历史”继续');
+        // Supplement turnover once after prices are visible, not on each historical page.
+        if (state.data.turnoverApplicable && typeof this.provider.loadHistoricalTurnover === 'function') {
+          try {
+            const rates = await this.provider.loadHistoricalTurnover(symbol, mode, abort.signal, {
+              bars: state.data.bars
+            });
+            if (!active()) return;
+            state.data = {
+              ...state.data,
+              bars: state.data.bars.map((bar) => ({
+                ...bar,
+                historicalTurnover: rates.get(bar.time) ?? bar.historicalTurnover ?? null
+              })),
+              historicalStatus: rates.stale ? 'stale' : 'ready',
+              historicalSource: rates.source
+            };
+            this.cache.set(`${symbol}:${mode}`, { data: state.data, at: state.lastAttempt });
+            this.send(state, { type: 'data', data: state.data });
+          } catch {
+            /* Missing turnover must not discard valid price history. */
+          }
+        }
+        if (active()) status(false, state.data.historyComplete ? `已到数据源最早记录：${state.data.bars[0].time}` : '');
+      } catch (error) {
+        if (active()) status(false, `${error.message || '历史加载失败'}；已加载走势保留，可重试。`);
+      } finally {
+        if (state.generation === generation) {
+          state.historyInflight = null;
+          state.historyAbort = null;
+        }
+      }
+    })();
+    return state.historyInflight;
   }
   refresh(state, force = false) {
     if (this.disposed || !state.ready || !state.panel.visible || isWebMode(state.mode)) return Promise.resolve();
     if (state.inflight) return state.inflight;
+    if (state.historyInflight) return state.historyInflight;
     const key = `${state.symbol}:${state.mode}`,
       now = this.now().getTime(),
       cached = this.cache.get(key);
@@ -296,8 +378,10 @@ class ChartController {
     this.send(state, { type: 'loading', mode, preserve: Boolean(state.data) });
     state.inflight = (async () => {
       try {
-        const data = await this.provider.load(state.symbol, mode, abort.signal);
+        const fresh = await this.provider.load(state.symbol, mode, abort.signal);
         if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
+        // Reset is a one-shot view event; do not cache it or repeat it during subsequent history/enrichment updates.
+        const { historyReset, ...data } = retainHistory(state.data || this.cache.get(key)?.data, fresh);
         const needsHistory =
           data.turnoverApplicable && mode !== 'intraday' && typeof this.provider.loadHistoricalTurnover === 'function';
         const needsEtf = data.etfEligible && !data.etf;
@@ -310,7 +394,7 @@ class ChartController {
         this.cache.set(key, { data: state.data, at: state.lastAttempt });
         if (this.cache.size > 40) this.cache.delete(this.cache.keys().next().value);
         if (data.name) state.panel.title = `${data.name} · 行情`;
-        this.send(state, { type: 'data', data: state.data });
+        this.send(state, { type: 'data', data: historyReset ? { ...state.data, historyReset: true } : state.data });
         const enrich = (patch) => {
           if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
           const enriched = { ...state.data, ...patch };
@@ -381,7 +465,8 @@ class ChartController {
                     : '',
                   bars: state.data.bars.map((bar) => ({
                     ...bar,
-                    historicalTurnover: rates.get(mode === 'intraday5' ? bar.date : bar.time) ?? null
+                    historicalTurnover:
+                      rates.get(mode === 'intraday5' ? bar.date : bar.time) ?? bar.historicalTurnover ?? null
                   }))
                 });
               } catch (error) {

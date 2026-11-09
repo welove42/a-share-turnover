@@ -178,6 +178,71 @@ const sampleBars = Array.from({ length: 240 }, (_, i) => ({
 const descendants = (item) => [item, ...item.children.flatMap(descendants)];
 const rendered = (p) => [...descendants(p.nodes.get('svg')), ...descendants(p.nodes.get('indicator-svg'))];
 
+const longHistory = Array.from({ length: 4400 }, (_, i) => ({
+  ...sampleBars[i % 240],
+  time: new Date(Date.UTC(2008, 7, 18 + i)).toISOString().slice(0, 10)
+}));
+const historyData = (bars) => ({ symbol: 'sh600105', mode: 'daily', adjustment: '前复权', bars });
+
+test('缩小触及边界自动补载，页面可浏览早期历史且自动刷新不跳回最新', () => {
+  const p = page({ mode: 'daily', saved: { range: 240 } });
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({ type: 'data', data: historyData(longHistory.slice(-240)) });
+  p.nodes.get('zoom-out').click();
+  assert.equal(p.messages.at(-1).action, 'history');
+  assert.equal(p.messages.at(-1).all, false);
+  p.receive({ type: 'data', data: historyData(longHistory.slice(-879)) });
+  p.receive({ type: 'history-state', mode: 'daily', busy: false });
+  assert.match(p.nodes.get('range-info').textContent, /360.*879/);
+  p.nodes.get('history-older').click();
+  const before = p.nodes.get('range-info').textContent;
+  p.receive({ type: 'data', data: historyData(longHistory.slice(-879)) });
+  assert.equal(p.nodes.get('range-info').textContent, before);
+  p.nodes.get('history-latest').click();
+  assert.match(p.nodes.get('range-info').textContent, /180.*879/);
+  p.receive({ type: 'select-mode', mode: 'intraday' });
+  assert.equal(p.nodes.get('history-tools').hidden, true);
+});
+
+test('全部历史从最早日期完整展示，密集路径减少节点但悬停仍按原始日期和指标', () => {
+  const p = page({ mode: 'daily' });
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({ type: 'data', data: historyData(longHistory.slice(-240)) });
+  p.nodes.get('history-all').click();
+  assert.equal(p.messages.at(-1).all, true);
+  p.receive({ type: 'data', data: { ...historyData(longHistory), historyComplete: true } });
+  p.receive({ type: 'history-state', mode: 'daily', busy: false });
+  assert.match(p.nodes.get('range-info').textContent, /2008-08-18.*4400/);
+  assert.equal(p.nodes.get('history-all').disabled, true);
+  assert.ok(rendered(p).length < 400);
+  const paths = rendered(p).filter((n) => n.tag === 'path');
+  assert.ok(paths.length > 0);
+  assert.ok(paths.every((n) => !/NaN|Infinity/.test(n.getAttribute('d'))));
+  p.nodes.get('plot').dispatch('pointermove', { clientX: 77, clientY: 100 });
+  assert.match(p.nodes.get('chart-tooltip').textContent, /2008-10-01.*\n开 10.44/);
+  assert.match(p.nodes.get('chart-tooltip').textContent, /MA5 10.37.*MA10 10.36/);
+  p.nodes.get('plot').dispatch('pointermove', { clientX: 68, clientY: 100 });
+  assert.match(p.nodes.get('chart-tooltip').textContent, /2008-08-18/);
+  p.nodes.get('history-latest').click();
+  assert.match(p.nodes.get('range-info').textContent, /180.*4400/);
+});
+
+test('边界翻页失败保留原窗口，重试加载后才移动到更早日期', () => {
+  const p = page({ mode: 'daily', saved: { range: 240 } });
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({ type: 'data', data: historyData(longHistory.slice(-240)) });
+  const before = p.nodes.get('range-info').textContent;
+  p.nodes.get('history-older').click();
+  p.receive({ type: 'history-state', mode: 'daily', busy: false, message: '网络断开，可重试' });
+  assert.equal(p.nodes.get('range-info').textContent, before);
+  assert.equal(p.nodes.get('history-older').disabled, false);
+  p.nodes.get('history-older').click();
+  p.receive({ type: 'data', data: historyData(longHistory.slice(-879)) });
+  p.receive({ type: 'history-state', mode: 'daily', busy: false });
+  assert.match(p.nodes.get('range-info').textContent, /240.*879/);
+  assert.notEqual(p.nodes.get('range-info').textContent, before);
+});
+
 test('ETF 顶部独立展示折溢价和 IOPV，历史悬停不改变最新参考数值', () => {
   const p = page({ mode: 'daily', symbol: 'sh510300' });
   p.receive({ type: 'select-mode', mode: 'daily' });

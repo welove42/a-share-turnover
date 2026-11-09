@@ -26,6 +26,13 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) #eastmoney { filter: 
 .zoom-tools button { font: inherit; font-size: 16px; line-height: 1; width: 30px; height: 28px; color: var(--vscode-foreground, #d9e1ee); background: transparent; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 4px; cursor: pointer; }
 .zoom-tools button:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground, #ffffff14); }
 .zoom-tools button:disabled { opacity: .4; cursor: default; }
+.history-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.history-tools button { font: inherit; padding: 4px 10px; color: var(--vscode-foreground, #d9e1ee); background: transparent; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 4px; cursor: pointer; }
+.history-tools button:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground, #ffffff14); }
+.history-tools button:disabled { opacity: .4; cursor: default; }
+.history-tools button:focus-visible { outline: none; border-color: var(--vscode-focusBorder, #55b1ef); }
+#range-info, #history-progress { color: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; margin: 6px 0; }
+#range-info:empty, #history-progress:empty { display: none; }
 .period-tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 9px 0 5px; }
 .period-tools button { font: inherit; padding: 4px 14px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; color: var(--vscode-foreground, #d9e1ee); background: transparent; }
 .period-tools button:hover { background: var(--vscode-toolbar-hoverBackground, #ffffff14); }

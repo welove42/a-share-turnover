@@ -31,6 +31,116 @@ function setup(load) {
   };
 }
 
+const historyBar = (time, close = 10) => ({ time, open: close, close, high: close + 1, low: close - 1, volume: 100 });
+const historySeries = (bars) => ({ symbol: 'sh601766', mode: 'daily', adjustment: '前复权', bars });
+
+test('除权重置只发送一次，随后仍能继续补载历史', async () => {
+  let price = 10;
+  const h = setup(() => historySeries([historyBar('2024-01-02', price), historyBar('2024-01-03', price)]));
+  h.c.provider.loadEarlier = async () =>
+    historySeries([historyBar('2008-08-18', price), historyBar('2024-01-02', price)]);
+  try {
+    await h.c.open('sh601766');
+    const s = h.c.panels.get('sh601766');
+    await h.mode(s, 'daily');
+    await h.c.loadOlder(s);
+    price = 9;
+    h.setNow('2026-10-26T10:31:00+08:00');
+    await h.c.refresh(s);
+    assert.equal(s.data.bars.length, 2);
+    assert.equal(s.data.historyReset, undefined);
+    assert.equal(s.panel.webview.messages.filter((m) => m.data?.historyReset).length, 1);
+    await h.c.loadOlder(s);
+    assert.equal(s.data.bars.length, 3);
+    assert.equal(s.panel.webview.messages.filter((m) => m.data?.historyReset).length, 1);
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('全部历史按边界翻页，合并重复请求，到头不留锁，刷新不丢旧数据', async () => {
+  const h = setup(() => historySeries([historyBar('2024-01-02'), historyBar('2024-01-03')]));
+  const cursors = [];
+  h.c.provider.loadEarlier = async (_, mode, before) => {
+    cursors.push(before);
+    return historySeries(before === '2024-01-02' ? [historyBar('2008-08-18'), historyBar(before)] : []);
+  };
+  try {
+    await h.c.open('sh601766');
+    const s = h.c.panels.get('sh601766');
+    await h.mode(s, 'daily');
+    await h.c.receive(s, { action: 'history', all: true, token: 'wrong' });
+    assert.equal(cursors.length, 0);
+    const task = h.c.loadOlder(s, true);
+    assert.equal(h.c.loadOlder(s, true), task);
+    await task;
+    assert.deepEqual(cursors, ['2024-01-02', '2008-08-18']);
+    assert.equal(s.data.bars.length, 3);
+    assert.equal(s.data.historyComplete, true);
+    assert.equal(s.historyInflight, null);
+    await h.c.loadOlder(s, true);
+    assert.equal(s.historyInflight, null);
+    assert.equal(cursors.length, 2);
+    h.setNow('2026-10-26T10:31:00+08:00');
+    await h.c.refresh(s);
+    assert.equal(s.data.bars[0].time, '2008-08-18');
+    assert.equal(s.data.historyComplete, true);
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('历史分页失败保留已加载记录，重试从当前位置继续并按日期补换手率', async () => {
+  const h = setup(() => ({ ...historySeries([historyBar('2024-01-02')]), turnoverApplicable: true }));
+  let calls = 0;
+  h.c.provider.loadEarlier = async (_, mode, before) => {
+    if (++calls === 2) throw new Error('网络断开');
+    return historySeries(before === '2024-01-02' ? [historyBar('2008-08-18'), historyBar(before)] : []);
+  };
+  h.c.provider.loadHistoricalTurnover = async () => new Map([['2008-08-18', 4.5]]);
+  try {
+    await h.c.open('sh601766');
+    const s = h.c.panels.get('sh601766');
+    await h.mode(s, 'daily');
+    await h.c.loadOlder(s, true);
+    assert.equal(s.data.bars.length, 2);
+    assert.equal(s.data.historyComplete, false);
+    assert.equal(s.historyInflight, null);
+    await h.c.loadOlder(s, true);
+    assert.equal(s.data.historyComplete, true);
+    assert.equal(s.data.bars[0].historicalTurnover, 4.5);
+  } finally {
+    h.c.dispose();
+  }
+});
+
+test('切换周期取消历史分页，迟到数据不能覆盖新图表', async () => {
+  const h = setup((symbol, mode) => ({ ...historySeries([historyBar('2024-01-02')]), symbol, mode }));
+  let finish, signal;
+  h.c.provider.loadEarlier = (_, mode, before, abort) => {
+    signal = abort;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  };
+  try {
+    await h.c.open('sh601766');
+    const s = h.c.panels.get('sh601766');
+    await h.mode(s, 'daily');
+    const pending = h.c.loadOlder(s, true);
+    await new Promise(setImmediate);
+    await h.mode(s, 'weekly');
+    assert.equal(signal.aborted, true);
+    finish(historySeries([historyBar('2008-08-18')]));
+    await pending;
+    assert.equal(s.data.mode, 'weekly');
+    assert.equal(s.data.bars.length, 1);
+    assert.equal(s.historyInflight, null);
+  } finally {
+    h.c.dispose();
+  }
+});
+
 test('ETF 参考数据异步补查不阻塞图表，切股后旧结果不能回写', async () => {
   const h = setup((symbol, mode) => ({ symbol, mode, name: 'ETF', bars: [{ close: 1 }], etfEligible: true }));
   let resolveQuote, aborted;
