@@ -50,7 +50,7 @@ class CommoditiesController {
     this.provider = provider;
     this.now = now;
     this.log = log;
-    this.settings = new StockSettings(context, (message) => log(message.replace('自选股设置', '全球商品设置')));
+    this.settings = new StockSettings(context, (message) => log(message.replace('自选股设置', '商品与期货设置')));
     this.quotes = new Map();
     this.errors = new Map();
     this.elements = new Map();
@@ -116,6 +116,7 @@ class CommoditiesController {
     const entry = entryFor(element.code)!,
       q = this.quotes.get(element.code),
       error = this.errors.get(element.code);
+    const domestic = entry.market === 'domesticFutures';
     const item = new vscode.TreeItem(
       `${percentText(q?.percent ?? null).padStart(7)}   ${(q?.priceText || '—').padStart(9)}   [${entry.name}]`,
       vscode.TreeItemCollapsibleState.None
@@ -133,7 +134,21 @@ class CommoditiesController {
     tip.isTrusted = false;
     tip.supportHtml = false;
     tip.appendText(
-      `${entry.name}（${entry.code}）\n\n报价：${q?.priceText || '—'} ${entry.unit}\n涨跌幅：${percentText(q?.percent ?? null)}　涨跌额：${signed(q?.delta ?? null, 3)}\n今开：${q?.open ?? '—'}　昨收：${q?.previousClose ?? '—'}\n最高：${q?.high ?? '—'}　最低：${q?.low ?? '—'}\n行情时间：${q ? `${q.date} ${q.time}（北京时间）` : '尚未获取'}\n来源：新浪财经 CFD 参考行情（差价合约报价，非交易所逐笔成交价）。\n涨跌幅按来源昨收计算；公开行情可能延迟或处于休市，请以所示报价时间为准。`
+      [
+        `${entry.name}（${entry.code}）\n`,
+        `报价：${q?.priceText || '—'} ${entry.unit}`,
+        `涨跌幅：${percentText(q?.percent ?? null)}　涨跌额：${signed(q?.delta ?? null, 3)}`,
+        `今开：${q?.open ?? '—'}　${domestic ? '昨结算' : '昨收'}：${(domestic ? q?.previousSettlement : q?.previousClose) ?? '—'}`,
+        `最高：${q?.high ?? '—'}　最低：${q?.low ?? '—'}`,
+        ...(domestic
+          ? [`结算价：${q?.settlement ?? '—'}　成交量：${q?.volume ?? '—'} 手　持仓量：${q?.openInterest ?? '—'} 手`]
+          : []),
+        `行情时间：${q ? `${q.date} ${q.time}（北京时间）` : '尚未获取'}`,
+        domestic
+          ? '来源：新浪财经国内期货主力连续行情；合约随主力切换，涨跌幅按来源昨结算计算。'
+          : '来源：新浪财经 CFD 参考行情（差价合约报价，非交易所逐笔成交价）；涨跌幅按来源昨收计算。',
+        '公开行情可能延迟或处于休市，请以所示报价时间为准。'
+      ].join('\n')
     );
     if (this.paused) tip.appendText('\n自动刷新已暂停。');
     if (this.cached && q) tip.appendText('\n当前使用上次保存的缓存报价。');
@@ -141,13 +156,13 @@ class CommoditiesController {
     tip.appendText('\n点击在浏览器查看该商品图表；右键或行末垃圾桶可移除。');
     item.tooltip = tip;
     item.accessibilityInformation = {
-      label: `${entry.name}，${q?.priceText || '未知'} ${entry.unit}，涨跌幅 ${percentText(q?.percent ?? null)}，${q ? q.date + ' ' + q.time : '待获取'}，CFD参考行情`
+      label: `${entry.name}，${q?.priceText || '未知'} ${entry.unit}，涨跌幅 ${percentText(q?.percent ?? null)}，${q ? q.date + ' ' + q.time : '待获取'}，${domestic ? '国内期货主力连续行情' : 'CFD参考行情'}`
     };
     return item;
   }
   publish(structural = false) {
     if (this.disposed) return;
-    this.tree.title = this.hidden ? '断点' : '全球商品';
+    this.tree.title = this.hidden ? '断点' : '商品与期货';
     if (this.hidden) {
       this.tree.description = undefined;
       this.tree.message = undefined;
@@ -157,18 +172,18 @@ class CommoditiesController {
     const description = !this.enabled
       ? '已禁用'
       : this.paused
-        ? '已暂停 · CFD'
+        ? '已暂停 · 新浪财经'
         : !this.codes.length
-          ? '点击＋添加商品'
+          ? '点击＋添加商品或期货'
           : this.tree.visible
-            ? '10秒刷新 · 新浪CFD'
-            : '展开后10秒刷新 · CFD';
+            ? '10秒刷新 · 新浪财经'
+            : '展开后10秒刷新 · 新浪财经';
     if (this.tree.description !== description) this.tree.description = description;
     const failures = this.codes.filter((code) => this.errors.has(code)).length;
     const message =
       this.configError ||
       (!this.codes.length
-        ? '尚未添加商品，点击右上角＋按名称或代码添加。'
+        ? '尚未添加商品或期货，点击右上角＋按名称或代码添加。'
         : failures
           ? `${failures} 个商品未更新，保留上次报价；悬停可查看原因。`
           : undefined);
@@ -222,7 +237,7 @@ class CommoditiesController {
       } catch (error) {
         if (!this.disposed && !abort.signal.aborted) {
           for (const code of codes) this.errors.set(code, error.message || '商品行情获取失败');
-          this.log('全球商品行情请求失败');
+          this.log('商品与期货行情请求失败');
         }
       } finally {
         this.inflight = null;
@@ -250,25 +265,29 @@ class CommoditiesController {
   }
   async add(input?: unknown) {
     if (this.disposed || !this.enabled) return;
-    if (Array.isArray(input) || (typeof input === 'string' && /^[a-zA-Z_,，;；\s]+$/.test(input))) {
+    // Codes may contain digits (LC0 / LH0); names and abbreviations still go through the picker.
+    let codes: string[] | undefined;
+    if (Array.isArray(input) || typeof input === 'string') {
       try {
-        return await this.saveSelection([...this.codes, ...normalizeCommodityCodes(input)]);
+        codes = normalizeCommodityCodes(input);
       } catch (error) {
-        return privateUI.showErrorMessage(error.message);
+        if (Array.isArray(input)) return privateUI.showErrorMessage(error.message);
       }
     }
+    if (codes) return this.saveSelection([...this.codes, ...codes]);
     const query = typeof input === 'string' ? input.trim().toLowerCase() : '';
     const items = COMMODITIES.filter(
       (entry) => !query || `${entry.name} ${entry.code} ${entry.aliases}`.toLowerCase().includes(query)
     ).map((entry) => ({
       label: entry.name,
-      description: `${entry.code} · ${entry.aliases}${this.codes.includes(entry.code) ? ' · 已添加' : ''}`,
-      detail: `${entry.unit} · 新浪财经 CFD参考行情`,
+      description: `${entry.code} · ${entry.market === 'domesticFutures' ? 'nf' : 'hf'}_${entry.code} · ${entry.aliases}${this.codes.includes(entry.code) ? ' · 已添加' : ''}`,
+      detail: `${entry.unit} · 新浪财经${entry.market === 'domesticFutures' ? '国内期货主连 · 按昨结算计算涨跌' : ' CFD参考行情'}`,
       code: entry.code
     }));
+    if (!items.length) return privateUI.showErrorMessage('未找到该商品或期货，请点击＋搜索支持的名称或代码。');
     const selected = await privateUI.showQuickPick(items, {
-      title: '添加全球商品',
-      placeHolder: '输入名称、拼音简称或代码；可勾选多个商品后回车添加',
+      title: '添加商品与期货',
+      placeHolder: '搜索碳酸锂、生猪、纳指100等名称或代码；可多选添加',
       matchOnDescription: true,
       canPickMany: true
     });
@@ -282,7 +301,7 @@ class CommoditiesController {
       code = (
         await privateUI.showQuickPick(
           this.codes.map((code) => ({ label: entryFor(code)!.name, description: code, code })),
-          { title: '移除全球商品' }
+          { title: '移除商品与期货' }
         )
       )?.code;
     if (!code || this.disposed || !this.enabled) return;

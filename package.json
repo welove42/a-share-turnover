@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.10",
+  "version": "1.23.11",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.10.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.11.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -291,27 +291,27 @@
       },
       {
         "command": "welove42.aShareTurnover.commodities.add",
-        "title": "全球商品：按名称或代码添加商品",
+        "title": "商品与期货：按名称或代码添加",
         "icon": "$(add)"
       },
       {
         "command": "welove42.aShareTurnover.commodities.remove",
-        "title": "全球商品：移除商品",
+        "title": "商品与期货：移除品种",
         "icon": "$(trash)"
       },
       {
         "command": "welove42.aShareTurnover.commodities.refresh",
-        "title": "全球商品：立即刷新",
+        "title": "商品与期货：立即刷新",
         "icon": "$(refresh)"
       },
       {
         "command": "welove42.aShareTurnover.commodities.togglePause",
-        "title": "全球商品：暂停 / 恢复自动刷新",
+        "title": "商品与期货：暂停 / 恢复自动刷新",
         "icon": "$(debug-pause)"
       },
       {
         "command": "welove42.aShareTurnover.commodities.open",
-        "title": "全球商品：在浏览器查看商品详情",
+        "title": "商品与期货：在浏览器查看详情",
         "icon": "$(link-external)"
       },
       {
@@ -695,7 +695,7 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "显示全球商品折叠栏目，展开时每10秒获取新浪财经CFD参考行情，不受A股开盘时间限制。"
+          "description": "显示商品与期货折叠栏目，展开时每10秒获取新浪财经商品CFD及国内期货行情，不受A股开盘时间限制。"
         },
         "aShareTurnover.commodities.symbols": {
           "type": "array",
@@ -707,11 +707,11 @@
           ],
           "scope": "application",
           "uniqueItems": true,
-          "maxItems": 14,
+          "maxItems": 17,
           "items": {
             "type": "string"
           },
-          "description": "默认仅伦敦金、布伦特原油、伦敦铜、伦敦银，顺序按此列表保存。点击＋可按名称、拼音简称或代码从支持的商品目录添加其他品种；代码支持XAU或hf_XAU格式。空数组保持空列表。"
+          "description": "默认仅伦敦金、布伦特原油、伦敦铜、伦敦银。点击＋可搜索添加碳酸锂主连（LC0）、生猪主连（LH0）、纳指100期货CFD（NQ）等目录内品种，支持nf_LC0、nf_LH0、hf_NQ等新浪代码。顺序按此列表保存，空数组保持空列表。"
         },
         "aShareTurnover.temperature.enabled": {
           "type": "boolean",
@@ -963,8 +963,8 @@
         },
         {
           "id": "welove42.aShareTurnover.commodities",
-          "name": "全球商品",
-          "contextualTitle": "STOCK 全球商品",
+          "name": "商品与期货",
+          "contextualTitle": "STOCK 商品与期货",
           "when": "!aShareTurnover.hidden && config.aShareTurnover.commodities.enabled"
         },
         {

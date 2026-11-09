@@ -7,7 +7,11 @@ const {
   entryFor
 } = require('../dist/features/commodities/data.js');
 (async () => {
-  const codes = process.argv.includes('--all') ? COMMODITIES.map((entry) => entry.code) : DEFAULT_COMMODITY_CODES;
+  const codes = process.argv.includes('--all')
+    ? COMMODITIES.map((entry) => entry.code)
+    : process.argv.includes('--futures')
+      ? ['LC0', 'LH0', 'NQ']
+      : DEFAULT_COMMODITY_CODES;
   const result = await new CommodityProvider().load(codes);
   assert.equal(result.errors.size, 0, JSON.stringify([...result.errors]));
   assert.equal(result.quotes.size, codes.length);

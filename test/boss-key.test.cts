@@ -180,7 +180,7 @@ test('隐藏时四个栏目清除标题中的行情信息、描述和错误，�
       ['../dist/features/watchlist/controller.js', 'WatchlistController', '运行和调试', '自选股（名称 / 代码）'],
       ['../dist/features/global-indices/controller.js', 'GlobalIndicesController', '监视', '全球指数'],
       ['../dist/features/funds/controller.js', 'FundsController', '调用堆栈', '基金'],
-      ['../dist/features/commodities/controller.js', 'CommoditiesController', '断点', '全球商品']
+      ['../dist/features/commodities/controller.js', 'CommoditiesController', '断点', '商品与期货']
     ];
   for (const [path, name, hiddenTitle, normalTitle] of classes) {
     const C = h.load(path)[name],

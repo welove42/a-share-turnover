@@ -106,8 +106,8 @@ const LABELS = {
   'globalIndices.symbols': '关注的指数',
   'funds.enabled': '显示基金',
   'funds.symbols': '关注的基金',
-  'commodities.enabled': '显示全球商品',
-  'commodities.symbols': '关注的商品',
+  'commodities.enabled': '显示商品与期货',
+  'commodities.symbols': '关注的商品与期货',
   'news.highlightTitles': '高亮新闻标题',
   'news.refreshIntervalSeconds': '刷新间隔（秒）',
   'risk.enabled': '启用风险提示',
@@ -150,7 +150,7 @@ const HELP = {
   'charts.defaultMode': '下次新打开详情标签时使用；已经打开的标签保留当前图表。',
   'globalIndices.enabled': '启用全球指数栏目。',
   'funds.enabled': '启用净值和持仓收益栏目。',
-  'commodities.enabled': '启用黄金、原油等商品栏目。',
+  'commodities.enabled': '查看黄金、原油及碳酸锂、生猪、纳指100期货等行情。',
   'news.highlightTitles': '默认开启，标题高亮加粗；关闭后恢复普通输出样式。切换立即生效。',
   'news.refreshIntervalSeconds': '10–300 秒；休市期间也会更新。',
   'risk.enabled': '需同时开启成交额和自选行情。放缩量与上证跌幅同时达到阈值时提示。',
@@ -187,7 +187,7 @@ const ADD_LABELS = {
   'stocks.usSymbols': '添加美股',
   'globalIndices.symbols': '添加指数',
   'funds.symbols': '添加基金',
-  'commodities.symbols': '添加商品'
+  'commodities.symbols': '添加商品或期货'
 };
 const LISTS = new Set([
   'stocks.symbols',

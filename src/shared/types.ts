@@ -142,12 +142,18 @@ export interface CommodityEntry {
   name: string;
   unit: string;
   aliases: string;
+  market: 'cfd' | 'domesticFutures';
 }
 export interface CommodityQuote {
   code: string;
   price: number;
   priceText: string;
   previousClose: NullableNumber;
+  /** 国内期货以昨结算为涨跌基准，不能混作昨收。 */
+  previousSettlement?: NullableNumber;
+  settlement?: NullableNumber;
+  volume?: NullableNumber;
+  openInterest?: NullableNumber;
   delta: NullableNumber;
   percent: NullableNumber;
   open: NullableNumber;

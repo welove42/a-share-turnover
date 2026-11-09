@@ -108,7 +108,7 @@ test('选中行的＋仍打开名称代码候选，多选去重保存，取消�
   try {
     h.c.paused = true;
     h.api.window.showQuickPick = async (items, options) => {
-      assert.equal(items.length, 14);
+      assert.equal(items.length, 17);
       assert.equal(options.canPickMany, true);
       assert.equal(options.matchOnDescription, true);
       assert.match(items.find((item) => item.code === 'OIL').description, /布油.*Brent/);
@@ -216,6 +216,55 @@ test('并发请求合并；改变选择、隐藏及暂停会取消旧请求，�
     await manual;
     assert.equal(h.c.quotes.size, 0);
   } finally {
+    h.c.dispose();
+  }
+});
+
+test('通过加号或名称搜索期货，数字代码直加；展示昨结口径并可删除和重启恢复', async () => {
+  const h = setup();
+  let restored;
+  try {
+    h.c.paused = true;
+    const selections = [
+      ['碳酸锂', 'LC0'],
+      ['shengzhu', 'LH0'],
+      ['纳斯达克100', 'NQ']
+    ];
+    for (const [query, code] of selections) {
+      h.api.window.showQuickPick = async (items) => {
+        assert.equal(items.length, 1);
+        assert.equal(items[0].code, code);
+        assert.ok(items[0].description.includes(`${code === 'NQ' ? 'hf' : 'nf'}_${code}`));
+        assert.match(items[0].detail, code === 'NQ' ? /CFD/ : /主连.*昨结算/);
+        return items;
+      };
+      await h.c.add(query);
+    }
+    h.api.window.showQuickPick = async () => assert.fail('合法代码直接添加');
+    await h.c.add('nf_LC0,lh0,hf_NQ');
+    assert.deepEqual(h.c.codes, [...DEFAULT_COMMODITY_CODES, 'LC0', 'LH0', 'NQ']);
+    const quote = parseCommodityQuotes(
+      'var hq_str_nf_LC0="碳酸锂连续,135000,92000,93000,87000,88000,88000,88020,88000,90000,92000,30,2,400442,352317,,碳酸锂,2026-10-27";',
+      ['LC0']
+    ).quotes.get('LC0');
+    h.c.quotes.set('LC0', quote);
+    const item = h.c.getTreeItem(h.c.element('LC0'));
+    assert.match(item.label, /-4.35%.*88000.*碳酸锂主连/);
+    assert.match(item.tooltip.value, /昨结算：92000/);
+    assert.match(item.tooltip.value, /结算价：90000.*成交量：352317.*持仓量：400442/);
+    assert.match(item.tooltip.value, /2026-10-27 13:50:00/);
+    assert.doesNotMatch(item.tooltip.value, /CFD|昨收/);
+    assert.match(h.c.getTreeItem(h.c.element('NQ')).tooltip.value, /CFD/);
+    await h.c.open(h.c.element('LC0'));
+    assert.equal(h.opened.at(-1), 'https://finance.sina.com.cn/futures/quotes/LC0.shtml');
+    const { CommoditiesController } = h.load('../dist/features/commodities/controller.js');
+    restored = new CommoditiesController(h.context);
+    assert.deepEqual(restored.codes, h.c.codes);
+    await h.c.remove('nf_LH0');
+    assert.equal(h.c.codes.includes('LH0'), false);
+    assert.equal(h.calls.length, 0);
+  } finally {
+    restored?.dispose();
     h.c.dispose();
   }
 });
