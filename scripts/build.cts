@@ -10,6 +10,11 @@ function tsc(config: string, noEmit: boolean) {
   if (result.status !== 0) process.exit(result.status || 1);
 }
 async function main() {
+  // Marketplace rejects icons over 1 MiB even when vsce package succeeds; catch this locally before publishing.
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  if (manifest.icon && fs.statSync(path.join(root, manifest.icon)).size > 1024 * 1024) {
+    throw new Error('插件图标超过 Marketplace 的 1024 KB 限制，请压缩后重新打包。');
+  }
   const checking = process.argv.includes('--check');
   if (!checking) {
     const output = path.resolve(root, 'dist');
