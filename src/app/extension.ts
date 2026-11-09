@@ -7,6 +7,8 @@ import { ChartController } from '../features/charts/controller';
 import { GlobalIndicesController } from '../features/global-indices/controller';
 import { FundsController } from '../features/funds/controller';
 import { CommoditiesController } from '../features/commodities/controller';
+import { FuturesController } from '../features/futures/controller';
+import { migrateFutures } from '../features/futures/migration';
 import { entryFor as commodityEntry } from '../features/commodities/data';
 import { warnLegacy } from './legacy';
 import { SectorsController } from '../features/sectors/controller';
@@ -17,8 +19,9 @@ import { SettingsController } from '../features/settings/controller';
 import { StockAlerts } from '../features/watchlist/alerts';
 import { AiAnalysisController } from '../features/ai/controller';
 
-function activate(context) {
+async function activate(context) {
   const controller = new TurnoverController(context);
+  await migrateFutures(context, (message) => controller.log(message));
   const stocks = new WatchlistController(context, { log: (message) => controller.log(message) });
   controller.riskSource = () => {
     const quote = stocks.quotes.get('sh000001');
@@ -32,6 +35,7 @@ function activate(context) {
   const globals = new GlobalIndicesController(context, { log: (message) => controller.log(message) });
   const funds = new FundsController(context, { log: (message) => controller.log(message) });
   const commodities = new CommoditiesController(context, { log: (message) => controller.log(message) });
+  const futures = new FuturesController(context, { log: (message) => controller.log(message) });
   const sectors = new SectorsController(context);
   const reminders = new ReminderController(context);
   const alerts = new StockAlerts(context, stocks);
@@ -46,7 +50,7 @@ function activate(context) {
   const settings = new SettingsController(context, {
     stocks,
     ai,
-    sources: [stocks, globals, funds, commodities],
+    sources: [stocks, globals, funds, commodities, futures],
     lists: {
       'stocks.symbols': {
         ids: () => stocks.config.symbols,
@@ -84,6 +88,12 @@ function activate(context) {
         name: (id) => commodityEntry(id)?.name,
         add: () => commodities.add(),
         remove: (id) => commodities.remove(id)
+      },
+      'futures.symbols': {
+        ids: () => futures.codes,
+        name: (id) => commodityEntry(id)?.name,
+        add: () => futures.add(),
+        remove: (id) => futures.remove(id)
       }
     }
   });
@@ -95,6 +105,7 @@ function activate(context) {
     globals,
     funds,
     commodities,
+    futures,
     sectors,
     reminders,
     settings,
@@ -125,6 +136,7 @@ function activate(context) {
     globals,
     funds,
     commodities,
+    futures,
     sectors,
     reminders,
     settings,
@@ -139,6 +151,11 @@ function activate(context) {
     bind('welove42.aShareTurnover.commodities.refresh', () => commodities.refresh()),
     bind('welove42.aShareTurnover.commodities.togglePause', () => commodities.togglePause()),
     bind('welove42.aShareTurnover.commodities.open', (element) => commodities.open(element)),
+    bind('welove42.aShareTurnover.futures.add', (input) => futures.add(input)),
+    bind('welove42.aShareTurnover.futures.remove', (element) => futures.remove(element)),
+    bind('welove42.aShareTurnover.futures.refresh', () => futures.refresh()),
+    bind('welove42.aShareTurnover.futures.togglePause', () => futures.togglePause()),
+    bind('welove42.aShareTurnover.futures.open', (element) => futures.open(element)),
     bind('welove42.aShareTurnover.funds.add', (input) => funds.add(input)),
     bind('welove42.aShareTurnover.funds.remove', (element) => funds.remove(element)),
     bind('welove42.aShareTurnover.funds.refresh', () => funds.refresh()),
@@ -186,6 +203,7 @@ function activate(context) {
   globals.start();
   funds.start();
   commodities.start();
+  futures.start();
   sectors.start();
   reminders.start();
   alerts.start();
@@ -249,6 +267,14 @@ function activate(context) {
       visible: commodities.tree.visible,
       paused: commodities.paused,
       lastAttempt: commodities.lastAttempt
+    }),
+    getFutures: () =>
+      futures.codes.map((code) => ({ code, quote: futures.quotes.get(code), error: futures.errors.get(code) })),
+    getFuturesStatus: () => ({
+      enabled: futures.enabled,
+      visible: futures.tree.visible,
+      paused: futures.paused,
+      lastAttempt: futures.lastAttempt
     }),
     getLatestNews: () => (news.items[0] ? { ...news.items[0] } : undefined)
   };

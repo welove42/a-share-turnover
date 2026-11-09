@@ -17,6 +17,7 @@ svg text { fill: var(--vscode-descriptionForeground, #9caec5); font-family: inhe
 .crosshair { stroke: var(--vscode-foreground, #d9e1ee); stroke-dasharray: 4 4; opacity: .7; pointer-events: none; }
 .lunch { fill: var(--vscode-descriptionForeground, #9caec5); opacity: .055; }
 .temperature-line { fill: none; stroke: var(--temperature-line); stroke-width: 2; stroke-linejoin: round; }
+.temperature-gap { stroke-dasharray: 6 4; opacity: .65; }
 .temperature-band { opacity: .055; }
 body.vscode-high-contrast .temperature-band { opacity: .13; }
 #temperature-tooltip { position: absolute; top: 15px; right: 14px; pointer-events: none; padding: 10px 14px; border: 1px solid var(--vscode-editorHoverWidget-border, #59677c); border-radius: 5px; background: var(--vscode-editorHoverWidget-background, #202937); color: var(--vscode-editorHoverWidget-foreground, #d9e1ee); white-space: pre-wrap; font-variant-numeric: tabular-nums; line-height: 1.9; box-shadow: 0 3px 12px #0003; max-width: calc(100% - 28px); }

@@ -26,6 +26,8 @@ const DOMESTIC_ENTRIES: CommodityEntry[] = [
 ].map(([code, name, unit, aliases]) => ({ code, name, unit, aliases, market: 'domesticFutures' }));
 const COMMODITIES: CommodityEntry[] = [...CFD_ENTRIES, ...DOMESTIC_ENTRIES];
 const DEFAULT_COMMODITY_CODES = ['XAU', 'OIL', 'CAD', 'XAG'];
+const DEFAULT_FUTURES_CODES = ['LC0', 'LH0', 'NQ'];
+const isFuturesCode = (code: string): boolean => DEFAULT_FUTURES_CODES.includes(code);
 const CATALOG = new Map(COMMODITIES.map((entry) => [entry.code, entry]));
 function normalizeCommodityCodes(value) {
   const values = Array.isArray(value)
@@ -158,6 +160,8 @@ function commodityUrl(code) {
 export {
   COMMODITIES,
   DEFAULT_COMMODITY_CODES,
+  DEFAULT_FUTURES_CODES,
+  isFuturesCode,
   entryFor,
   normalizeCommodityCodes,
   isCommodityQuote,

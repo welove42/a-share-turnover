@@ -51,7 +51,9 @@ const GROUPS = [
       'funds.estimateEnabled',
       'funds.symbols',
       'commodities.enabled',
-      'commodities.symbols'
+      'commodities.symbols',
+      'futures.enabled',
+      'futures.symbols'
     ]
   },
   { id: 'news', title: '财经新闻', keys: ['news.highlightTitles', 'news.refreshIntervalSeconds'] },
@@ -106,8 +108,10 @@ const LABELS = {
   'globalIndices.symbols': '关注的指数',
   'funds.enabled': '显示基金',
   'funds.symbols': '关注的基金',
-  'commodities.enabled': '显示商品与期货',
-  'commodities.symbols': '关注的商品与期货',
+  'commodities.enabled': '显示全球商品',
+  'commodities.symbols': '关注的商品',
+  'futures.enabled': '显示期货',
+  'futures.symbols': '关注的期货',
   'news.highlightTitles': '高亮新闻标题',
   'news.refreshIntervalSeconds': '刷新间隔（秒）',
   'risk.enabled': '启用风险提示',
@@ -150,7 +154,8 @@ const HELP = {
   'charts.defaultMode': '下次新打开详情标签时使用；已经打开的标签保留当前图表。',
   'globalIndices.enabled': '启用全球指数栏目。',
   'funds.enabled': '启用净值和持仓收益栏目。',
-  'commodities.enabled': '查看黄金、原油及碳酸锂、生猪、纳指100期货等行情。',
+  'commodities.enabled': '查看黄金、原油、铜银等全球商品参考行情。',
+  'futures.enabled': '独立查看碳酸锂、生猪和纳指100期货，可分别添加、刷新和暂停。',
   'news.highlightTitles': '默认开启，标题高亮加粗；关闭后恢复普通输出样式。切换立即生效。',
   'news.refreshIntervalSeconds': '10–300 秒；休市期间也会更新。',
   'risk.enabled': '需同时开启成交额和自选行情。放缩量与上证跌幅同时达到阈值时提示。',
@@ -187,7 +192,8 @@ const ADD_LABELS = {
   'stocks.usSymbols': '添加美股',
   'globalIndices.symbols': '添加指数',
   'funds.symbols': '添加基金',
-  'commodities.symbols': '添加商品或期货'
+  'commodities.symbols': '添加商品',
+  'futures.symbols': '添加期货'
 };
 const LISTS = new Set([
   'stocks.symbols',
@@ -195,7 +201,8 @@ const LISTS = new Set([
   'stocks.usSymbols',
   'globalIndices.symbols',
   'funds.symbols',
-  'commodities.symbols'
+  'commodities.symbols',
+  'futures.symbols'
 ]);
 const GROUP_KEYS = new Set(['stocks.groups', 'stocks.hkGroups', 'stocks.usGroups']);
 const STOCK_MARKETS = { 'stocks.symbols': 'a', 'stocks.hkSymbols': 'hk', 'stocks.usSymbols': 'us' };
@@ -321,6 +328,10 @@ class SettingsController {
   }
   read(key) {
     if (LISTS.has(key) && this.lists[key]) return this.lists[key].ids();
+    if (key.startsWith('futures.') || key.startsWith('commodities.')) {
+      const fallback = this.context.globalState.get('stockSettingsFallback', {});
+      if (Object.hasOwn(fallback, key)) return fallback[key];
+    }
     const config = vscode.workspace.getConfiguration('aShareTurnover');
     if (key.startsWith('ai.') && config.inspect) return config.inspect(key)?.globalValue ?? schema(key).default;
     return key.startsWith('stocks.') && key !== 'stocks.enabled' && this.stocks

@@ -28,15 +28,15 @@ function memory() {
 }
 const result = (score) => ({ date: DATE, score, phase: '交易中' });
 
-test('每10秒只保留一个最新采集点，不写入空温度或迟到数据，也不回填采集之前', async () => {
+test('每分钟仅记录一次，减少存储和点数，不写入空温度或迟到数据', async () => {
   const store = memory(),
     history = new TemperatureHistory(store, DATE);
   assert.equal(history.record(result(55), point('10:30:01').sampledAt), true);
-  assert.equal(history.record(result(58), point('10:30:08').sampledAt), true);
+  assert.equal(history.record(result(58), point('10:30:08').sampledAt), false);
   assert.equal(history.points.length, 1);
-  assert.equal(history.points[0].score, 58);
-  assert.equal(history.points[0].time, '10:30:08');
-  assert.equal(history.record(result(60), point('10:30:11').sampledAt), true);
+  assert.equal(history.points[0].score, 55);
+  assert.equal(history.points[0].time, '10:30:01');
+  assert.equal(history.record(result(60), point('10:31:11').sampledAt), true);
   assert.equal(history.record(result(60), point('10:30:11').sampledAt), false);
   assert.equal(history.record(result(null), point('10:30:21').sampledAt), false);
   assert.equal(history.record(result(1000), point('10:30:21').sampledAt), false);
@@ -44,7 +44,8 @@ test('每10秒只保留一个最新采集点，不写入空温度或迟到数据
   assert.equal(history.record(result(20), 'bad'), false);
   await history.flush();
   assert.equal(history.points.length, 2);
-  assert.equal(history.points[0].time, '10:30:08');
+  assert.equal(history.points[0].time, '10:30:01');
+  assert.equal(store.writes.length, 2);
   assert.equal(store.values.get('temperatureHistory').points.length, 2);
 });
 
@@ -69,7 +70,7 @@ test('重启恢复当天记录，跨日立即清空，不混入旧日；返回�
 
 test('坏日期、坏分数、重复时段和不同模型缓存被拒绝，不将缺数据补成0', () => {
   const valid = { version: 1, model: 1, date: DATE, points: [point('10:30:10'), point('10:30:20')] };
-  assert.equal(restore(valid, DATE).length, 2);
+  assert.equal(restore(valid, DATE).length, 1);
   for (const mutate of [
     (v) => (v.model = 2),
     (v) => (v.date = '2026-10-27'),
@@ -115,9 +116,9 @@ test('持久化顺序不会让旧日覆盖新日，保存失败不丢失内存�
   assert.match(logs[0], /保存失败/);
 });
 
-test('午休和采集中断超过1分钟不连线，最近点按真实时间而不是数组距离寻找', () => {
+test('分钟采样及短暂延迟保持连线，午休和较长缺采分段，悬停寻找真实记录', () => {
   const points = ['10:00:00', '10:00:10', '10:02:00', '11:30:00', '13:00:00'].map((t) => point(t));
-  assert.equal(segments(points).length, 4);
+  assert.equal(segments(points).length, 3);
   assert.equal(nearest(points, seconds('10:00:19')), 1);
   assert.equal(nearest(points, seconds('10:01:58')), 2);
   assert.equal(nearest([], 0), -1);
@@ -181,7 +182,7 @@ test('只有成功且有效的刷新才采集；每秒时钟、失败及暂停�
     assert.equal(c.temperatureHistory.points.length, 1);
     assert.equal(panel.webview.messages.at(-1).data.current.score, null);
     fail = false;
-    now = new Date('2026-10-28T10:30:50+08:00');
+    now = new Date('2026-10-28T10:31:00+08:00');
     await c.refresh();
     assert.equal(c.temperatureHistory.points.length, 2);
     panel.setVisible(false);
@@ -204,4 +205,57 @@ test('只有成功且有效的刷新才采集；每秒时钟、失败及暂停�
   } finally {
     c.dispose();
   }
+});
+
+test('旧10秒记录自动按分钟整理，移除午休和盘后快照，重启不会反复补回', async () => {
+  const store = memory();
+  store.values.set('temperatureHistory', {
+    version: 1,
+    model: 1,
+    date: DATE,
+    points: [
+      point('10:30:10', 61),
+      point('10:30:20', 62),
+      point('10:31:00', 60),
+      { ...point('12:00:00', 59), phase: '午休' },
+      point('14:59:50', 45),
+      { ...point('15:00:10', 43), phase: '收盘确认' },
+      { ...point('15:01:10', 44), phase: '收盘确认' },
+      { ...point('16:52:37', 44), phase: '已收盘' }
+    ]
+  });
+  const history = new TemperatureHistory(store, DATE);
+  assert.deepEqual(
+    history.points.map((p) => p.time),
+    ['10:30:20', '10:31:00', '14:59:50', '15:01:10']
+  );
+  assert.equal(history.points[0].score, 62);
+  await history.flush();
+  assert.equal(store.values.get('temperatureHistory').version, 2);
+  assert.deepEqual(new TemperatureHistory(store, DATE).points, history.points);
+  assert.equal(history.record({ ...result(44), phase: '已收盘' }, point('17:00:00').sampledAt), false);
+});
+
+test('午休不采集，收盘确认每分钟更新同一端点，保留实际时间', async () => {
+  const history = new TemperatureHistory(memory(), DATE);
+  assert.equal(history.record({ ...result(50), phase: '午休' }, point('12:00:00').sampledAt), false);
+  for (const [time, score] of [
+    ['14:59:50', 48],
+    ['15:00:10', 46],
+    ['15:01:10', 45]
+  ])
+    assert.equal(
+      history.record(
+        { ...result(score), phase: time.startsWith('15:') ? '收盘确认' : '交易中' },
+        point(time).sampledAt
+      ),
+      true
+    );
+  assert.deepEqual(
+    history.points.map((p) => p.time),
+    ['14:59:50', '15:01:10']
+  );
+  assert.equal(history.record({ ...result(44), phase: '收盘确认' }, point('15:01:20').sampledAt), false);
+  assert.equal(nearest(history.points, seconds('15:00:00')), 1);
+  await history.flush();
 });

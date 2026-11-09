@@ -19,6 +19,7 @@ src/
     global-indices/       全球指数
     funds/                基金净值、估算及持仓收益
     commodities/          商品行情
+    futures/              独立期货栏目及旧自选迁移，复用商品行情数据层
     sectors/              板块涨跌榜
     news/                 财经快讯
     reminders/            大事提醒、在线和内置日历

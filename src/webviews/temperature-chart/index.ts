@@ -33,7 +33,7 @@ import * as temperatureModel from '../../shared/temperature-model';
   const vscode = acquireVsCodeApi(),
     $ = elements<PageElements>(),
     token = document.body.dataset.token;
-  const { label, seconds, segments, nearest } = temperatureModel;
+  const { label, seconds, segments, nearest, crossesLunch, SAMPLE_SECONDS, PLOT_END } = temperatureModel;
   const ns = 'http://www.w3.org/2000/svg',
     colors = ['ice', 'cold', 'neutral', 'warm', 'hot'];
   let data: TemperatureData | null = null,
@@ -54,8 +54,8 @@ import * as temperatureModel from '../../shared/temperature-model';
       T = 34,
       B = H - 46,
       begin = 34200;
-    const end = Math.min(86399, Math.max(54000, Math.ceil((seconds(points.at(-1)?.time) || 54000) / 1800) * 1800));
-    const x = (point) => L + (((seconds(point.time) ?? NaN) - begin) / (end - begin)) * (R - L),
+    const end = PLOT_END;
+    const x = (point) => L + ((Math.min(end, seconds(point.time) ?? NaN) - begin) / (end - begin)) * (R - L),
       y = (score) => B - (score / 100) * (B - T);
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     const fragment = document.createDocumentFragment();
@@ -89,7 +89,16 @@ import * as temperatureModel from '../../shared/temperature-model';
         `${String(Math.floor(end / 3600)).padStart(2, '0')}:${String(Math.floor(end / 60) % 60).padStart(2, '0')}:00`
       );
     ticks.forEach((time) => add('text', { x: x({ time }), y: B + 26, 'text-anchor': 'middle' }, time.slice(0, 5)));
-    for (const segment of segments(points)) {
+    const groups = segments(points);
+    for (const [index, segment] of groups.entries()) {
+      if (index) {
+        const previous = groups[index - 1].at(-1)!;
+        if (!crossesLunch(previous, segment[0]))
+          add('polyline', {
+            points: [previous, segment[0]].map((p) => `${x(p)},${y(p.score)}`).join(' '),
+            class: 'temperature-line temperature-gap'
+          });
+      }
       if (segment.length === 1)
         add('circle', {
           cx: x(segment[0]),
@@ -108,7 +117,7 @@ import * as temperatureModel from '../../shared/temperature-model';
       add(
         'text',
         { x: (L + R) / 2, y: (T + B) / 2 + 18, 'text-anchor': 'middle' },
-        '有效行情每10秒记录，未采集时段留空'
+        '盘中每分钟记录一次，启用前的时段留空'
       );
     }
     const cross = add('line', { x1: L, x2: L, y1: T, y2: B, class: 'crosshair', visibility: 'hidden' });
@@ -118,7 +127,7 @@ import * as temperatureModel from '../../shared/temperature-model';
     const selected =
       selectedBucket === null
         ? -1
-        : points.findIndex((p) => Math.floor((seconds(p.time) ?? NaN) / 10) === selectedBucket);
+        : points.findIndex((p) => Math.floor((seconds(p.time) ?? NaN) / SAMPLE_SECONDS) === selectedBucket);
     if (selected >= 0) inspect(selected);
     else reset();
     $('temperature-plot').setAttribute(
@@ -134,7 +143,7 @@ import * as temperatureModel from '../../shared/temperature-model';
     plot.index = Math.max(0, Math.min(data.points.length - 1, index));
     const point = data.points[plot.index],
       xx = plot.x(point);
-    selectedBucket = Math.floor((seconds(point.time) ?? NaN) / 10);
+    selectedBucket = Math.floor((seconds(point.time) ?? NaN) / SAMPLE_SECONDS);
     plot.cross.setAttribute('x1', String(xx));
     plot.cross.setAttribute('x2', String(xx));
     plot.cross.setAttribute('visibility', 'visible');
@@ -192,7 +201,7 @@ import * as temperatureModel from '../../shared/temperature-model';
       !next.current ||
       !next.points.every(
         (p, i) =>
-          (seconds(p.time) ?? NaN) !== null &&
+          seconds(p.time) !== null &&
           Number.isInteger(p.score) &&
           p.score >= 0 &&
           p.score <= 100 &&
@@ -206,7 +215,7 @@ import * as temperatureModel from '../../shared/temperature-model';
     $('current').textContent =
       data.current.score === null ? data.current.label : `${data.current.score} ${data.current.label}`;
     $('current').className = data.current.score === null ? '' : level(data.current.score);
-    $('status').textContent = data.current.reason || `${data.phase} · 0–100分自定义情绪指标 · 盘中每10秒采集`;
+    $('status').textContent = data.current.reason || `${data.phase} · 0–100分自定义情绪指标 · 盘中每分钟记录`;
     $('summary').replaceChildren();
     if (data.points.length) {
       const latest = data.points.at(-1),

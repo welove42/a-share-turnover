@@ -28,6 +28,7 @@ test('新版命令和视图使用发布者专属ID，避免旧版local-market-to
       'welove42.aShareTurnover.globalIndices',
       'welove42.aShareTurnover.funds',
       'welove42.aShareTurnover.commodities',
+      'welove42.aShareTurnover.futures',
       'welove42.aShareTurnover.debugCover'
     ]
   );

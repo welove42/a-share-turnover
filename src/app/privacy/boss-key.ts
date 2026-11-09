@@ -10,6 +10,7 @@ class BossKey {
   declare globals: any;
   declare funds: any;
   declare commodities: any;
+  declare futures: any;
   declare sectors: any;
   declare reminders: any;
   declare settings: any;
@@ -22,7 +23,7 @@ class BossKey {
 
   constructor(
     context,
-    { controller, stocks, news, charts, globals, funds, commodities, sectors, reminders, settings, alerts, ai }
+    { controller, stocks, news, charts, globals, funds, commodities, futures, sectors, reminders, settings, alerts, ai }
   ) {
     this.context = context;
     this.controller = controller;
@@ -32,6 +33,7 @@ class BossKey {
     this.globals = globals;
     this.funds = funds;
     this.commodities = commodities;
+    this.futures = futures;
     this.sectors = sectors;
     this.reminders = reminders;
     this.settings = settings;
@@ -66,6 +68,7 @@ class BossKey {
       this.globals,
       this.funds,
       this.commodities,
+      this.futures,
       this.sectors
     ])
       item.setHidden(hidden);

@@ -39,6 +39,7 @@ function fixture(h) {
     globals: obj(),
     funds: obj(),
     commodities: obj(),
+    futures: obj(),
     sectors: obj(),
     reminders: obj()
   };
@@ -174,13 +175,14 @@ test('老板键的入口使用中性名称，隐藏时展示调试引导而非�
       .every((v) => v.when.startsWith('!aShareTurnover.hidden &&'))
   );
 });
-test('隐藏时四个栏目清除标题中的行情信息、描述和错误，恢复后回到原名称', () => {
+test('隐藏时五个栏目清除行情标题、描述和错误，恢复后回到原名称', () => {
   const h = harness(),
     classes = [
       ['../dist/features/watchlist/controller.js', 'WatchlistController', '运行和调试', '自选股（名称 / 代码）'],
       ['../dist/features/global-indices/controller.js', 'GlobalIndicesController', '监视', '全球指数'],
       ['../dist/features/funds/controller.js', 'FundsController', '调用堆栈', '基金'],
-      ['../dist/features/commodities/controller.js', 'CommoditiesController', '断点', '商品与期货']
+      ['../dist/features/commodities/controller.js', 'CommoditiesController', '断点', '全球商品'],
+      ['../dist/features/futures/controller.js', 'FuturesController', '断点', '期货']
     ];
   for (const [path, name, hiddenTitle, normalTitle] of classes) {
     const C = h.load(path)[name],
@@ -254,7 +256,7 @@ test('以隐藏状态启动扩展时不显示状态栏或触发行情命令，�
   h.api.window.showInformationMessage = async () => undefined;
   h.context.subscriptions = [];
   const { activate } = h.load('../dist/app/extension.js');
-  activate(h.context);
+  await activate(h.context);
   assert.ok(h.statuses.length >= 6);
   assert.ok(h.statuses.every((s) => !s.visible));
   const provider = h.trees.get('welove42.aShareTurnover.marketWatch').treeDataProvider;
@@ -266,6 +268,7 @@ test('以隐藏状态启动扩展时不显示状态栏或触发行情命令，�
   await new Promise(setImmediate);
   assert.ok(contexts.some((c) => c[0] === 'setContext' && c[1] === 'aShareTurnover.hidden' && c[2] === true));
   assert.equal(commands.get('welove42.aShareTurnover.stocks.refresh')(), undefined);
+  assert.equal(commands.get('welove42.aShareTurnover.futures.refresh')(), undefined);
   await commands.get('welove42.aShareTurnover.toggleHidden')();
   assert.equal(h.store.get('paused'), true);
   assert.equal(h.store.get('stocksPaused'), true);

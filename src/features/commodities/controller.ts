@@ -7,6 +7,8 @@ import { trendIcon } from '../watchlist/trend-icon';
 import {
   COMMODITIES,
   DEFAULT_COMMODITY_CODES,
+  DEFAULT_FUTURES_CODES,
+  isFuturesCode,
   entryFor,
   normalizeCommodityCodes,
   isCommodityQuote,
@@ -15,6 +17,11 @@ import {
 } from './data';
 
 class CommoditiesController {
+  readonly section: 'commodities' | 'futures';
+  readonly title: string;
+  readonly defaults: string[];
+  readonly cacheKey: string;
+  readonly catalog: typeof COMMODITIES;
   declare context: any;
   declare provider: CommodityProvider;
   declare now: () => Date;
@@ -44,13 +51,23 @@ class CommoditiesController {
 
   constructor(
     context,
-    { provider = new CommodityProvider(), now = () => new Date(), log = (_message: string) => {} } = {}
+    {
+      provider = new CommodityProvider(),
+      now = () => new Date(),
+      log = (_message: string) => {},
+      section = 'commodities' as 'commodities' | 'futures'
+    } = {}
   ) {
+    this.section = section;
+    this.title = section === 'futures' ? '期货' : '全球商品';
+    this.defaults = section === 'futures' ? DEFAULT_FUTURES_CODES : DEFAULT_COMMODITY_CODES;
+    this.cacheKey = section === 'futures' ? 'futuresQuotes' : 'commodityQuotes';
+    this.catalog = COMMODITIES.filter((entry) => isFuturesCode(entry.code) === (section === 'futures'));
     this.context = context;
     this.provider = provider;
     this.now = now;
     this.log = log;
-    this.settings = new StockSettings(context, (message) => log(message.replace('自选股设置', '商品与期货设置')));
+    this.settings = new StockSettings(context, (message) => log(message.replace('自选股设置', this.title + '设置')));
     this.quotes = new Map();
     this.errors = new Map();
     this.elements = new Map();
@@ -61,13 +78,14 @@ class CommoditiesController {
     this.generation = 0;
     this.lastAttempt = -Infinity;
     this.cached = true;
-    this.paused = Boolean(context.globalState.get('commoditiesPaused', false));
-    const cache = context.globalState.get('commodityQuotes', []);
-    if (Array.isArray(cache)) for (const q of cache) if (isCommodityQuote(q)) this.quotes.set(q.code, q);
+    this.paused = Boolean(context.globalState.get(`${section}Paused`, false));
+    const cache = context.globalState.get(this.cacheKey, []);
+    if (Array.isArray(cache))
+      for (const q of cache) if (isCommodityQuote(q) && this.accepts(q.code)) this.quotes.set(q.code, q);
     this.readConfig();
     this.emitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.emitter.event;
-    this.tree = vscode.window.createTreeView('welove42.aShareTurnover.commodities', { treeDataProvider: this });
+    this.tree = vscode.window.createTreeView(`welove42.aShareTurnover.${section}`, { treeDataProvider: this });
     this.listeners = [
       this.tree.onDidChangeVisibility((event) => {
         this.publish();
@@ -75,7 +93,7 @@ class CommoditiesController {
         else void this.refresh(true);
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (this.writingSettings || !event.affectsConfiguration('aShareTurnover.commodities')) return;
+        if (this.writingSettings || !event.affectsConfiguration(`aShareTurnover.${section}`)) return;
         this.generation++;
         this.abort?.abort();
         this.readConfig();
@@ -84,14 +102,23 @@ class CommoditiesController {
       })
     ];
   }
+  accepts(code: string): boolean {
+    return this.catalog.some((entry) => entry.code === code);
+  }
+  normalizeSelection(input: unknown): string[] {
+    const codes = normalizeCommodityCodes(input);
+    if (codes.some((code) => !this.accepts(code)))
+      throw new Error(`请在“${this.section === 'futures' ? '全球商品' : '期货'}”栏目添加该品种。`);
+    return codes;
+  }
   readConfig() {
-    this.enabled = vscode.workspace.getConfiguration('aShareTurnover').get('commodities.enabled', true);
+    this.enabled = this.settings.get(`${this.section}.enabled`, true);
     this.configError = '';
     try {
-      this.codes = normalizeCommodityCodes(this.settings.get('commodities.symbols', DEFAULT_COMMODITY_CODES));
+      this.codes = this.normalizeSelection(this.settings.get(`${this.section}.symbols`, this.defaults));
     } catch (error) {
       this.configError = error.message;
-      this.codes ||= [...DEFAULT_COMMODITY_CODES];
+      this.codes ||= [...this.defaults];
     }
   }
   start() {
@@ -121,12 +148,12 @@ class CommoditiesController {
       `${percentText(q?.percent ?? null).padStart(7)}   ${(q?.priceText || '—').padStart(9)}   [${entry.name}]`,
       vscode.TreeItemCollapsibleState.None
     );
-    item.id = `commodity:${entry.code}`;
-    item.contextValue = 'aShareCommodity';
+    item.id = `${this.section}:${entry.code}`;
+    item.contextValue = this.section === 'futures' ? 'aShareFuture' : 'aShareCommodity';
     item.description = `${entry.unit} · ${error ? '未更新 · ' : this.cached && q ? '缓存 · ' : ''}${q ? `${q.date.slice(5)} ${q.time}` : '待获取'}`;
     item.iconPath = error ? new vscode.ThemeIcon('warning') : trendIcon(this.context.extensionUri, q?.percent);
     item.command = {
-      command: 'welove42.aShareTurnover.commodities.open',
+      command: `welove42.aShareTurnover.${this.section}.open`,
       title: '查看商品行情详情',
       arguments: [entry.code]
     };
@@ -162,7 +189,7 @@ class CommoditiesController {
   }
   publish(structural = false) {
     if (this.disposed) return;
-    this.tree.title = this.hidden ? '断点' : '商品与期货';
+    this.tree.title = this.hidden ? '断点' : this.title;
     if (this.hidden) {
       this.tree.description = undefined;
       this.tree.message = undefined;
@@ -174,7 +201,7 @@ class CommoditiesController {
       : this.paused
         ? '已暂停 · 新浪财经'
         : !this.codes.length
-          ? '点击＋添加商品或期货'
+          ? `点击＋添加${this.title}`
           : this.tree.visible
             ? '10秒刷新 · 新浪财经'
             : '展开后10秒刷新 · 新浪财经';
@@ -183,7 +210,7 @@ class CommoditiesController {
     const message =
       this.configError ||
       (!this.codes.length
-        ? '尚未添加商品或期货，点击右上角＋按名称或代码添加。'
+        ? `尚未添加${this.title}，点击右上角＋按名称或代码添加。`
         : failures
           ? `${failures} 个商品未更新，保留上次报价；悬停可查看原因。`
           : undefined);
@@ -233,11 +260,11 @@ class CommoditiesController {
           else this.errors.set(code, error || '行情字段或时间异常，已保留上次报价');
         }
         this.cached = false;
-        await this.context.globalState.update('commodityQuotes', [...this.quotes.values()]).catch(() => {});
+        await this.context.globalState.update(this.cacheKey, [...this.quotes.values()]).catch(() => {});
       } catch (error) {
         if (!this.disposed && !abort.signal.aborted) {
           for (const code of codes) this.errors.set(code, error.message || '商品行情获取失败');
-          this.log('商品与期货行情请求失败');
+          this.log(this.title + '行情请求失败');
         }
       } finally {
         this.inflight = null;
@@ -249,10 +276,10 @@ class CommoditiesController {
   }
   async saveSelection(codes) {
     if (this.disposed) return;
-    const selected = normalizeCommodityCodes(codes);
+    const selected = this.normalizeSelection(codes);
     this.writingSettings = (this.writingSettings || 0) + 1;
     try {
-      await this.settings.set('commodities.symbols', selected);
+      await this.settings.set(`${this.section}.symbols`, selected);
     } finally {
       this.writingSettings--;
     }
@@ -269,25 +296,28 @@ class CommoditiesController {
     let codes: string[] | undefined;
     if (Array.isArray(input) || typeof input === 'string') {
       try {
-        codes = normalizeCommodityCodes(input);
+        codes = this.normalizeSelection(input);
       } catch (error) {
         if (Array.isArray(input)) return privateUI.showErrorMessage(error.message);
       }
     }
     if (codes) return this.saveSelection([...this.codes, ...codes]);
     const query = typeof input === 'string' ? input.trim().toLowerCase() : '';
-    const items = COMMODITIES.filter(
-      (entry) => !query || `${entry.name} ${entry.code} ${entry.aliases}`.toLowerCase().includes(query)
-    ).map((entry) => ({
-      label: entry.name,
-      description: `${entry.code} · ${entry.market === 'domesticFutures' ? 'nf' : 'hf'}_${entry.code} · ${entry.aliases}${this.codes.includes(entry.code) ? ' · 已添加' : ''}`,
-      detail: `${entry.unit} · 新浪财经${entry.market === 'domesticFutures' ? '国内期货主连 · 按昨结算计算涨跌' : ' CFD参考行情'}`,
-      code: entry.code
-    }));
+    const items = this.catalog
+      .filter((entry) => !query || `${entry.name} ${entry.code} ${entry.aliases}`.toLowerCase().includes(query))
+      .map((entry) => ({
+        label: entry.name,
+        description: `${entry.code} · ${entry.market === 'domesticFutures' ? 'nf' : 'hf'}_${entry.code} · ${entry.aliases}${this.codes.includes(entry.code) ? ' · 已添加' : ''}`,
+        detail: `${entry.unit} · 新浪财经${entry.market === 'domesticFutures' ? '国内期货主连 · 按昨结算计算涨跌' : ' CFD参考行情'}`,
+        code: entry.code
+      }));
     if (!items.length) return privateUI.showErrorMessage('未找到该商品或期货，请点击＋搜索支持的名称或代码。');
     const selected = await privateUI.showQuickPick(items, {
-      title: '添加商品与期货',
-      placeHolder: '搜索碳酸锂、生猪、纳指100等名称或代码；可多选添加',
+      title: `添加${this.title}`,
+      placeHolder:
+        this.section === 'futures'
+          ? '搜索碳酸锂、生猪、纳指100或代码；可多选添加'
+          : '输入商品名称、拼音简称或代码；可多选添加',
       matchOnDescription: true,
       canPickMany: true
     });
@@ -301,12 +331,12 @@ class CommoditiesController {
       code = (
         await privateUI.showQuickPick(
           this.codes.map((code) => ({ label: entryFor(code)!.name, description: code, code })),
-          { title: '移除商品与期货' }
+          { title: `移除${this.title}` }
         )
       )?.code;
     if (!code || this.disposed || !this.enabled) return;
     try {
-      code = normalizeCommodityCodes([code])[0];
+      code = this.normalizeSelection([code])[0];
     } catch (error) {
       return privateUI.showErrorMessage(error.message);
     }
@@ -314,13 +344,13 @@ class CommoditiesController {
   }
   open(element) {
     const code = typeof element === 'string' ? element : element?.code;
-    if (this.disposed || !entryFor(code)) return;
+    if (this.disposed || !this.accepts(code)) return;
     return vscode.env.openExternal(vscode.Uri.parse(commodityUrl(code)));
   }
   async togglePause() {
     this.paused = !this.paused;
     if (this.paused) this.abort?.abort();
-    await this.context.globalState.update('commoditiesPaused', this.paused);
+    await this.context.globalState.update(`${this.section}Paused`, this.paused);
     this.publish();
     if (!this.paused) return this.refresh(true);
   }

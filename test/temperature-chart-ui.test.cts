@@ -77,10 +77,10 @@ function page() {
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
 const points = [
   ['09:35:00', 10],
-  ['09:35:10', 20],
-  ['09:35:20', 35],
+  ['09:36:00', 20],
+  ['09:37:00', 35],
   ['10:30:00', 80],
-  ['10:30:10', 90],
+  ['10:31:00', 90],
   ['13:00:00', 75]
 ].map(([time, score]) => ({ time, score, phase: '交易中' }));
 const data = () => ({
@@ -90,25 +90,29 @@ const data = () => ({
   phase: '交易中'
 });
 
-test('温度曲线悬停显示准确时间、分数和档位，不跨午休及缺采时段连线', () => {
+test('温度曲线以折线及缺采虚线连接，午休留空，悬停仍显示真实时间和分数', () => {
   const p = page();
   p.receive(data());
   assert.equal(p.messages[0].action, 'ready');
   const svg = p.nodes.get('temperature-svg'),
     plot = p.nodes.get('temperature-plot');
   assert.equal(descendants(svg).filter((n) => n.getAttribute('class') === 'temperature-line').length, 2);
+  assert.equal(
+    descendants(svg).filter((n) => n.getAttribute('class') === 'temperature-line temperature-gap').length,
+    1
+  );
   plot.dispatch('pointermove', { clientX: 48 + (3600 / 19800) * 928, clientY: 100 });
   assert.equal(p.nodes.get('temperature-tooltip').hidden, false);
   assert.match(p.nodes.get('temperature-tooltip').textContent, /2026-10-28 10:30:00[\s\S]*80 \/ 100 · 过热/);
   assert.match(p.nodes.get('temperature-detail').textContent, /10:30:00.*80\/100/);
   plot.dispatch('keydown', { key: 'ArrowRight' });
-  assert.match(p.nodes.get('temperature-tooltip').textContent, /10:30:10[\s\S]*90 \/ 100/);
+  assert.match(p.nodes.get('temperature-tooltip').textContent, /10:31:00[\s\S]*90 \/ 100/);
   plot.dispatch('pointerleave');
   assert.equal(p.nodes.get('temperature-tooltip').hidden, true);
   assert.match(p.nodes.get('temperature-detail').textContent, /最近记录.*13:00:00.*75\/100/);
 });
 
-test('刷新保留悬停的10秒采集点；同桶更新、跨天清空及Esc恢复最新', () => {
+test('刷新保留悬停的分钟采集点；同分钟更新、跨天清空及Esc恢复最新', () => {
   const p = page();
   p.receive(data());
   const plot = p.nodes.get('temperature-plot');
@@ -129,6 +133,26 @@ test('刷新保留悬停的10秒采集点；同桶更新、跨天清空及Esc恢
     JSON.stringify(descendants(p.nodes.get('temperature-svg')).map((n) => n.getAttribute('points'))),
     /NaN|Infinity/
   );
+});
+
+test('收盘确认显示在15点端点，悬停显示实际采集时间，错误时间不能污染曲线', () => {
+  const p = page();
+  p.receive({
+    ...data(),
+    points: [
+      { time: '14:59:00', score: 45, phase: '交易中' },
+      { time: '15:01:10', score: 43, phase: '收盘确认' }
+    ]
+  });
+  p.nodes.get('temperature-plot').dispatch('pointermove', { clientX: 976, clientY: 100 });
+  assert.match(p.nodes.get('temperature-tooltip').textContent, /15:01:10[\s\S]*43 \/ 100/);
+  assert.equal(
+    descendants(p.nodes.get('temperature-svg')).some((n) => n.textContent === '17:00'),
+    false
+  );
+  const old = p.nodes.get('temperature-detail').textContent;
+  p.receive({ ...data(), points: [{ time: 'bad', score: 43 }] });
+  assert.equal(p.nodes.get('temperature-detail').textContent, old);
 });
 
 test('单点0分可见，不把无记录当作冰点；错误令牌和无效分数不覆盖现图', () => {

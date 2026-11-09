@@ -11,11 +11,13 @@ function response(codes, time = '13:50:00', price = '110.125') {
     codes
   );
 }
-function setup(config = {}, load) {
+function setup(config = {}, load, futures = false) {
   const h = harness(config);
   let now = new Date('2026-10-27T13:50:01+08:00');
   const calls = [];
-  const { CommoditiesController } = h.load('../dist/features/commodities/controller.js');
+  const CommoditiesController = futures
+    ? h.load('../dist/features/futures/controller.js').FuturesController
+    : h.load('../dist/features/commodities/controller.js').CommoditiesController;
   const c = new CommoditiesController(h.context, {
     now: () => now,
     provider: {
@@ -108,7 +110,11 @@ test('选中行的＋仍打开名称代码候选，多选去重保存，取消�
   try {
     h.c.paused = true;
     h.api.window.showQuickPick = async (items, options) => {
-      assert.equal(items.length, 17);
+      assert.equal(items.length, 14);
+      assert.equal(
+        items.some((item) => ['LC0', 'LH0', 'NQ'].includes(item.code)),
+        false
+      );
       assert.equal(options.canPickMany, true);
       assert.equal(options.matchOnDescription, true);
       assert.match(items.find((item) => item.code === 'OIL').description, /布油.*Brent/);
@@ -221,7 +227,7 @@ test('并发请求合并；改变选择、隐藏及暂停会取消旧请求，�
 });
 
 test('通过加号或名称搜索期货，数字代码直加；展示昨结口径并可删除和重启恢复', async () => {
-  const h = setup();
+  const h = setup({ 'aShareTurnover.futures.symbols': [] }, undefined, true);
   let restored;
   try {
     h.c.paused = true;
@@ -242,7 +248,7 @@ test('通过加号或名称搜索期货，数字代码直加；展示昨结口�
     }
     h.api.window.showQuickPick = async () => assert.fail('合法代码直接添加');
     await h.c.add('nf_LC0,lh0,hf_NQ');
-    assert.deepEqual(h.c.codes, [...DEFAULT_COMMODITY_CODES, 'LC0', 'LH0', 'NQ']);
+    assert.deepEqual(h.c.codes, ['LC0', 'LH0', 'NQ']);
     const quote = parseCommodityQuotes(
       'var hq_str_nf_LC0="碳酸锂连续,135000,92000,93000,87000,88000,88000,88020,88000,90000,92000,30,2,400442,352317,,碳酸锂,2026-10-27";',
       ['LC0']
@@ -257,8 +263,8 @@ test('通过加号或名称搜索期货，数字代码直加；展示昨结口�
     assert.match(h.c.getTreeItem(h.c.element('NQ')).tooltip.value, /CFD/);
     await h.c.open(h.c.element('LC0'));
     assert.equal(h.opened.at(-1), 'https://finance.sina.com.cn/futures/quotes/LC0.shtml');
-    const { CommoditiesController } = h.load('../dist/features/commodities/controller.js');
-    restored = new CommoditiesController(h.context);
+    const { FuturesController } = h.load('../dist/features/futures/controller.js');
+    restored = new FuturesController(h.context);
     assert.deepEqual(restored.codes, h.c.codes);
     await h.c.remove('nf_LH0');
     assert.equal(h.c.codes.includes('LH0'), false);
