@@ -55,7 +55,7 @@ test('同步白名单固定，密钥、会话、行情缓存、老板键和真�
     await sync.reconcile();
     await sync.reconcile();
     assert.deepEqual(received, ['rsi']);
-    await h.api.workspace.getConfiguration('aShareTurnover').update('sync.fundHoldings', true);
+    await h.api.workspace.getConfiguration('aShareTurnover').update('sync.fundHoldings', false);
     await sync.reconcile();
     assert.equal(received.at(-1), 'holdings');
     assert.deepEqual(h.context.syncedKeys, [...BASE_SYNC_KEYS]);
@@ -67,7 +67,7 @@ test('同步白名单固定，密钥、会话、行情缓存、老板键和真�
     sync.dispose();
   }
   const config = require('../package.json').contributes.configuration.properties['aShareTurnover.sync.fundHoldings'];
-  assert.equal(config.default, false);
+  assert.equal(config.default, true);
   assert.equal(config.scope, 'machine');
 });
 
@@ -208,42 +208,38 @@ test('图表副图同步只更新当前页面，不请求行情或把接收值�
   }
 });
 
-test('同步入口交给原生面板判断状态，不因turnOn已注册就强制首次登录；不支持时明确反馈', async () => {
+test('未登录或离线时只准备本机同步数据，不调用原生登录或同步窗口', async () => {
   const h = harness(),
     calls = [];
   h.api.commands = {
-    getCommands: async () => [
-      'workbench.action.quickOpen',
-      'workbench.userDataSync.actions.showSyncedData',
-      'workbench.userDataSync.actions.turnOn',
-      'workbench.userDataSync.actions.manage'
-    ],
+    getCommands: async () => [],
     executeCommand: async (...args) => {
-      assert.notEqual(args[0], 'workbench.userDataSync.actions.turnOn');
       calls.push(args);
     }
   };
-  const { openNativeSync } = h.load('../dist/core/storage/sync.js');
-  await openNativeSync('manage');
-  await openNativeSync('showData');
-  assert.deepEqual(calls, [
-    ['workbench.action.quickOpen', '>Settings Sync: '],
-    ['workbench.userDataSync.actions.showSyncedData']
-  ]);
-  h.api.commands.getCommands = async () => [
-    'workbench.userDataSync.actions.showSyncedData',
-    'workbench.userDataSync.actions.turnOn'
-  ];
-  await assert.rejects(openNativeSync('manage'), /无法打开同步操作列表/);
-  assert.equal(calls.length, 2, '无命令面板时也不退回强制首次登录');
-  h.api.commands.getCommands = async () => [];
-  await assert.rejects(openNativeSync('manage'), /未提供原生设置同步/);
+  const { DataSync } = h.load('../dist/core/storage/sync.js');
+  const { FundsController } = h.load('../dist/features/funds/controller.js');
+  h.store.set('fundHoldings', { '110020': position() });
+  const funds = new FundsController(h.context),
+    sync = new DataSync(h.context);
+  try {
+    sync.start({ fundHoldings: () => funds.restoreSyncedHoldings() });
+    await sync.reconcile();
+    assert.deepEqual(h.store.get('fundHoldings'), { '110020': position() });
+    assert.deepEqual(h.store.get(HOLDINGS_SYNC_KEY).records['110020'].position, position());
+    assert.deepEqual(calls, []);
+    assert.equal(h.panels.length, 0);
+    assert.equal(h.pickers.length, 0);
+  } finally {
+    sync.dispose();
+    funds.dispose();
+  }
 });
 
-test('基金列表自动应用云端持仓，随后编辑其他基金不会覆盖刚收到的持仓', async () => {
+test('基金持仓默认自动同步，编辑其他基金不覆盖新持仓，明确关闭后保留用户选择', async () => {
   const remote = device({ '110020': position(400, 360) }, true);
   await remote.sync.reconcile();
-  const h = harness({ 'aShareTurnover.funds.symbols': ['110020', '000001'], 'aShareTurnover.sync.fundHoldings': true });
+  const h = harness({ 'aShareTurnover.funds.symbols': ['110020', '000001'] });
   h.store.set(HOLDINGS_SYNC_KEY, remote.store.get(HOLDINGS_SYNC_KEY));
   const { FundsController } = h.load('../dist/features/funds/controller.js');
   const c = new FundsController(h.context);

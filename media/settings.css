@@ -98,7 +98,3 @@ fieldset { margin: 0; padding: 0; border: 0; } .check { display: flex; align-ite
 [hidden] { display: none !important; } .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (max-width: 750px) { header { padding: 20px; } .layout { display: block; } nav { position: static; display: flex; overflow-x: auto; padding: 12px; } nav button { width: auto; white-space: nowrap; } main { padding: 12px 20px 40px; } .setting { grid-template-columns: 1fr; } .control { justify-content: flex-start; max-width: 100%; } }
 @media (max-width: 500px) { .watch-list { grid-template-columns: 1fr; } }
-.sync-details { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px 20px; padding: 16px 0; margin: 0; border-bottom: 1px solid var(--vscode-panel-border); line-height: 1.6; }
-.sync-details dt { font-weight: 600; }
-.sync-details dd { margin: 0; color: var(--vscode-descriptionForeground); }
-@media (max-width: 650px) { .sync-details { grid-template-columns: 1fr; gap: 5px; } .sync-details dd { margin-bottom: 12px; } }

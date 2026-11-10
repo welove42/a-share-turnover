@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.20",
+  "version": "1.23.21",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.20.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.21.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -974,9 +974,9 @@
         },
         "aShareTurnover.sync.fundHoldings": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "scope": "machine",
-          "description": "是否同步本机基金份额与总成本。默认关闭，须在每台设备单独开启，并启用 VS Code 的设置与扩展同步。API Key、AI 对话和行情缓存不同步；关闭后保留本机持仓，已上传副本由 VS Code 管理。"
+          "description": "基金份额与总成本默认跟随 VS Code 的扩展同步在后台同步，无需在插件内操作。关闭后保留本机持仓且不再参与同步，已上传副本由 VS Code 管理。API Key、AI 对话和行情缓存始终只保留本机。"
         }
       }
     },

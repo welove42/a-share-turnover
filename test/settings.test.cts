@@ -3,37 +3,34 @@ const test = require('node:test'),
   assert = require('node:assert/strict');
 const { harness } = require('./vscode-mock.cts');
 const manifest = require('../package.json');
-test('数据同步页说明范围，默认不开持仓同步，原生入口只反馈打开界面而不是同步成功', async () => {
+test('同步在后台运行，设置页不再提供同步分类，旧入口不能触发登录或修改持仓同步', async () => {
   const commands = [];
   const { h, c, panel, send } = setup({}, (api) => {
     api.commands = {
-      getCommands: async () => ['workbench.action.quickOpen', 'workbench.userDataSync.actions.showSyncedData'],
       executeCommand: async (id) => {
         commands.push(id);
       }
     };
   });
   try {
-    const group = c.model().find((g) => g.id === 'sync');
-    assert.equal(group.fields[0].value, false);
-    assert.match(group.info, /同一.*账号.*设置.*扩展/);
-    assert.match(JSON.stringify(group.details), /API Key.*AI 对话/);
-    await send({ type: 'save', key: 'sync.fundHoldings', value: true });
-    assert.equal(h.values.get('aShareTurnover.sync.fundHoldings'), true);
-    await send({ type: 'reset', key: 'sync.fundHoldings' });
-    assert.equal(h.values.get('aShareTurnover.sync.fundHoldings'), false);
-    await send({ type: 'action', action: 'sync.manage' });
-    assert.equal(commands.at(-1), 'workbench.action.quickOpen');
-    const result = panel.webview.messages.findLast((m) => m.type === 'result');
-    assert.match(result.note, /已打开/);
-    assert.doesNotMatch(result.note, /同步成功|已同步/);
-    await send({ type: 'action', action: 'sync.showData' });
-    assert.equal(commands.at(-1), 'workbench.userDataSync.actions.showSyncedData');
-    await send({ type: 'action', action: 'workbench.actions.syncData.reset' });
-    assert.equal(panel.webview.messages.at(-1).ok, false);
-    c.setHidden(true);
-    await send({ type: 'action', action: 'sync.manage' });
-    assert.equal(commands.length, 2);
+    assert.equal(
+      c.model().some((g) => g.id === 'sync'),
+      false
+    );
+    assert.doesNotMatch(JSON.stringify(c.model()), /sync\.fundHoldings|sync\.manage|sync\.showData/);
+    c.open('sync');
+    assert.notEqual(panel.webview.messages.at(-1).category, 'sync');
+    for (const message of [
+      { type: 'save', key: 'sync.fundHoldings', value: false },
+      { type: 'reset', key: 'sync.fundHoldings' },
+      { type: 'action', action: 'sync.manage' },
+      { type: 'action', action: 'sync.showData' }
+    ]) {
+      await send(message);
+      assert.equal(panel.webview.messages.at(-1).ok, false);
+    }
+    assert.equal(h.values.has('aShareTurnover.sync.fundHoldings'), false);
+    assert.deepEqual(commands, []);
   } finally {
     c.dispose();
   }
@@ -59,7 +56,7 @@ test('设置页覆盖常用配置，复用标签，真实保存并响应外部�
       GROUPS.flatMap((g) => g.keys).sort(),
       Object.keys(manifest.contributes.configuration.properties)
         .map((k) => k.replace('aShareTurnover.', ''))
-        .filter((k) => k !== 'news.enabled') // Legacy enable/disable remains available in VS Code settings.
+        .filter((k) => !['news.enabled', 'sync.fundHoldings'].includes(k)) // 仅在 VS Code 高级设置保留的选项。
         .sort()
     );
     c.open();

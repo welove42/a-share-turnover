@@ -90,7 +90,7 @@ class FundsController {
     this.holdings = this.readHoldings();
     this.positionSync = new HoldingsSync(
       context.globalState,
-      () => vscode.workspace.getConfiguration('aShareTurnover').get<boolean>('sync.fundHoldings', false) === true
+      () => vscode.workspace.getConfiguration('aShareTurnover').get<boolean>('sync.fundHoldings', true) === true
     );
     this.holdingWrite = Promise.resolve();
     this.readConfig();
@@ -542,7 +542,7 @@ class FundsController {
         const holdings = this.readHoldings();
         if (next === null) delete holdings[code];
         else holdings[code] = next;
-        // 不写入 settings.json 或行情请求；仅在用户主动开启持仓同步后由 VS Code 同步。
+        // 持仓默认跟随 VS Code 扩展状态同步，不写入 settings.json 或行情请求。
         await this.context.globalState.update('fundHoldings', holdings);
         this.holdings = holdings;
         await this.positionSync.reconcile();

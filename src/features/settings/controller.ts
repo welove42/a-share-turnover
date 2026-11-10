@@ -4,7 +4,6 @@ import { randomBytes } from 'node:crypto';
 import { normalizeDate } from '../turnover/market';
 import { endpoint, modelName } from '../ai/client';
 import { COLOR_KEYS, HEX_COLOR } from '../watchlist/colors';
-import { openNativeSync } from '../../core/storage/sync';
 import * as manifest from '../../../package.json';
 const properties = manifest.contributes.configuration.properties;
 const GROUPS = [
@@ -77,11 +76,9 @@ const GROUPS = [
     title: '大事提醒与休市',
     keys: ['reminders.enabled', 'reminders.notifications', 'reminders.categories', 'additionalClosedDates']
   },
-  { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.save', 'ai.test'] },
-  { id: 'sync', title: '数据同步', keys: ['sync.fundHoldings'], actions: ['sync.manage', 'sync.showData'] }
+  { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.save', 'ai.test'] }
 ];
 const LABELS = {
-  'sync.fundHoldings': '同步本机基金持仓',
   'funds.estimateEnabled': '显示基金盘中估算',
   'stocks.colorMode': '自选配色',
   'stocks.upColor': '上涨颜色',
@@ -128,8 +125,6 @@ const LABELS = {
   additionalClosedDates: '补充休市日期'
 };
 const HELP = {
-  'sync.fundHoldings':
-    '包含份额与总成本，默认关闭；需要在每台设备单独开启。按基金合并，修改时间较新的优先。关闭后本机持仓继续保留，已上传副本仍可能保留在 VS Code 云端。',
   'funds.estimateEnabled':
     '有有效估值时自动显示估算涨跌和持仓收益；正式净值公布后切回。每60秒检查，缺失或过期时显示正式净值。部分主动基金、货币基金没有估值；估算不等于实际收益。',
   'stocks.colorMode':
@@ -196,26 +191,8 @@ const OPTIONS = {
 };
 const ACTIONS = {
   'ai.save': '保存配置',
-  'ai.test': '测试连接',
-  'sync.manage': '管理 VS Code 同步',
-  'sync.showData': '查看同步数据'
+  'ai.test': '测试连接'
 };
-const SYNC_INFO =
-  '在每台电脑登录同一 Microsoft 或 GitHub 账号，开启“设置”和“扩展”同步，并安装相同版本的牛来盯盘。已开启同步的设备无需重复登录，可直接查看同步数据。';
-const SYNC_DETAILS = [
-  {
-    label: '跟随账号同步',
-    text: '自选列表、分组、排序、颜色和提醒设置，AI 地址与模型，以及期货品种信息、图表副图指标和美股显示时段。'
-  },
-  {
-    label: '保留在本机',
-    text: 'API Key、AI 对话、行情缓存、市场温度记录、暂停状态及老板键当前状态。换电脑后需要重新填写 Key。'
-  },
-  {
-    label: '查看进度与冲突',
-    text: '点击“查看同步数据”查看同步记录与冲突。开启后由 VS Code 在后台更新，离线时改动保留在本机。'
-  }
-];
 const ADD_LABELS = {
   'stocks.symbols': '添加 A 股',
   'stocks.hkSymbols': '添加港股',
@@ -345,11 +322,7 @@ class SettingsController {
   ) {
     this.context = context;
     this.stocks = stocks;
-    this.actions = {
-      'sync.manage': () => openNativeSync('manage'),
-      'sync.showData': () => openNativeSync('showData'),
-      ...actions
-    };
+    this.actions = actions;
     this.lists = lists;
     this.queue = Promise.resolve();
     this.ai = ai;
@@ -375,13 +348,7 @@ class SettingsController {
   model() {
     const groups: { id: string; fields: SettingField[]; [key: string]: unknown }[] = GROUPS.map((group) => ({
       ...group,
-      info:
-        group.id === 'ai'
-          ? '填写后保存即可使用。测试连接会先保存本页配置，并产生少量 API 用量。'
-          : group.id === 'sync'
-            ? SYNC_INFO
-            : '',
-      details: group.id === 'sync' ? SYNC_DETAILS : [],
+      info: group.id === 'ai' ? '填写后保存即可使用。测试连接会先保存本页配置，并产生少量 API 用量。' : '',
       actions: (group.actions || []).map((id) => ({ id, label: ACTIONS[id] })),
       fields: group.keys
         .filter((key) => !GROUP_KEYS.has(key))
@@ -685,9 +652,7 @@ class SettingsController {
               else {
                 const c = vscode.workspace.getConfiguration('aShareTurnover');
                 const target =
-                  !message.key.startsWith('ai.') &&
-                  !message.key.startsWith('sync.') &&
-                  c.inspect?.(message.key)?.workspaceValue !== undefined
+                  !message.key.startsWith('ai.') && c.inspect?.(message.key)?.workspaceValue !== undefined
                     ? vscode.ConfigurationTarget.Workspace
                     : vscode.ConfigurationTarget.Global;
                 await c.update(message.key, value, target);
@@ -700,12 +665,7 @@ class SettingsController {
                 key: message.key,
                 action: message.action,
                 ok: true,
-                note:
-                  message.action === 'ai.test'
-                    ? '连接成功，可以开始分析。'
-                    : message.action?.startsWith('sync.')
-                      ? '已打开 VS Code 同步界面，请在那里查看状态或完成操作。'
-                      : undefined
+                note: message.action === 'ai.test' ? '连接成功，可以开始分析。' : undefined
               });
               this.publish(true);
             }
