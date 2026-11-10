@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.18",
+  "version": "1.23.19",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.18.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.19.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -284,7 +284,7 @@
       },
       {
         "command": "welove42.aShareTurnover.funds.clearHolding",
-        "title": "基金：清除本机持仓（保留关注）",
+        "title": "基金：清除持仓（保留关注）",
         "icon": "$(clear-all)"
       },
       {
@@ -970,7 +970,13 @@
           "items": {
             "type": "string"
           },
-          "description": "默认碳酸锂主连LC0、生猪主连LH0、纳指100期货NQ。点击期货栏＋按名称或代码搜索添加国内主连、月份合约及海外期货；支持nf_/hf_市场前缀。新增品种信息保存在本机，空数组保持空列表。"
+          "description": "默认碳酸锂主连LC0、生猪主连LH0、纳指100期货NQ。点击期货栏＋按名称或代码搜索添加国内主连、月份合约及海外期货；支持nf_/hf_市场前缀。品种信息跟随 VS Code 扩展同步，空数组保持空列表。"
+        },
+        "aShareTurnover.sync.fundHoldings": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "是否同步本机基金份额与总成本。默认关闭，须在每台设备单独开启，并启用 VS Code 的设置与扩展同步。API Key、AI 对话和行情缓存不同步；关闭后保留本机持仓，已上传副本由 VS Code 管理。"
         }
       }
     },

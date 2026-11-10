@@ -294,6 +294,13 @@ class OverseasWatchlist {
       });
     return this.displayModeWrite;
   }
+  restoreSyncedPreferences(): void {
+    const saved = this.parent.context.globalState.get(US_DISPLAY_KEY, 'auto');
+    const mode = isUsDisplayMode(saved) ? saved : 'auto';
+    if (this.parent.disposed || mode === this.usDisplayMode) return;
+    this.usDisplayMode = mode;
+    if (!this.parent.hidden) this.publish('us');
+  }
   element(symbol) {
     if (!this.elements.has(symbol))
       this.elements.set(symbol, { kind: 'overseasStock', market: symbol.slice(0, 2), symbol });

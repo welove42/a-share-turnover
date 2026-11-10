@@ -86,6 +86,39 @@ function page() {
   return { nodes, sent, timers, document, receive: (message) => receive({ data: { token: 'test', ...message } }) };
 }
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
+test('数据同步说明与按钮在页面内展示，开关提交真实布尔值且原生操作结束后可再次点击', () => {
+  const p = page();
+  p.receive({
+    type: 'state',
+    groups: [
+      {
+        id: 'sync',
+        title: '数据同步',
+        info: '登录同一账号',
+        details: [{ label: '保留在本机', text: 'API Key、AI 对话、缓存' }],
+        actions: [{ id: 'sync.enable', label: '开启 VS Code 同步' }],
+        fields: [
+          { key: 'sync.fundHoldings', label: '同步本机基金持仓', help: '默认关闭', type: 'boolean', value: false }
+        ]
+      }
+    ]
+  });
+  const nodes = descendants(p.nodes.get('sections'));
+  assert.ok(nodes.some((n) => n.tag === 'dd' && n.textContent.includes('API Key')));
+  const toggle = nodes.find((n) => n.id === 'field-sync.fundHoldings');
+  assert.equal(toggle.checked, false);
+  toggle.checked = true;
+  toggle.dispatch('change');
+  assert.equal(p.sent.at(-1).key, 'sync.fundHoldings');
+  assert.equal(p.sent.at(-1).value, true);
+  const button = nodes.find((n) => n.textContent === '开启 VS Code 同步');
+  button.dispatch('click');
+  assert.equal(p.sent.at(-1).action, 'sync.enable');
+  assert.equal(button.disabled, true);
+  p.receive({ type: 'result', action: 'sync.enable', ok: true, note: '已打开 VS Code 同步界面' });
+  assert.equal(button.disabled, false);
+  assert.equal(p.nodes.get('save-status').textContent, '已打开 VS Code 同步界面');
+});
 const model = () => [
   {
     id: 'stocks',

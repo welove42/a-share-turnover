@@ -18,9 +18,11 @@ import { DebugCoverProvider } from './privacy/debug-cover';
 import { SettingsController } from '../features/settings/controller';
 import { StockAlerts } from '../features/watchlist/alerts';
 import { AiAnalysisController } from '../features/ai/controller';
+import { DataSync } from '../core/storage/sync';
 
 async function activate(context) {
   const controller = new TurnoverController(context);
+  const sync = new DataSync(context, (message) => controller.log(message));
   await migrateFutures(context, (message) => controller.log(message));
   const stocks = new WatchlistController(context, { log: (message) => controller.log(message) });
   controller.riskSource = () => {
@@ -116,6 +118,7 @@ async function activate(context) {
     vscode.commands.registerCommand(command, (...args) => (bossKey.hidden ? undefined : callback(...args)));
   context.subscriptions.push(
     controller,
+    sync,
     bossKey,
     vscode.commands.registerCommand('welove42.aShareTurnover.toggleHidden', () => bossKey.toggle()),
     vscode.window.registerWebviewViewProvider('welove42.aShareTurnover.debugCover', new DebugCoverProvider()),
@@ -197,6 +200,13 @@ async function activate(context) {
     bind('welove42.aShareTurnover.news.open', (item) => news.open(item)),
     bind('welove42.aShareTurnover.news.togglePause', () => news.togglePause())
   );
+  sync.start({
+    futuresCatalogV1: () => futures.restoreSyncedCatalog(),
+    chartIndicator: () => charts.restoreSyncedPreferences(),
+    usDisplayMode: () => stocks.overseas.restoreSyncedPreferences(),
+    fundHoldings: () => funds.restoreSyncedHoldings(),
+    fundHoldingsCloudV1: () => funds.restoreSyncedHoldings()
+  });
   controller.start();
   stocks.start();
   news.start();

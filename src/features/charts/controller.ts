@@ -228,6 +228,15 @@ class ChartController {
     void Promise.resolve(this.context.globalState.update('chartIndicator', this.indicator)).catch(() => {});
     if (state.ready) this.send(state, { type: 'select-indicator', indicator: this.indicator });
   }
+  restoreSyncedPreferences() {
+    const value = this.context.globalState.get('chartIndicator', 'macd');
+    const indicator = INDICATORS.includes(value) ? value : 'macd';
+    if (this.disposed || this.indicator === indicator) return;
+    this.indicator = indicator;
+    if (!this.hidden)
+      for (const state of this.panels.values())
+        if (state.ready && !isWebMode(state.mode)) this.send(state, { type: 'select-indicator', indicator });
+  }
   refreshActive() {
     const state = this.visibleState();
     if (!state) return;

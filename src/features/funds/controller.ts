@@ -15,12 +15,14 @@ import {
   fundUrl
 } from './data';
 import { isFundEstimate, estimateReason } from './estimates';
+import { HoldingsSync, readPositions } from './sync';
 
 interface FundPick extends vscode.QuickPickItem {
   codes?: string[];
   empty?: boolean;
 }
 class FundsController {
+  private positionSync: HoldingsSync;
   declare context: any;
   declare provider: FundProvider;
   declare now: () => Date;
@@ -85,17 +87,12 @@ class FundsController {
           this.estimates.set(e.code, e);
           this.estimateCached.add(e.code);
         }
-    this.holdings = {};
+    this.holdings = this.readHoldings();
+    this.positionSync = new HoldingsSync(
+      context.globalState,
+      () => vscode.workspace.getConfiguration('aShareTurnover').get<boolean>('sync.fundHoldings', false) === true
+    );
     this.holdingWrite = Promise.resolve();
-    const saved = context.globalState.get('fundHoldings', {});
-    if (saved && typeof saved === 'object' && !Array.isArray(saved))
-      for (const [code, position] of Object.entries(saved)) {
-        try {
-          this.holdings[fundCode(code)] = holdingPosition(position);
-        } catch {
-          /* Ignore damaged local records. */
-        }
-      }
     this.readConfig();
     this.emitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.emitter.event;
@@ -539,16 +536,33 @@ class FundsController {
       .catch(() => {})
       .then(async () => {
         if (this.disposed || !this.enabled || !this.symbols.includes(code)) return;
-        const holdings = { ...this.holdings };
+        await this.positionSync.reconcile();
+        if (this.disposed || !this.enabled || !this.symbols.includes(code)) return;
+        // 读取最新本机状态，保留其他窗口或同步刚写入的其他基金，避免旧内存覆盖它们。
+        const holdings = this.readHoldings();
         if (next === null) delete holdings[code];
         else holdings[code] = next;
-        // Private position data stays in local extension storage, never settings or quote requests.
+        // 不写入 settings.json 或行情请求；仅在用户主动开启持仓同步后由 VS Code 同步。
         await this.context.globalState.update('fundHoldings', holdings);
         this.holdings = holdings;
+        await this.positionSync.reconcile();
+        this.holdings = this.readHoldings();
         this.publish();
       });
     this.holdingWrite = write;
     return write;
+  }
+  private readHoldings() {
+    return readPositions(this.context.globalState.get('fundHoldings', {}));
+  }
+  async restoreSyncedHoldings(): Promise<void> {
+    if (this.disposed) return;
+    await this.holdingWrite.catch(() => {});
+    if (this.disposed) return;
+    await this.positionSync.reconcile();
+    if (this.disposed) return;
+    this.holdings = this.readHoldings();
+    this.publish();
   }
   async editHolding(element) {
     const code = await this.chooseCode(element, '选择基金并设置持仓');

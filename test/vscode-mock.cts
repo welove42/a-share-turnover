@@ -294,6 +294,9 @@ function harness(configuration = {}) {
   const context = {
     extensionUri: 'file:///extension',
     globalState: {
+      setKeysForSync: (keys) => {
+        context.syncedKeys = [...keys];
+      },
       get: (key, fallback) => (store.has(key) ? store.get(key) : fallback),
       update: async (key, value) => {
         store.set(key, value);

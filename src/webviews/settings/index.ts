@@ -45,7 +45,7 @@ interface PageElements {
         row.element.hidden =
           (selected !== 'all' && selected !== id) ||
           (condition && values[condition.key] !== condition.value) ||
-          !`${section.title} ${row.field.label} ${row.field.help} ${(row.field.items || []).map((item) => item.name + ' ' + item.id).join(' ')} ${(row.field.stockGroups || []).map((g) => g.name).join(' ')}`
+          !`${section.title} ${section.searchText || ''} ${row.field.label} ${row.field.help} ${(row.field.items || []).map((item) => item.name + ' ' + item.id).join(' ')} ${(row.field.stockGroups || []).map((g) => g.name).join(' ')}`
             .toLowerCase()
             .includes(search);
         if (!row.element.hidden) count++;
@@ -578,6 +578,11 @@ interface PageElements {
         toolbar = node('div', '', 'actions'),
         info = node('p', group.info || '', 'hint');
       section.append(heading, info);
+      if (group.details?.length) {
+        const details = node('dl', '', 'sync-details');
+        for (const detail of group.details) details.append(node('dt', detail.label), node('dd', detail.text));
+        section.append(details);
+      }
       for (const action of group.actions) {
         const b = node('button', action.label);
         b.type = 'button';
@@ -615,7 +620,13 @@ interface PageElements {
         ai.result.setAttribute('aria-live', 'polite');
         section.append(ai.result);
       }
-      sections.set(group.id, { element: section, rows: sectionRows, title: group.title, info });
+      sections.set(group.id, {
+        element: section,
+        rows: sectionRows,
+        title: group.title,
+        info,
+        searchText: (group.details || []).map((d) => d.label + ' ' + d.text).join(' ')
+      });
       $('sections').append(section);
     }
     for (const b of $('categories').children)

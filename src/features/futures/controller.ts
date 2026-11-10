@@ -32,6 +32,21 @@ class FuturesController extends CommoditiesController {
   override accepts(code: string): boolean {
     return Boolean(entryFor(code)) && !['XAU', 'XAG'].includes(code);
   }
+  override readConfig(): void {
+    // 配置和扩展状态通过不同同步通道到达，读取配置前先导入已到达的品种信息。
+    initializeFuturesCatalog(this.context.globalState.get(CATALOG_KEY, []));
+    super.readConfig();
+  }
+  restoreSyncedCatalog(): void {
+    if (this.disposed) return;
+    const previous = JSON.stringify([this.codes, this.configError]);
+    this.readConfig();
+    if (previous === JSON.stringify([this.codes, this.configError])) return;
+    this.generation++;
+    this.abort?.abort();
+    this.publish(true);
+    void this.refresh(true);
+  }
   override async saveSelection(codes: string[]): Promise<void> {
     if (this.disposed || this.hidden || privateUI.isHidden()) return;
     const selected = this.normalizeSelection(codes);

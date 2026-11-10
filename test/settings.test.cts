@@ -3,9 +3,48 @@ const test = require('node:test'),
   assert = require('node:assert/strict');
 const { harness } = require('./vscode-mock.cts');
 const manifest = require('../package.json');
-function setup(options = {}) {
-  const h = harness(),
-    { SettingsController, validate, GROUPS } = h.load('../dist/features/settings/controller.js');
+test('数据同步页说明范围，默认不开持仓同步，原生入口只反馈打开界面而不是同步成功', async () => {
+  const commands = [];
+  const { h, c, panel, send } = setup({}, (api) => {
+    api.commands = {
+      getCommands: async () => [
+        'workbench.userDataSync.actions.turnOn',
+        'workbench.userDataSync.actions.showSyncedData'
+      ],
+      executeCommand: async (id) => {
+        commands.push(id);
+      }
+    };
+  });
+  try {
+    const group = c.model().find((g) => g.id === 'sync');
+    assert.equal(group.fields[0].value, false);
+    assert.match(group.info, /同一.*账号.*设置.*扩展/);
+    assert.match(JSON.stringify(group.details), /API Key.*AI 对话/);
+    await send({ type: 'save', key: 'sync.fundHoldings', value: true });
+    assert.equal(h.values.get('aShareTurnover.sync.fundHoldings'), true);
+    await send({ type: 'reset', key: 'sync.fundHoldings' });
+    assert.equal(h.values.get('aShareTurnover.sync.fundHoldings'), false);
+    await send({ type: 'action', action: 'sync.enable' });
+    assert.equal(commands.at(-1), 'workbench.userDataSync.actions.turnOn');
+    const result = panel.webview.messages.findLast((m) => m.type === 'result');
+    assert.match(result.note, /已打开/);
+    assert.doesNotMatch(result.note, /同步成功|已同步/);
+    await send({ type: 'action', action: 'sync.showData' });
+    assert.equal(commands.at(-1), 'workbench.userDataSync.actions.showSyncedData');
+    await send({ type: 'action', action: 'workbench.actions.syncData.reset' });
+    assert.equal(panel.webview.messages.at(-1).ok, false);
+    c.setHidden(true);
+    await send({ type: 'action', action: 'sync.enable' });
+    assert.equal(commands.length, 2);
+  } finally {
+    c.dispose();
+  }
+});
+function setup(options = {}, configureApi = (_api) => {}) {
+  const h = harness();
+  configureApi(h.api);
+  const { SettingsController, validate, GROUPS } = h.load('../dist/features/settings/controller.js');
   const c = new SettingsController(h.context, options);
   c.open();
   const panel = h.panels[0];
