@@ -159,7 +159,7 @@ const HELP = {
   'globalIndices.enabled': '启用全球指数栏目。',
   'funds.enabled': '启用净值和持仓收益栏目。',
   'commodities.enabled': '查看黄金、原油、铜银等全球商品参考行情。',
-  'futures.enabled': '独立查看碳酸锂、生猪和纳指100期货，可分别添加、刷新和暂停。',
+  'futures.enabled': '独立查看期货，点击添加可搜索国内主连、月份合约及海外期货；支持刷新和暂停。',
   'news.highlightTitles': '默认开启，标题高亮加粗；关闭后恢复普通输出样式。切换立即生效。',
   'news.refreshIntervalSeconds': '10–300 秒；休市期间也会更新。',
   'risk.enabled': '需同时开启成交额和自选行情。放缩量与上证跌幅同时达到阈值时提示。',

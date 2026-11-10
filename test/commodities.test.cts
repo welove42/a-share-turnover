@@ -226,26 +226,11 @@ test('并发请求合并；改变选择、隐藏及暂停会取消旧请求，�
   }
 });
 
-test('通过加号或名称搜索期货，数字代码直加；展示昨结口径并可删除和重启恢复', async () => {
+test('期货代码直加，展示昨结口径并可删除和重启恢复', async () => {
   const h = setup({ 'aShareTurnover.futures.symbols': [] }, undefined, true);
   let restored;
   try {
     h.c.paused = true;
-    const selections = [
-      ['碳酸锂', 'LC0'],
-      ['shengzhu', 'LH0'],
-      ['纳斯达克100', 'NQ']
-    ];
-    for (const [query, code] of selections) {
-      h.api.window.showQuickPick = async (items) => {
-        assert.equal(items.length, 1);
-        assert.equal(items[0].code, code);
-        assert.ok(items[0].description.includes(`${code === 'NQ' ? 'hf' : 'nf'}_${code}`));
-        assert.match(items[0].detail, code === 'NQ' ? /CFD/ : /主连.*昨结算/);
-        return items;
-      };
-      await h.c.add(query);
-    }
     h.api.window.showQuickPick = async () => assert.fail('合法代码直接添加');
     await h.c.add('nf_LC0,lh0,hf_NQ');
     assert.deepEqual(h.c.codes, ['LC0', 'LH0', 'NQ']);

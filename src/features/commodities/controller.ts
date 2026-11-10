@@ -150,7 +150,7 @@ class CommoditiesController {
     );
     item.id = `${this.section}:${entry.code}`;
     item.contextValue = this.section === 'futures' ? 'aShareFuture' : 'aShareCommodity';
-    item.description = `${entry.unit} · ${error ? '未更新 · ' : this.cached && q ? '缓存 · ' : ''}${q ? `${q.date.slice(5)} ${q.time}` : '待获取'}`;
+    item.description = `${entry.unit ? entry.unit + ' · ' : ''}${error ? '未更新 · ' : this.cached && q ? '缓存 · ' : ''}${q ? `${q.date.slice(5)} ${q.time}` : '待获取'}`;
     item.iconPath = error ? new vscode.ThemeIcon('warning') : trendIcon(this.context.extensionUri, q?.percent);
     item.command = {
       command: `welove42.aShareTurnover.${this.section}.open`,
@@ -172,9 +172,10 @@ class CommoditiesController {
           : []),
         `行情时间：${q ? `${q.date} ${q.time}（北京时间）` : '尚未获取'}`,
         domestic
-          ? '来源：新浪财经国内期货主力连续行情；合约随主力切换，涨跌幅按来源昨结算计算。'
+          ? `来源：新浪财经国内期货${/^[A-Z]+0$/.test(entry.code) ? '主力连续行情；合约随主力切换' : '月份合约行情'}，涨跌幅按来源昨结算计算。`
           : '来源：新浪财经 CFD 参考行情（差价合约报价，非交易所逐笔成交价）；涨跌幅按来源昨收计算。',
-        '公开行情可能延迟或处于休市，请以所示报价时间为准。'
+        '公开行情可能延迟或处于休市，请以所示报价时间为准。',
+        ...(!entry.unit ? ['该品种单位未由搜索接口提供，请以来源页面的报价单位为准。'] : [])
       ].join('\n')
     );
     if (this.paused) tip.appendText('\n自动刷新已暂停。');
@@ -183,7 +184,7 @@ class CommoditiesController {
     tip.appendText('\n点击在浏览器查看该商品图表；右键或行末垃圾桶可移除。');
     item.tooltip = tip;
     item.accessibilityInformation = {
-      label: `${entry.name}，${q?.priceText || '未知'} ${entry.unit}，涨跌幅 ${percentText(q?.percent ?? null)}，${q ? q.date + ' ' + q.time : '待获取'}，${domestic ? '国内期货主力连续行情' : 'CFD参考行情'}`
+      label: `${entry.name}，${q?.priceText || '未知'} ${entry.unit}，涨跌幅 ${percentText(q?.percent ?? null)}，${q ? q.date + ' ' + q.time : '待获取'}，${domestic ? '国内期货行情' : 'CFD参考行情'}`
     };
     return item;
   }

@@ -147,6 +147,8 @@ export interface CommodityEntry {
   unit: string;
   aliases: string;
   market: 'cfd' | 'domesticFutures';
+  /** 中金所金融期货与国内商品期货使用不同的新浪报价字段。 */
+  quoteSchema?: 'financial';
 }
 export interface CommodityQuote {
   code: string;

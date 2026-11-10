@@ -29,6 +29,37 @@ const DEFAULT_COMMODITY_CODES = ['XAU', 'OIL', 'CAD', 'XAG'];
 const DEFAULT_FUTURES_CODES = ['LC0', 'LH0', 'NQ'];
 const isFuturesCode = (code: string): boolean => DEFAULT_FUTURES_CODES.includes(code);
 const CATALOG = new Map(COMMODITIES.map((entry) => [entry.code, entry]));
+/** 搜索结果只注册纯数据，禁止用远端内容拼接任意 URL 或执行脚本。 */
+function registerCommodity(entry: CommodityEntry): CommodityEntry {
+  const domestic = entry?.market === 'domesticFutures';
+  if (
+    !entry ||
+    (!domestic && entry.market !== 'cfd') ||
+    !(domestic ? /^[A-Z]{1,3}(?:0|\d{3,4})$/ : /^[A-Z]{1,8}(?:\d{4})?$/).test(entry.code) ||
+    ![entry.name, entry.unit, entry.aliases].every(
+      (value) => typeof value === 'string' && value.length <= 240 && !/[\x00-\x1f<>]/.test(value)
+    ) ||
+    !entry.name.trim() ||
+    (entry.quoteSchema !== undefined && (entry.quoteSchema !== 'financial' || !domestic))
+  )
+    throw new Error('期货品种信息无效');
+  const existing = CATALOG.get(entry.code);
+  if (existing) {
+    if (existing.market !== entry.market || existing.quoteSchema !== entry.quoteSchema)
+      throw new Error('期货代码对应的市场不一致');
+    return existing;
+  }
+  const saved: CommodityEntry = {
+    code: entry.code,
+    name: entry.name,
+    unit: entry.unit,
+    aliases: entry.aliases,
+    market: entry.market,
+    ...(entry.quoteSchema ? { quoteSchema: entry.quoteSchema } : {})
+  };
+  CATALOG.set(saved.code, saved);
+  return saved;
+}
 function normalizeCommodityCodes(value) {
   const values = Array.isArray(value)
     ? value
@@ -42,7 +73,9 @@ function normalizeCommodityCodes(value) {
         if (typeof raw !== 'string') throw new Error('商品代码必须是字符串');
         const match = /^(?:(HF|NF)_)?([A-Z][A-Z0-9]*)$/.exec(raw.trim().toUpperCase());
         const symbol = match?.[2] || '';
-        const code = symbol === 'LC' || symbol === 'LH' ? symbol + '0' : symbol;
+        const main = CATALOG.get(symbol + '0');
+        const code =
+          main?.market === 'domesticFutures' && (match?.[1] === 'NF' || !CATALOG.has(symbol)) ? symbol + '0' : symbol;
         const entry = CATALOG.get(code);
         // Reject mismatched prefixes instead of silently routing a different market's symbol.
         if (!entry || (match?.[1] && match[1] !== (entry.market === 'domesticFutures' ? 'NF' : 'HF')))
@@ -90,10 +123,13 @@ function parseCommodityQuotes(text: string, selected: string[]): QuoteBatch<Comm
   for (const match of text.matchAll(/(?:^|[\r\n])\s*var\s+hq_str_(hf|nf)_([A-Z][A-Z0-9]*)\s*=\s*"([^"\r\n]*)"\s*;/g)) {
     const code = match[2];
     if (!wanted.has(code)) continue;
-    const domestic = CATALOG.get(code)!.market === 'domesticFutures';
+    const entry = CATALOG.get(code)!;
+    const domestic = entry.market === 'domesticFutures';
+    const financial = entry.quoteSchema === 'financial';
     if (match[1] !== (domestic ? 'nf' : 'hf')) continue;
     const fields = match[3].split(','),
-      price = number(fields[domestic ? 8 : 0]),
+      priceIndex = financial ? 3 : domestic ? 8 : 0,
+      price = number(fields[priceIndex]),
       previousClose = domestic ? null : number(fields[7]);
     // Sina's domestic page uses raw fields 8 (last) and 10 (previous settlement).
     // Field 9 is today's settlement, not the base for the displayed percentage.
@@ -101,30 +137,36 @@ function parseCommodityQuotes(text: string, selected: string[]): QuoteBatch<Comm
       const value = number(raw);
       return value !== null && value > 0 ? value : null;
     };
-    const previousSettlement = domestic ? positive(fields[10]) : null;
+    // 中金所：最新价[3]、昨结算[14]；[13]是昨收，不能拿来计算期货涨跌幅。
+    // 对照新浪页面 moudler20200421.js：该页面先 unshift 代码，页面下标比原始响应多1。
+    const previousSettlement = domestic ? positive(fields[financial ? 14 : 10]) : null;
     const baseline = domestic ? previousSettlement : previousClose;
     const delta = price !== null && baseline !== null ? price - baseline : null;
-    const date = fields[domestic ? 17 : 12];
-    const time = domestic ? (fields[1] || '').replace(/^(\d{2})(\d{2})(\d{2})$/, '$1:$2:$3') : fields[6];
+    const date = fields[financial ? 36 : domestic ? 17 : 12];
+    const time = financial
+      ? fields[37]
+      : domestic
+        ? (fields[1] || '').replace(/^(\d{2})(\d{2})(\d{2})$/, '$1:$2:$3')
+        : fields[6];
     const q = {
       code,
       price,
-      priceText: fields[domestic ? 8 : 0],
+      priceText: fields[priceIndex],
       previousClose,
       delta,
       percent: delta !== null && baseline !== 0 ? (delta / Math.abs(baseline!)) * 100 : null,
-      open: domestic ? positive(fields[2]) : number(fields[8]),
-      high: domestic ? positive(fields[3]) : number(fields[4]),
-      low: domestic ? positive(fields[4]) : number(fields[5]),
+      open: domestic ? positive(fields[financial ? 0 : 2]) : number(fields[8]),
+      high: domestic ? positive(fields[financial ? 1 : 3]) : number(fields[4]),
+      low: domestic ? positive(fields[financial ? 2 : 4]) : number(fields[5]),
       date,
       time,
       timestamp: Date.parse(`${date}T${time}+08:00`) / 1000,
       ...(domestic
         ? {
             previousSettlement,
-            settlement: positive(fields[9]),
-            volume: number(fields[14]),
-            openInterest: number(fields[13])
+            settlement: financial ? null : positive(fields[9]),
+            volume: number(fields[financial ? 4 : 14]),
+            openInterest: number(fields[financial ? 6 : 13])
           }
         : {})
     };
@@ -143,14 +185,27 @@ class CommodityProvider {
   }
   async load(selected: string[], signal?: AbortSignal): Promise<QuoteBatch<CommodityQuote>> {
     const codes = normalizeCommodityCodes(selected);
-    if (!codes.length) return { quotes: new Map(), errors: new Map() };
-    const buffer = await this.request(
-      `https://hq.sinajs.cn/list=${codes.map((code) => `${CATALOG.get(code)!.market === 'domesticFutures' ? 'nf' : 'hf'}_${code}`).join(',')}`,
-      signal,
-      { Referer: 'https://finance.sina.com.cn/' }
-    );
-    if (signal?.aborted) throw new Error('商品行情请求已取消');
-    return parseCommodityQuotes(new TextDecoder('gb18030').decode(buffer), codes);
+    const result: QuoteBatch<CommodityQuote> = { quotes: new Map(), errors: new Map() };
+    // 与新浪页面一致，每批最多30个；单批失败不影响已获取的其他自选。
+    for (let i = 0; i < codes.length; i += 30) {
+      if (signal?.aborted) throw new Error('商品行情请求已取消');
+      const batch = codes.slice(i, i + 30);
+      try {
+        const buffer = await this.request(
+          `https://hq.sinajs.cn/list=${batch.map((code) => `${CATALOG.get(code)!.market === 'domesticFutures' ? 'nf' : 'hf'}_${code}`).join(',')}`,
+          signal,
+          { Referer: 'https://finance.sina.com.cn/' }
+        );
+        if (signal?.aborted) throw new Error('商品行情请求已取消');
+        const parsed = parseCommodityQuotes(new TextDecoder('gb18030').decode(buffer), batch);
+        for (const [code, quote] of parsed.quotes) result.quotes.set(code, quote);
+        for (const [code, error] of parsed.errors) result.errors.set(code, error);
+      } catch (error) {
+        if (signal?.aborted) throw new Error('商品行情请求已取消');
+        for (const code of batch) result.errors.set(code, error.message || '行情获取失败，保留上次报价');
+      }
+    }
+    return result;
   }
 }
 function commodityUrl(code) {
@@ -163,6 +218,7 @@ export {
   DEFAULT_FUTURES_CODES,
   isFuturesCode,
   entryFor,
+  registerCommodity,
   normalizeCommodityCodes,
   isCommodityQuote,
   parseCommodityQuotes,
