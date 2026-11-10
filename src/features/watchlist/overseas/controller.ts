@@ -8,6 +8,7 @@ import { normalizeOverseas } from './symbols';
 import { parseMarketSuggestions } from '../search';
 import { StockGroups, normalizeGroups, UNGROUPED } from '../groups';
 import { UsExtendedProvider, usClock, validExtended } from './extended-session';
+import { quoteVolume } from '../insights-data';
 
 interface OverseasPick extends vscode.QuickPickItem {
   symbol?: string;
@@ -71,6 +72,7 @@ function parseOverseasQuotes(text, market, symbols) {
         percent,
         delta,
         high: n(q[33]),
+        volume: quoteVolume(symbol, q[6]),
         low: n(q[34]),
         timestamp,
         date
@@ -490,6 +492,13 @@ class OverseasWatchlist {
     if (grouping.groups.length) tip.appendText(`\n分组：${grouping.bucket(grouping.idFor(element.symbol)).name}`);
     tip.appendText('\n点击在浏览器查看行情，行尾可删除。');
     item.tooltip = tip;
+    this.parent.insights?.decorate(
+      item,
+      q,
+      element.market,
+      stale,
+      element.market !== 'us' || display.phase === 'regular'
+    );
     return item;
   }
   stale(symbol) {

@@ -20,6 +20,8 @@ import { COLOR_KEYS, stockColors, stockStatusColor } from './colors';
 import { OverseasWatchlist } from './overseas/controller';
 import { normalizeOverseas } from './overseas/symbols';
 import { StockActivity } from './activity';
+import { StockListInsights } from './insights';
+import { WatchlistHistoryProvider } from './insights-data';
 interface StockPick extends vscode.QuickPickItem {
   market?: string;
   symbols?: string[];
@@ -72,6 +74,8 @@ class WatchlistController {
       symbols: any;
     }[];
     sortBy: any;
+    trendDisplay: string;
+    volumeComparison: boolean;
     colors: {
       mode: any;
       up: any;
@@ -88,12 +92,14 @@ class WatchlistController {
   declare activePicker: vscode.QuickPick<StockPick> | null | undefined;
   declare hidden: any;
   readonly activity: StockActivity;
+  readonly insights: StockListInsights;
 
   constructor(
     context,
     {
       provider = new StockProvider(),
       search = new StockSearch(),
+      insightsProvider = new WatchlistHistoryProvider(),
       now = () => new Date(),
       log = (_message: string) => {}
     } = {}
@@ -146,6 +152,7 @@ class WatchlistController {
     this.grouping = new StockGroups(this);
     this.overseas = new OverseasWatchlist(this);
     this.activity = new StockActivity(this);
+    this.insights = new StockListInsights(this, insightsProvider);
     this.phaseKey = '';
     this.listener = vscode.workspace.onDidChangeConfiguration((event) => {
       if (this.writingSettings) return;
@@ -168,6 +175,8 @@ class WatchlistController {
         previous.enabled !== this.config.enabled ||
         symbolsChanged ||
         previous.sortBy !== this.config.sortBy ||
+        previous.trendDisplay !== this.config.trendDisplay ||
+        previous.volumeComparison !== this.config.volumeComparison ||
         JSON.stringify(previous.groups) !== JSON.stringify(this.config.groups) ||
         JSON.stringify(previous.colors) !== JSON.stringify(this.config.colors);
       const reload =
@@ -208,6 +217,8 @@ class WatchlistController {
       error,
       groups: normalizeGroups(this.settings.get('stocks.groups', []), symbols),
       sortBy: this.settings.get('stocks.sortBy', 'manual'),
+      trendDisplay: this.settings.get('stocks.trendDisplay', 'text'),
+      volumeComparison: this.settings.get('stocks.volumeComparison', true),
       colors: stockColors((key, fallback) => this.settings.get(key, fallback)),
       closedDates: c.get<string[]>('additionalClosedDates', [])
     };
@@ -361,6 +372,7 @@ class WatchlistController {
     item.accessibilityInformation = {
       label: `${q?.name || element.symbol} ${element.symbol}，现价 ${q?.priceText || '未知'}，涨跌幅 ${percentText(q?.percent ?? null)}${stale ? '，非实时或缓存' : ''}`
     };
+    this.insights.decorate(item, q, 'a', stale);
     return this.activity.decorate(item, element);
   }
   tooltip(symbol) {
@@ -384,6 +396,7 @@ class WatchlistController {
   publish(structural = false) {
     if (this.disposed) return;
     this.activity?.refresh();
+    this.insights?.reconcile();
     this.tree.title = this.hidden ? '运行和调试' : '自选股（名称 / 代码）';
     if (this.hidden) {
       this.tree.description = undefined;
@@ -537,7 +550,10 @@ class WatchlistController {
     const entries = [[key, value]];
     if (key === 'stocks.symbols' && this.config.groups.length)
       entries.push(['stocks.groups', normalizeGroups(this.config.groups, value)]);
-    return this.writeSettings(entries, key !== 'stocks.groups' && !COLOR_KEYS.has(key));
+    return this.writeSettings(
+      entries,
+      !['stocks.groups', 'stocks.trendDisplay', 'stocks.volumeComparison'].includes(key) && !COLOR_KEYS.has(key)
+    );
   }
   async writeSettings(entries, reload = true) {
     this.writingSettings = (this.writingSettings || 0) + 1;
@@ -909,6 +925,7 @@ class WatchlistController {
     this.abort?.abort();
     this.activePicker?.hide();
     this.activity.dispose();
+    this.insights.dispose();
     this.overseas.dispose();
     this.listener.dispose();
     this.tree.dispose();

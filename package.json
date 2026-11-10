@@ -625,6 +625,26 @@
           ],
           "description": "自选股列表排序；拖拽个股会保存手动顺序并自动切换到手动排序。"
         },
+        "aShareTurnover.stocks.trendDisplay": {
+          "type": "string",
+          "enum": [
+            "text",
+            "off"
+          ],
+          "enumDescriptions": [
+            "显示文字趋势",
+            "不显示趋势"
+          ],
+          "default": "text",
+          "scope": "application",
+          "description": "自选行尾显示5日、10日均线对应的短线偏强、偏弱或整理。只添加描述，不改变原生列表交互。"
+        },
+        "aShareTurnover.stocks.volumeComparison": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "自选行尾显示前7个完整交易日均量对比。大于1.2倍放量，小于0.8倍缩量；A股、港股盘中为按交易进度预估，收盘按实际成交量，美股盘中仅显示累计比例。"
+        },
         "aShareTurnover.charts.defaultMode": {
           "type": "string",
           "enum": [

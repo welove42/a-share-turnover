@@ -38,6 +38,8 @@ const GROUPS = [
       'stocks.usGroups',
       'stocks.statusBarSymbol',
       'stocks.sortBy',
+      'stocks.trendDisplay',
+      'stocks.volumeComparison',
       'charts.defaultMode'
     ]
   },
@@ -105,6 +107,8 @@ const LABELS = {
   'stocks.usSymbols': '美股自选',
   'stocks.statusBarSymbol': '底部显示的股票 / 指数',
   'stocks.sortBy': '自选排序',
+  'stocks.trendDisplay': '列表趋势',
+  'stocks.volumeComparison': '列表七日均量对比',
   'charts.defaultMode': '默认图表',
   'globalIndices.enabled': '显示全球指数',
   'globalIndices.symbols': '关注的指数',
@@ -156,6 +160,9 @@ const HELP = {
   'stocks.enabled': '启用侧栏自选和底部股票行情。',
   'stocks.statusBarSymbol': '可选择上证指数或已添加的 A 股自选。',
   'stocks.sortBy': '选择手动顺序时，可在侧栏拖动个股排序。',
+  'stocks.trendDisplay': '在行尾显示基于5日、10日均线的短线趋势，可关闭；保留原生列表交互。',
+  'stocks.volumeComparison':
+    '对比前7个完整交易日均量：超过1.2倍放量，低于0.8倍缩量。A股、港股盘中按交易进度预估，收盘按实际量；美股盘中仅显示累计比例。',
   'charts.defaultMode': '下次新打开详情标签时使用；已经打开的标签保留当前图表。',
   'globalIndices.enabled': '启用全球指数栏目。',
   'funds.enabled': '启用净值和持仓收益栏目。',
