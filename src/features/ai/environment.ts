@@ -98,11 +98,12 @@ class AnalysisEnvironment {
   async fetch<T>(
     key: string,
     operation: (signal: AbortSignal) => Promise<T>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    ttl = 60000
   ): Promise<CachedResult<T>> {
     const now = this.now().getTime(),
       old = this.cache.get(key);
-    if (old && now >= old.time && now - old.time < 60000)
+    if (old && now >= old.time && now - old.time < ttl)
       return { ok: true, value: old.value as T, fetchedAt: old.time, cached: true };
     const result = await attempt(operation, signal, this.timeoutMs);
     if (signal?.aborted) throw abortError();
@@ -115,7 +116,19 @@ class AnalysisEnvironment {
       return { ok: true, value: old.value as T, cached: true, fetchedAt: old.time, error: '本次获取失败，使用原快照' };
     return result;
   }
-  async load(symbol: string, signal?: AbortSignal, name?: string) {
+  async load(
+    symbol: string,
+    signal?: AbortSignal,
+    name?: string,
+    sections = ['market', 'global', 'commodities', 'sectors', 'news']
+  ) {
+    const wants = (section: string) => sections.includes(section);
+    const skipped = Promise.resolve({
+      ok: false as const,
+      error: '本次未查询',
+      fetchedAt: undefined as number | undefined,
+      cached: false
+    });
     const now = this.now(),
       ms = now.getTime();
     // A fixed cross-market baseline is always collected, regardless of what the
@@ -128,22 +141,28 @@ class AnalysisEnvironment {
       localSnapshot &&
       !this.market?.state?.error &&
       ms - Date.parse(localSnapshot.fetchedAt) >= 0 &&
-      ms - Date.parse(localSnapshot.fetchedAt) < 60000;
+      ms - Date.parse(localSnapshot.fetchedAt) < 20000;
     const [market, world, commodities, sectors, news] = await Promise.all([
-      recentSnapshot
-        ? Promise.resolve({ ok: true as const, value: localSnapshot, cached: true, error: undefined })
-        : this.fetch('market', (s) => this.marketProvider.load(s), signal),
-      this.fetch(
-        'world:' + ids.join(','),
-        (s) =>
-          this.globalProvider.load(ids, s, (q) => {
-            if (!s.aborted) receivedWorld.set(q.id, q);
-          }),
-        signal
-      ),
-      this.fetch('commodities', (s) => this.commodityProvider.load(COMMODITY_CODES, s), signal),
-      attempt((s) => this.sectorProvider.load(symbol, s), signal, this.timeoutMs),
-      this.fetch('news', (s) => this.newsProvider.load(s), signal)
+      !wants('market')
+        ? skipped
+        : recentSnapshot
+          ? Promise.resolve({ ok: true as const, value: localSnapshot, cached: true, error: undefined })
+          : this.fetch('market', (s) => this.marketProvider.load(s), signal, 20000),
+      !wants('global')
+        ? skipped
+        : this.fetch(
+            'world:' + ids.join(','),
+            (s) =>
+              this.globalProvider.load(ids, s, (q) => {
+                if (!s.aborted) receivedWorld.set(q.id, q);
+              }),
+            signal
+          ),
+      !wants('commodities')
+        ? skipped
+        : this.fetch('commodities', (s) => this.commodityProvider.load(COMMODITY_CODES, s), signal),
+      !wants('sectors') ? skipped : attempt((s) => this.sectorProvider.load(symbol, s), signal, this.timeoutMs),
+      !wants('news') ? skipped : this.fetch('news', (s) => this.newsProvider.load(s), signal, 120000)
     ]);
     if (signal?.aborted) throw abortError();
     const notes: string[] = [],
@@ -158,12 +177,10 @@ class AnalysisEnvironment {
         cached: !market.ok || Boolean(market.cached),
         fetchFailed: fallback,
         sameTime: pick(snapshot.sameTime, ['percent', 'current', 'previous', 'delta']),
-        markets: (snapshot.markets || [])
-          .slice(0, 2)
-          .map((m) => ({
-            ...pick(m, ['symbol', 'amount', 'percent', 'timestamp']),
-            breadth: pick(m.breadth, ['advancing', 'declining', 'unchanged'])
-          }))
+        markets: (snapshot.markets || []).slice(0, 2).map((m) => ({
+          ...pick(m, ['symbol', 'amount', 'percent', 'timestamp']),
+          breadth: pick(m.breadth, ['advancing', 'declining', 'unchanged'])
+        }))
       };
       const temperature = marketTemperature(
         snapshot,

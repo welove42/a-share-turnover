@@ -283,9 +283,7 @@ class AnalysisContext {
       { label: '商品', detail: `${data.commodities?.quotes?.length || 0}/4` },
       { label: '快讯', detail: `${data.news?.items?.length || 0} 条` }
     ];
-    data.notes.push(
-      '以上为采集时的行情快照；报价日期或日K日期早于今天时，不代表今天实时走势。追问沿用此快照，重新分析才更新数据。'
-    );
+    data.notes.push('以上为各项标注时间的行情；获取时间不代表报价时间，旧报价和未完成周期不能当作当前已确认走势。');
     return data;
   }
   async enrichHistory(

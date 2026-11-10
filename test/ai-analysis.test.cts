@@ -31,7 +31,7 @@ async function setup(options = {}, configured = true) {
   await c.ready;
   return { h, c, panel, requests };
 }
-test('未配置不请求，配置后点击即分析；追问沿用快照，重分析才刷新', async () => {
+test('未配置不请求，配置后点击即分析；行情追问自动刷新，历史仍可继续', async () => {
   let collects = 0;
   const { h, c, panel, requests } = await setup(
     {
@@ -57,13 +57,13 @@ test('未配置不请求，配置后点击即分析；追问沿用快照，重�
     assert.match(requests[0].messages[0].content, /必要术语当场翻译/);
     assert.doesNotMatch(requests[0].messages[0].content, /600至900/);
     await c.analyze('有什么风险？');
-    assert.equal(collects, 1);
-    assert.equal(requests[1].messages.length, 4);
+    assert.equal(collects, 2);
+    assert.equal(requests[1].messages.length, 5);
     assert.equal(requests[1].messages.at(-1).content, '有什么风险？');
     assert.equal(requests[1].messages[0].content, requests[0].messages[0].content);
     assert.match(requests[1].messages[0].content, /追问直接回答当前问题/);
     await c.analyze();
-    assert.equal(collects, 2);
+    assert.equal(collects, 3);
     assert.equal(c.history.length, 2);
     assert.doesNotMatch(JSON.stringify(panel.webview.messages), /never-send-to-webview/);
   } finally {
@@ -95,7 +95,9 @@ test('多周期实际请求只携带一次摘要，追问和历史保留完整�
     assert.deepEqual(sent.timeframes, snapshot.timeframes);
     assert.equal(sent.daily, undefined);
     assert.equal(sent.coverage, undefined);
-    assert.deepEqual(c.snapshot, snapshot);
+    const { agent, ...stored } = c.snapshot;
+    assert.deepEqual(stored, snapshot);
+    assert.equal(agent.report.requests, 1);
     assert.match(requests[0].messages[0].content, /周期冲突/);
     assert.match(requests[0].messages[0].content, /旧对话没有多周期/);
     await c.analyze('为什么周线和日线不同？');
@@ -339,17 +341,17 @@ test('首次分析中断后可继续追问，带原行情与明确标记的部�
     assert.equal(requests.length, 2);
     const sent = requests[1].messages;
     assert.equal(sent[1].content, requests[0].messages[1].content);
-    assert.equal(sent[2].role, 'assistant');
-    assert.match(sent[2].content, /已收到的分析.*尚未/);
-    assert.match(sent[2].content, /传输中断.*不完整/);
+    const partial = sent.find((m) => m.role === 'assistant');
+    assert.match(partial.content, /已收到的分析.*尚未/);
+    assert.match(partial.content, /传输中断.*不完整/);
     assert.match(sent[0].content, /补全未完成/);
-    assert.equal(sent[3].content, '继续');
+    assert.equal(sent.at(-1).content, '继续');
     assert.equal(c.messages.at(-1).state, 'complete');
     assert.equal(c.interruptedHistory, null);
     assert.equal(c.history.length, 4);
     assert.equal(panel.webview.messages.at(-1).interrupted, false);
     await c.analyze('补充风险');
-    assert.equal(requests[2].messages[3].content, '继续');
+    assert.ok(requests[2].messages.some((m) => m.role === 'user' && m.content === '继续'));
   } finally {
     c.dispose();
   }
@@ -384,13 +386,13 @@ test('手动停止保留可追问的部分内容，迟到回复不污染下一�
     assert.equal(c.messages.at(-1).content, '完成补全');
     assert.equal(c.messages.at(-1).state, 'complete');
     assert.doesNotMatch(JSON.stringify(c.history), /迟到内容/);
-    assert.match(requests[1].messages[2].content, /停止前的正文/);
+    assert.match(requests[1].messages.find((m) => m.role === 'assistant').content, /停止前的正文/);
   } finally {
     c.dispose();
   }
 });
 
-test('首次无正文失败不能追问；恢复请求再失败仍保留上下文，轮数限制不被绕过', async () => {
+test('首次无正文失败不能追问；恢复失败仍保留上下文，长对话压缩后继续', async () => {
   let partial = false;
   const requests = [];
   const { c, panel } = await setup({
@@ -416,8 +418,9 @@ test('首次无正文失败不能追问；恢复请求再失败仍保留上下�
     for (let i = 0; i < 9; i++) await c.analyze('继续');
     const count = requests.length;
     await c.analyze('继续');
-    assert.equal(requests.length, count);
-    assert.match(c.status, /10 轮/);
+    assert.equal(requests.length, count + 1);
+    assert.ok(requests.at(-1).messages.length <= 10);
+    assert.doesNotMatch(c.status, /10 轮/);
   } finally {
     c.dispose();
   }
@@ -439,7 +442,7 @@ test('新分析和切股隔离上下文，老板键隐藏内容并在恢复时�
     partial = false;
     await c.analyze();
     assert.equal(c.interruptedHistory, null);
-    assert.equal(requests.at(-1).messages.length, 2);
+    assert.equal(requests.at(-1).messages.length, 3);
     assert.equal(panel.webview.messages.at(-1).canAsk, false);
     partial = true;
     await c.analyze();
@@ -492,7 +495,7 @@ test('重启后恢复正文、快照、中断上下文及草稿，不自动请�
       config: () => configuration,
       request: async (args) => {
         calls++;
-        assert.match(args.messages[2].content, /收到部分回复.*\n\n.*不完整/);
+        assert.match(args.messages.find((m) => m.role === 'assistant').content, /收到部分回复.*\n\n.*不完整/);
         return '恢复后补全';
       }
     });
@@ -505,7 +508,7 @@ test('重启后恢复正文、快照、中断上下文及草稿，不自动请�
     assert.equal(view.webview.messages.at(-1).draft, '继续补全风险');
     assert.equal(view.webview.messages.at(-1).canAsk, true);
     assert.deepEqual(restored.snapshot, sample());
-    assert.match(restored.status, /当时行情/);
+    assert.match(restored.status, /自动检查行情/);
     await restored.open('sh600519');
     assert.equal(calls, 0);
     await restored.analyze('继续');
@@ -666,9 +669,9 @@ test('首次请求和后续追问确实包含完整背景，配置未完成时�
     const content = requests[0].messages[1].content;
     assert.deepEqual(JSON.parse(content.slice(content.indexOf('\n') + 1)), snapshot);
     await c.analyze('结合外围有什么建议？');
-    assert.equal(collects, 1);
+    assert.equal(collects, 2);
     assert.equal(requests[1].messages[1].content, content);
-    assert.equal(requests[0].maxTokens, 3000);
+    assert.ok(requests[0].maxTokens <= 3000);
   } finally {
     c.dispose();
   }

@@ -174,7 +174,7 @@ interface PageElements {
           ? '先完成一次分析；已收到部分回复时也可继续追问。'
           : m.interrupted
             ? '上次回复未完成，可输入“继续”补全，也可直接追问。'
-            : '追问沿用本次行情；重新分析获取新数据。';
+            : '追问会自动检查行情并按需补查；解释或续写沿用对话。';
     $('welcome').hidden = m.messages.length > 0;
     $('snapshot').hidden = !m.snapshot;
     $('context-summary').textContent = (m.snapshot?.coverage || [])
@@ -222,6 +222,7 @@ interface PageElements {
           m.busy &&
           (item.state === 'pending' || (!item.state && i === m.messages.length - 1));
         const phases = {
+          querying: '正在补查行情与相关数据…',
           connecting: '正在连接 AI 服务…',
           waiting: '等待模型回复…',
           reasoning: '模型正在思考，尚未返回正文…',

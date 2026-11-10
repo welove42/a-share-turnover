@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.21",
+  "version": "1.24.0",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.21.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.24.0.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -942,7 +942,7 @@
           "default": "",
           "scope": "application",
           "maxLength": 2048,
-          "description": "AI 分析的 Chat Completions 兼容 API 地址，例如 https://api.deepseek.com 或 https://api.example.com/v1。Key 请在插件设置页安全保存。"
+          "description": "AI 分析的兼容 API 地址，例如 https://api.deepseek.com 或 https://api.openai.com/v1，也支持完整 /responses 地址。支持工具调用时自动按需补查，不支持时使用兼容分析。Key 请在插件设置页安全保存。"
         },
         "aShareTurnover.ai.model": {
           "type": "string",

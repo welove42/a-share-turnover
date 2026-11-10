@@ -131,7 +131,8 @@ const HELP = {
     '统一调整 A 股、港股、美股列表的涨跌箭头，以及底部股票行情。跟随主题时不使用红绿区分，保留箭头和涨跌数字。',
   'stocks.upColor': '点击色块选色，或输入六位 HEX 颜色。修改后立即生效。',
   'stocks.downColor': '可与上涨使用相同颜色，选中个股后仍保留自定义颜色。',
-  'ai.baseUrl': '填写兼容 Chat Completions 的地址，例如 https://api.deepseek.com 或 https://api.openai.com/v1。',
+  'ai.baseUrl':
+    '填写兼容 API 地址，例如 https://api.deepseek.com 或 https://api.openai.com/v1，也支持完整 /responses 地址。',
   'ai.model': '获取列表后选择，也可输入自定义模型 ID；选择后保存。是否支持分析可用“测试连接”确认。',
   'turnoverAlerts.enabled':
     '交易期间超过阈值时弹窗，当天放量、缩量各提醒一次，重启不重复；老板键、暂停或关闭成交额时不提醒。',

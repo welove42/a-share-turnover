@@ -19,6 +19,7 @@ import { trendIcon } from './trend-icon';
 import { COLOR_KEYS, stockColors, stockStatusColor } from './colors';
 import { OverseasWatchlist } from './overseas/controller';
 import { normalizeOverseas } from './overseas/symbols';
+import { StockActivity } from './activity';
 interface StockPick extends vscode.QuickPickItem {
   market?: string;
   symbols?: string[];
@@ -86,6 +87,7 @@ class WatchlistController {
   declare writingSettings: any;
   declare activePicker: vscode.QuickPick<StockPick> | null | undefined;
   declare hidden: any;
+  readonly activity: StockActivity;
 
   constructor(
     context,
@@ -143,6 +145,7 @@ class WatchlistController {
     this.config = this.readConfig();
     this.grouping = new StockGroups(this);
     this.overseas = new OverseasWatchlist(this);
+    this.activity = new StockActivity(this);
     this.phaseKey = '';
     this.listener = vscode.workspace.onDidChangeConfiguration((event) => {
       if (this.writingSettings) return;
@@ -316,8 +319,10 @@ class WatchlistController {
       return item;
     }
     if (this.hidden) return new vscode.TreeItem('', vscode.TreeItemCollapsibleState.None);
-    if (element.kind === 'overseasGroup' || element.kind === 'overseasStock') return this.overseas.getTreeItem(element);
-    if (element.kind === 'stockGroup') return this.groupingFor(element.market).treeItem(element);
+    if (element.kind === 'overseasGroup' || element.kind === 'overseasStock')
+      return this.activity.decorate(this.overseas.getTreeItem(element), element);
+    if (element.kind === 'stockGroup')
+      return this.activity.decorate(this.groupingFor(element.market).treeItem(element), element);
     if (element.kind === 'group') {
       const item = new vscode.TreeItem(
         `A Stock (${this.config.symbols.length})`,
@@ -327,7 +332,7 @@ class WatchlistController {
       item.contextValue = 'aShareRoot';
       item.description = '涨跌幅 · 现价 · 名称';
       item.tooltip = '点击新建分组可分类管理 A 股；拖动个股可排序或移动分组。拖到 A 股标题会移至未分组末尾。';
-      return item;
+      return this.activity.decorate(item, element);
     }
     const q = this.quotes.get(element.symbol),
       stale = this.stale(element.symbol);
@@ -356,7 +361,7 @@ class WatchlistController {
     item.accessibilityInformation = {
       label: `${q?.name || element.symbol} ${element.symbol}，现价 ${q?.priceText || '未知'}，涨跌幅 ${percentText(q?.percent ?? null)}${stale ? '，非实时或缓存' : ''}`
     };
-    return item;
+    return this.activity.decorate(item, element);
   }
   tooltip(symbol) {
     const q = this.quotes.get(symbol),
@@ -378,6 +383,7 @@ class WatchlistController {
   }
   publish(structural = false) {
     if (this.disposed) return;
+    this.activity?.refresh();
     this.tree.title = this.hidden ? '运行和调试' : '自选股（名称 / 代码）';
     if (this.hidden) {
       this.tree.description = undefined;
@@ -902,6 +908,7 @@ class WatchlistController {
     clearInterval(this.timer);
     this.abort?.abort();
     this.activePicker?.hide();
+    this.activity.dispose();
     this.overseas.dispose();
     this.listener.dispose();
     this.tree.dispose();

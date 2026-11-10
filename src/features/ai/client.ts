@@ -1,5 +1,15 @@
-import type { ChatMessage, CompletionOptions, RequestPhase, DiagnosticCounters, AiDiagnostic } from './types';
+import type {
+  AgentMessage,
+  CompletionOptions,
+  TurnOptions,
+  TurnResult,
+  ToolCall,
+  RequestPhase,
+  DiagnosticCounters,
+  AiDiagnostic
+} from './types';
 import { createHash } from 'node:crypto';
+import { capabilityError, CapabilityError, responsesBody, validateCalls } from './protocol';
 
 function endpoint(value: unknown): string {
   let url;
@@ -14,7 +24,8 @@ function endpoint(value: unknown): string {
   if (url.username || url.password || url.search || url.hash)
     throw new Error('API 地址不能包含账号、密码、查询参数或锚点。');
   url.pathname = url.pathname.replace(/\/+$/, '');
-  if (!url.pathname.endsWith('/chat/completions')) url.pathname += '/chat/completions';
+  if (!url.pathname.endsWith('/chat/completions') && !url.pathname.endsWith('/responses'))
+    url.pathname += '/chat/completions';
   return url.href;
 }
 function secretId(url: string): string {
@@ -36,10 +47,10 @@ function httpError(status: number): Error {
   };
   return new Error(`AI 接口 HTTP ${status}：${hints[status] || '服务暂不可用，请稍后重试'}`);
 }
-function requestBody(address: string, model: string, messages: ChatMessage[], maxTokens: number) {
+function requestBody(address: string, model: string, messages: AgentMessage[], maxTokens: number) {
   const body: {
     model: string;
-    messages: ChatMessage[];
+    messages: AgentMessage[];
     stream: true;
     max_completion_tokens?: number;
     max_tokens?: number;
@@ -52,7 +63,13 @@ function requestBody(address: string, model: string, messages: ChatMessage[], ma
   return body;
 }
 // No redirects, provider error bodies, reasoning text or request headers enter the UI/logs.
-async function complete({
+async function complete(options: CompletionOptions): Promise<string> {
+  const result = await completeTurn(options);
+  if (result.calls.length) throw new Error('AI 返回了工具调用，当前分析需要文本回复；请更换文本对话模型。');
+  return result.content;
+}
+
+async function completeTurn({
   url,
   model,
   key,
@@ -63,10 +80,15 @@ async function complete({
   onDiagnostic = () => {},
   timeoutMs = 180000,
   idleTimeoutMs = 90000,
-  maxTokens = 2200
-}: CompletionOptions): Promise<string> {
-  const address = endpoint(url),
+  maxTokens = 2200,
+  tools,
+  protocol = endpoint(url).endsWith('/responses') ? 'responses' : 'chat'
+}: TurnOptions): Promise<TurnResult> {
+  const address =
+      protocol === 'responses' ? endpoint(url).replace(/\/chat\/completions$/, '/responses') : endpoint(url),
     name = modelName(model);
+  const calls = new Map<number, ToolCall>();
+  let responseItems: Record<string, any>[] | undefined;
   if (typeof key !== 'string' || !key.trim() || key.length > 4096 || /[\r\n]/.test(key))
     throw new Error('请先为当前 API 地址设置有效的 API Key。');
   const control = new AbortController();
@@ -132,7 +154,7 @@ async function complete({
           : 'AI 已达到生成长度上限，但尚未返回正文；推理可能已耗尽额度，请改用较快的模型或缩小问题范围。'
       );
     if (reason === 'content_filter') throw new Error('AI 服务未完成此次回答，请调整问题后重试。');
-    if (reason === 'tool_calls' || reason === 'function_call')
+    if ((reason === 'tool_calls' || reason === 'function_call') && !tools?.length)
       throw new Error('AI 返回了工具调用，当前分析需要文本回复；请更换文本对话模型。');
   };
   try {
@@ -147,13 +169,33 @@ async function complete({
         Accept: 'text/event-stream, application/json',
         Authorization: 'Bearer ' + key.trim()
       },
-      body: JSON.stringify(requestBody(address, name, messages, maxTokens))
+      body: JSON.stringify(
+        protocol === 'responses'
+          ? responsesBody({ url, model: name, key, messages, tools, maxTokens })
+          : {
+              ...requestBody(
+                address,
+                name,
+                messages.map(({ responseItems: _, ...m }) => m),
+                maxTokens
+              ),
+              // Agent 的上限包含推理，不能像旧文本模式一样额外增加隐形额度。
+              ...(tools
+                ? new URL(address).hostname === 'api.openai.com'
+                  ? { max_completion_tokens: maxTokens }
+                  : {}
+                : {}),
+              ...(tools?.length ? { tools, tool_choice: 'auto' } : {})
+            }
+      )
     });
     stats.httpStatus = response.status;
     stats.headersMs = elapsed();
     if (!response.ok) {
       stats.outcome = 'http_error';
-      await response.body?.cancel();
+      const unsupported = tools ? await capabilityError(response) : undefined;
+      if (unsupported) throw unsupported;
+      if (!response.body?.locked) void response.body?.cancel().catch(() => {});
       throw httpError(response.status);
     }
     if (!response.body) throw new Error('AI 接口返回了空响应。');
@@ -165,6 +207,62 @@ async function complete({
     let buffer = '',
       done = false,
       finished = false;
+    const usage = (item: any) => {
+      if (!item) return;
+      for (const [key, aliases] of Object.entries({
+        prompt_tokens: ['prompt_tokens', 'input_tokens'],
+        completion_tokens: ['completion_tokens', 'output_tokens'],
+        total_tokens: ['total_tokens']
+      })) {
+        const value = aliases.map((k) => item[k]).find((v) => Number.isFinite(v) && v >= 0);
+        if (value !== undefined) (stats.usage ||= {})[key] = value;
+      }
+    };
+    const readCalls = (items: any[], full = false) => {
+      for (const [i, part] of items.entries()) {
+        const index = full ? i : part.index;
+        if (!Number.isInteger(index) || index < 0 || index >= 32) throw new Error('AI 工具调用索引无效。');
+        const old = calls.get(index) || { id: '', type: 'function' as const, function: { name: '', arguments: '' } };
+        calls.set(
+          index,
+          full
+            ? part
+            : {
+                id: part.id || old.id,
+                type: part.type || old.type,
+                function: {
+                  name: old.function.name + (part.function?.name || ''),
+                  arguments: old.function.arguments + (part.function?.arguments || '')
+                }
+              }
+        );
+        if (calls.get(index)!.function.arguments.length > 16000) throw new Error('AI 工具参数过长。');
+      }
+      if (items.length) activity();
+    };
+    const responseDone = (item: any) => {
+      if (item.status !== 'completed') {
+        stats.finishReason = item.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'other';
+        checkFinish(stats.finishReason);
+        throw new Error('AI Responses 请求未完成，已保留收到的内容。');
+      }
+      const output = Array.isArray(item.output) ? item.output : [];
+      readCalls(
+        output
+          .filter((o) => o.type === 'function_call')
+          .map((o) => ({
+            id: o.call_id,
+            type: 'function',
+            function: { name: o.name, arguments: o.arguments }
+          })),
+        true
+      );
+      responseItems = output.filter((o) => ['function_call', 'message', 'reasoning'].includes(o.type));
+      if (!text) for (const o of output) for (const c of o.content || []) if (c.type === 'output_text') append(c.text);
+      usage(item.usage);
+      stats.finishReason = calls.size ? 'tool_calls' : 'stop';
+      finished = done = true;
+    };
     const event = (frame: string) => {
       const payload = frame
         .split('\n')
@@ -189,8 +287,20 @@ async function complete({
         throw new Error('AI 流式响应格式不正确，请确认接口兼容 Chat Completions。');
       }
       if (item.error) throw new Error('AI 服务返回错误，请检查模型、权限或余额。');
-      if (typeof item.type === 'string' && item.type.startsWith('response.'))
-        throw new Error('AI 接口返回了 Responses 格式；请填写兼容 Chat Completions 的接口地址。');
+      if (typeof item.type === 'string' && item.type.startsWith('response.')) {
+        if (protocol !== 'responses')
+          throw new Error('AI 接口返回了 Responses 格式；请填写兼容 Chat Completions 的接口地址。');
+        if (item.type === 'response.output_text.delta') {
+          activity();
+          append(item.delta);
+        } else if (item.type === 'response.completed') responseDone(item.response);
+        else if (['response.failed', 'response.incomplete'].includes(item.type)) responseDone(item.response || {});
+        else if (/reasoning|function_call_arguments|output_item/.test(item.type)) {
+          activity();
+          if (!text) progress('reasoning');
+        }
+        return;
+      }
       const choice = item.choices?.[0];
       if (choice?.finish_reason)
         stats.finishReason = ['stop', 'length', 'content_filter', 'tool_calls', 'function_call'].includes(
@@ -198,10 +308,8 @@ async function complete({
         )
           ? choice.finish_reason
           : 'other';
-      if (item.usage)
-        for (const key of ['prompt_tokens', 'completion_tokens', 'total_tokens']) {
-          if (Number.isFinite(item.usage[key])) (stats.usage ||= {})[key] = item.usage[key];
-        }
+      usage(item.usage);
+      if (choice?.delta?.tool_calls) readCalls(choice.delta.tool_calls);
       if (
         !choice?.delta?.content &&
         !choice?.delta?.reasoning_content &&
@@ -248,6 +356,7 @@ async function complete({
     buffer += decoder.decode();
     if (stream) {
       if (!done && buffer.trim()) event(buffer.replace(/\r\n/g, '\n'));
+      if (protocol === 'responses' && !finished) throw new Error('AI Responses 响应中断，未收到完成标记。');
       if (!done && !finished) {
         stats.outcome = 'stream_ended_without_finish';
         throw new Error(
@@ -264,6 +373,9 @@ async function complete({
         throw new Error('AI 接口返回了非 JSON 内容，请检查 API 地址。');
       }
       if (item.error) throw new Error('AI 服务返回错误，请检查模型、权限或余额。');
+      if (protocol === 'responses') responseDone(item);
+      if (item.choices?.[0]?.message?.tool_calls) readCalls(item.choices[0].message.tool_calls, true);
+      usage(item.usage);
       reasoning = Boolean(item.choices?.[0]?.message?.reasoning_content || item.choices?.[0]?.message?.reasoning);
       append(item.choices?.[0]?.message?.content);
       const reason = item.choices?.[0]?.finish_reason;
@@ -273,14 +385,15 @@ async function complete({
           : 'other';
       checkFinish(item.choices?.[0]?.finish_reason);
     }
-    if (!text.trim())
+    if (calls.size && !finished && stream) throw new Error('AI 工具调用传输中断，未执行查询。');
+    if (!text.trim() && !calls.size)
       throw new Error(
         reasoning
           ? 'AI 只返回了推理过程，没有分析正文；请重试或更换模型。'
           : 'AI 未返回分析内容；请检查模型是否支持文本对话。'
       );
     stats.outcome = 'complete';
-    return text;
+    return { content: text, calls: validateCalls([...calls.values()]), responseItems, usage: stats.usage };
   } catch (error) {
     if (signal?.aborted) stats.outcome = 'cancelled';
     else if (timedOut) stats.outcome = 'total_timeout';
@@ -318,7 +431,7 @@ async function complete({
           ? `AI 回复中途停了，连续 ${Math.ceil(idleTimeoutMs / 1000)} 秒没有新内容；已保留收到的内容，可继续追问或重新分析。`
           : `AI 接口连续 ${Math.ceil(idleTimeoutMs / 1000)} 秒未返回有效内容，尚未收到正文；请检查网络或稍后重试。`
       );
-    if (/^(AI |请填写|请先|API 地址)/.test(error.message)) throw error;
+    if (error instanceof CapabilityError || /^(AI |请填写|请先|API 地址)/.test(error.message)) throw error;
     throw new Error(
       text.trim()
         ? 'AI 回复连接中断，回复尚未完整；已保留收到的内容，可继续追问或重新分析。'
@@ -372,4 +485,4 @@ function diagnosticText(d: AiDiagnostic | undefined): string {
     lines.push('判断：达到插件的总等待时限；若最后正文接近结束时间，说明内容仍在生成。可发送“继续”补全。');
   return lines.join('\n');
 }
-export { endpoint, modelName, secretId, complete, requestBody, diagnosticText };
+export { endpoint, modelName, secretId, complete, completeTurn, requestBody, diagnosticText };

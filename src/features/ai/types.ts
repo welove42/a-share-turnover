@@ -3,7 +3,7 @@ export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
-export type RequestPhase = 'connecting' | 'waiting' | 'reasoning' | 'answering';
+export type RequestPhase = 'connecting' | 'waiting' | 'reasoning' | 'answering' | 'querying';
 export interface AnalysisMessage extends ChatMessage {
   state?: 'pending' | 'complete' | 'error' | 'stopped';
   phase?: RequestPhase;
@@ -63,6 +63,44 @@ export interface CompletionOptions {
   maxTokens?: number;
 }
 
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+export interface ToolDefinition {
+  type: 'function';
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+/** 工具消息只在单次 Agent 执行中保留，不混入用户可见历史。 */
+export interface AgentMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+  responseItems?: Record<string, any>[];
+}
+export interface TurnOptions extends Omit<CompletionOptions, 'messages'> {
+  messages: AgentMessage[];
+  tools?: ToolDefinition[];
+  protocol?: 'chat' | 'responses';
+}
+export interface TurnResult {
+  content: string;
+  calls: ToolCall[];
+  responseItems?: Record<string, any>[];
+  usage?: Record<string, number>;
+}
+export interface AgentReport {
+  requests: number;
+  queries: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimated: boolean;
+  mode: 'agent' | 'compatible';
+  limited: boolean;
+}
+
 /** 不同数据源字段会随市场变化；仅此边界保留开放字段，消息及状态本身是固定合同。 */
 export type PublicMarketSection = Record<string, any>;
 export interface AnalysisSnapshot {
@@ -81,6 +119,7 @@ export interface AnalysisSnapshot {
   news?: PublicMarketSection;
   relativeStrength?: { unit: string; comparisons: Array<{ name: string; difference: number }>; note: string };
   coverage?: Array<{ label: string; detail: string }>;
+  agent?: { report: AgentReport; evidence: unknown[] };
 }
 export interface AiConversation {
   id: string;

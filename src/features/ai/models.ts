@@ -4,7 +4,7 @@ class ModelListError extends Error {}
 /** 与已配置的 Chat Completions 同一前缀，不猜测其他主机或转发 Key。 */
 export function modelsEndpoint(value: unknown): string {
   const url = new URL(endpoint(value));
-  url.pathname = url.pathname.replace(/\/chat\/completions$/, '/models');
+  url.pathname = url.pathname.replace(/\/(?:chat\/completions|responses)$/, '/models');
   return url.href;
 }
 

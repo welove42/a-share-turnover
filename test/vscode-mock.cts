@@ -179,11 +179,23 @@ function harness(configuration = {}) {
       },
       createTreeView: (id, options) => {
         const emitter = new EventEmitter();
+        const selection = new EventEmitter();
         const tree = {
           ...options,
           visible: false,
           onDidChangeVisibility: emitter.event,
           visibility: emitter,
+          onDidChangeSelection: selection.event,
+          selectionEvents: selection,
+          selection: [],
+          reveals: [],
+          async reveal(element, options) {
+            this.reveals.push({ element, options });
+            if (options?.select) {
+              this.selection = [element];
+              selection.fire({ selection: [element] });
+            }
+          },
           dispose() {}
         };
         trees.set(id, tree);

@@ -12,7 +12,7 @@ function normalize(value: any): AiConversation | null {
   if (!Number.isFinite(value.updatedAt) || !Array.isArray(value.messages) || !Array.isArray(value.history)) return null;
   const messages = (list: AnalysisMessage[]): AnalysisMessage[] =>
     list
-      .slice(-40)
+      .slice(-120)
       .filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string')
       .map((m) => ({
         role: m.role,
@@ -32,7 +32,7 @@ function normalize(value: any): AiConversation | null {
       }));
   const history = (list: ChatMessage[]): ChatMessage[] =>
     list
-      .slice(-20)
+      .slice(-120)
       .filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string')
       .map((m) => ({ role: m.role, content: m.content.slice(0, 100000) }));
   const record: AiConversation = {

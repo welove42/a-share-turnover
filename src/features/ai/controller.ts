@@ -14,13 +14,16 @@ import type {
 import * as vscode from 'vscode';
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as privateUI from '../../core/ui/privacy';
-import { endpoint, modelName, secretId, complete, diagnosticText } from './client';
+import { endpoint, modelName, secretId, complete, completeTurn, diagnosticText } from './client';
 import { AnalysisContext, SYSTEM } from './context';
 import { AiHistoryStore } from './history';
 import { listModels } from './models';
-import { analysisPayload } from './technical-context';
+import { conversationContext, snapshotText } from './agent-context';
+import { AnalysisAgent, type TurnRequest } from './agent';
+import { AgentData, applyEvidence, explanationOnly, type QueryData } from './agent-data';
 const VIEW = 'welove42.aShareTurnover.aiAnalysis';
 const PHASES = {
+  querying: '正在补查行情与相关数据…',
   connecting: '正在连接 AI 服务…',
   waiting: '等待模型回复…',
   reasoning: '模型正在思考，尚未返回正文…',
@@ -36,6 +39,9 @@ function readConfig(): AiConfiguration {
   return { url: read('ai.baseUrl'), model: read('ai.model') };
 }
 class AiAnalysisController {
+  private agent = new AnalysisAgent();
+  private agentData: QueryData;
+  private requestTurn: TurnRequest;
   declare collect: (target: string, signal?: AbortSignal) => Promise<AnalysisSnapshot>;
   declare messages: AnalysisMessage[];
   declare history: ChatMessage[];
@@ -102,6 +108,8 @@ class AiAnalysisController {
       news,
       collect,
       request = complete,
+      requestTurn,
+      agentData,
       requestModels = listModels,
       config = readConfig,
       openSettings = () => {}
@@ -110,6 +118,28 @@ class AiAnalysisController {
     Object.assign(this, { context, stocks, request, requestModels, config, openSettings });
     const source = collect ? null : new AnalysisContext({ stocks, market, globals, commodities, news });
     this.collect = collect || ((target, signal) => source!.collect(target, signal));
+    this.agentData =
+      agentData ||
+      (source
+        ? new AgentData(source)
+        : {
+            prepare: (target, previous, question, signal) =>
+              question && previous && explanationOnly(question)
+                ? Promise.resolve(previous)
+                : this.collect(target, signal),
+            execute: async () => ({ missing: true, reason: '该数据适配器未提供补查工具' })
+          });
+    this.requestTurn =
+      requestTurn ||
+      (request === complete
+        ? completeTurn
+        : async (options) => ({
+            content: await request({
+              ...options,
+              messages: options.messages.filter((m) => m.role !== 'tool') as ChatMessage[]
+            }),
+            calls: []
+          }));
     this.messages = [];
     this.history = [];
     this.interruptedHistory = null;
@@ -296,7 +326,7 @@ class AiAnalysisController {
     this.interruptedHistory = record.interruptedHistory;
     this.snapshot = record.snapshot;
     this.draft = record.draft || '';
-    this.status = '已恢复历史对话 · 追问沿用当时行情，重新分析获取新数据';
+    this.status = '已恢复历史对话 · 追问时自动检查行情并按需补查';
   }
   async selectTarget(symbol: string) {
     const intent = (this.selectionIntent = (this.selectionIntent || 0) + 1);
@@ -375,6 +405,11 @@ class AiAnalysisController {
     this.output.clear();
     this.output.appendLine('仅记录请求耗时、数量和结束原因，不包含 API Key、提示词、回复正文或思考内容。');
     this.output.appendLine(diagnosticText(this.lastDiagnostic || this.context.globalState.get('ai.lastDiagnostic.v1')));
+    const report = this.context.globalState.get<import('./types').AgentReport>('ai.agentDiagnostic.v1');
+    if (report)
+      this.output.appendLine(
+        `本轮${report.mode === 'agent' ? 'Agent' : '兼容分析'}：模型请求 ${report.requests} 次，工具查询 ${report.queries} 次；${report.estimated ? '含估算（未报告输出按请求上限预扣）' : '服务商报告'}输入 ${report.inputTokens} / 输出 ${report.outputTokens} tokens。`
+      );
     this.output.show(true);
   }
   name() {
@@ -469,11 +504,6 @@ class AiAnalysisController {
     const followup = typeof question === 'string';
     const followupHistory = this.interruptedHistory || this.history;
     if (followup && (!question.trim() || question.length > 2000 || !followupHistory.length)) return;
-    if (followup && followupHistory.length >= 20) {
-      this.status = '本次对话已达 10 轮，请重新分析后继续。';
-      this.publish();
-      return;
-    }
     if (!this.target) return this.choose();
     this.stop();
     const generation = this.generation,
@@ -507,13 +537,13 @@ class AiAnalysisController {
         this.createdAt = Date.now();
         this.status = '正在汇总月线、周线、日线、分时及市场环境…';
         this.publish();
-        const snapshot = await this.collect(this.target, abort.signal);
-        if (!active()) return;
-        this.snapshot = snapshot;
       }
-      const content = followup
-        ? question.trim()
-        : '分析以下多周期行情快照：\n' + JSON.stringify(analysisPayload(this.snapshot));
+      this.status = followup ? '正在检查行情时效…' : '正在汇总多周期与市场环境…';
+      this.publish();
+      const snapshot = await this.agentData.prepare(this.target, this.snapshot, question, abort.signal);
+      if (!active()) return;
+      this.snapshot = snapshot;
+      const content = followup ? question.trim() : `请综合分析 ${this.name()}，结合各周期和市场背景。`;
       const prior = followup ? followupHistory : [];
       const user: ChatMessage = { role: 'user', content };
       const answer: AnalysisMessage = {
@@ -527,8 +557,12 @@ class AiAnalysisController {
         followup && this.interruptedHistory
           ? '\n上一轮回复传输中断，已收到的部分已标记。请结合原始行情快照和用户的新问题继续回答；如用户要求继续，补全未完成的分析，不要将截断内容当成完整结论。'
           : '';
-      const requestMessages: ChatMessage[] = [{ role: 'system', content: SYSTEM + recovery }, ...prior, user];
-      if (JSON.stringify(requestMessages).length > 100000) throw new Error('本次对话过长，请重新分析后继续。');
+      const requestMessages = [
+        { role: 'system' as const, content: SYSTEM + recovery },
+        { role: 'user' as const, content: '当前行情快照（逐项核对数据时间）：\n' + snapshotText(this.snapshot) },
+        ...conversationContext(prior),
+        user
+      ];
       this.messages.push({ role: 'user', content: followup ? question.trim() : `分析 ${this.name()}` }, answer);
       this.pendingAnswer = answer;
       this.pendingTurn = { prior, user, answer };
@@ -543,7 +577,27 @@ class AiAnalysisController {
         answer.elapsedSeconds = Math.floor((Date.now() - started) / 1000);
         this.publish();
       }, 1000);
-      const result = await this.request({
+      const result = await this.agent.run({
+        request: this.requestTurn,
+        data: this.agentData,
+        target: this.target,
+        onStatus: (text) => {
+          if (active()) {
+            this.status = text;
+            answer.phase = 'querying';
+            this.publish();
+          }
+        },
+        onResetText: () => {
+          if (active()) {
+            answer.content = '';
+            this.publish();
+          }
+        },
+        onReport: (report) => {
+          if (this.lastRequestId === requestId && !this.disposed)
+            void Promise.resolve(this.context.globalState.update('ai.agentDiagnostic.v1', report)).catch(() => {});
+        },
         url,
         model,
         key,
@@ -573,14 +627,18 @@ class AiAnalysisController {
         }
       });
       if (!active()) return;
-      if (typeof result !== 'string' || !result.trim()) throw new Error('AI 未返回分析正文，请重试或更换模型。');
+      if (!result.content?.trim()) throw new Error('AI 未返回分析正文，请重试或更换模型。');
       answer.state = 'complete';
       this.pendingAnswer = null;
       this.pendingTurn = null;
       this.interruptedHistory = null;
-      answer.content = result;
-      this.history = [...prior, user, { role: 'assistant', content: result }];
-      this.status = '分析完成 · 追问沿用本次行情，重新分析获取新数据';
+      answer.content = result.content;
+      this.snapshot = {
+        ...applyEvidence(this.snapshot!, this.target, result.evidence),
+        agent: { report: result.report, evidence: result.evidence }
+      };
+      this.history = [...prior, user, { role: 'assistant', content: result.content }].slice(-120) as ChatMessage[];
+      this.status = `${result.report.mode === 'compatible' ? '兼容分析完成（接口不支持工具调用）' : '分析完成'} · 追问会检查行情并按需补查`;
     } catch (error) {
       if (active()) {
         this.status = error.message || '分析失败，请重试。';

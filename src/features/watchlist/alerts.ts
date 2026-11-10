@@ -94,6 +94,16 @@ class StockAlerts {
       const key = `${q.symbol}:${q.percent > 0 ? 'up' : 'down'}`;
       const threshold = Math.abs(q.percent) > 7 && this.sent[key] !== q.date;
       if (threshold) this.sent[key] = q.date;
+      if (events.length || threshold)
+        this.stocks.activity?.record(
+          q,
+          market,
+          events.length
+            ? events.map((event) => LIMIT_EVENT_LABELS[event].replace(/（.*）/, '')).join('、')
+            : q.percent > 0
+              ? '涨幅超过7%'
+              : '跌幅超过7%'
+        );
       // 同一报价触发限价事件和7%阈值时合并成一条，避免连续弹两个同义提醒。
       if (events.length)
         alerts.push(

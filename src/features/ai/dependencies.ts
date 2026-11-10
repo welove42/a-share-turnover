@@ -16,6 +16,8 @@ import type { complete } from './client';
 import type { listModels } from './models';
 import type { AiHistoryProvider } from './history-data';
 import type { AiConfiguration, AnalysisSnapshot } from './types';
+import type { QueryData } from './agent-data';
+import type { TurnRequest } from './agent';
 
 /** 使用已有行情控制器作为缓存来源；不把它们的持仓或密钥传给 AI。 */
 export interface ContextSources {
@@ -44,6 +46,8 @@ export interface EnvironmentDependencies extends ContextSources {
 export interface AnalysisDependencies extends ContextSources {
   collect?: (target: string, signal?: AbortSignal) => Promise<AnalysisSnapshot>;
   request?: typeof complete;
+  requestTurn?: TurnRequest;
+  agentData?: QueryData;
   requestModels?: typeof listModels;
   config?: () => AiConfiguration;
   openSettings?: () => void;
