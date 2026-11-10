@@ -35,6 +35,10 @@ export interface StockQuote {
   high: NullableNumber;
   low: NullableNumber;
   turnoverRate: NullableNumber;
+  /** 当日报价直接给出的限价；缺失或不设涨跌幅限制时不按百分比推算。 */
+  limitUp?: NullableNumber;
+  limitDown?: NullableNumber;
+  securityType?: string;
   etf?: EtfQuote;
   source?: string;
   cached?: boolean;

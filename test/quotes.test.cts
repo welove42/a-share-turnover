@@ -18,10 +18,13 @@ function quoteLine(
     percent = '0.89',
     delta = '0.10',
     stamp = '20261026103030',
-    turnover = '0'
+    turnover = '0',
+    limitUp = '',
+    limitDown = '',
+    securityType = ''
   } = {}
 ) {
-  const q = Array(40).fill('0');
+  const q = Array(62).fill('0');
   q[1] = name;
   q[2] = symbol.slice(2);
   q[3] = price;
@@ -32,6 +35,9 @@ function quoteLine(
   q[33] = '11.40';
   q[34] = '11.00';
   q[38] = turnover;
+  q[47] = limitUp;
+  q[48] = limitDown;
+  q[61] = securityType;
   return `v_${symbol}="${q.join('~')}";`;
 }
 test('识别六位股票、ETF、北交所、显式指数与代码后缀', () => {
@@ -76,6 +82,22 @@ test('个股换手率按原始报价解析，缺失、负数和指数不伪造�
 test('批量自选去重，限制100个防止超长请求', () => {
   assert.equal(normalizeSymbols(['600519', '600519']).length, 1);
   assert.throws(() => normalizeSymbols(Array.from({ length: 101 }, (_, i) => `sh${String(600000 + i)}`)), /100/);
+});
+
+test('当日涨跌停价及证券类型按腾讯原字段读取，缺失或不设限不套用百分比', () => {
+  const symbol = 'sh600105';
+  const result = parseQuotes(quoteLine(symbol, { limitUp: '12.32', limitDown: '10.08', securityType: 'GP-A' }), [
+    symbol
+  ]).quotes.get(symbol);
+  assert.equal(result.limitUp, 12.32);
+  assert.equal(result.limitDown, 10.08);
+  assert.equal(result.securityType, 'GP-A');
+  for (const value of ['', '-', 'bad', '-1', '0']) {
+    const quote = parseQuotes(quoteLine(symbol, { limitUp: value, limitDown: value }), [symbol]).quotes.get(symbol);
+    assert.ok(quote.limitUp === null || quote.limitUp <= 0);
+    assert.ok(quote.limitDown === null || quote.limitDown <= 0);
+    assert.equal(quote.price, 11.3);
+  }
 });
 test('解析名称、涨跌幅、现价及ETF三位小数，不执行返回脚本', () => {
   const text =

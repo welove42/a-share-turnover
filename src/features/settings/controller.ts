@@ -62,6 +62,7 @@ const GROUPS = [
     title: '涨跌提醒与风险',
     keys: [
       'stockAlerts.mode',
+      'stockAlerts.limitEvents',
       'turnoverAlerts.enabled',
       'turnoverAlerts.percent',
       'turnoverAlerts.colorize',
@@ -84,7 +85,8 @@ const LABELS = {
   'stocks.downColor': '下跌颜色',
   'ai.baseUrl': 'API 地址',
   'ai.model': '模型名称',
-  'stockAlerts.mode': '自选股涨跌超过 7% 时提醒',
+  'stockAlerts.mode': '自选股异常波动提醒',
+  'stockAlerts.limitEvents': 'A 股涨跌停与炸板提醒',
   'turnoverAlerts.enabled': '大盘放量 / 缩量弹窗提醒',
   'turnoverAlerts.percent': '放量 / 缩量提醒阈值（%）',
   'turnoverAlerts.colorize': '超过阈值时成交额变色',
@@ -138,7 +140,9 @@ const HELP = {
   'turnoverAlerts.colorize':
     '状态栏成交额一栏超过阈值后放量红色、缩量绿色；回到阈值内恢复常规颜色设置。此项可独立于弹窗开关使用。',
   'stockAlerts.mode':
-    '覆盖 A 股、港股和美股。当天同一股票同一方向只提醒一次；“一直提醒”在老板键开启时仍监测并弹窗。关闭自选行情或暂停刷新时不监测。',
+    'A股、港股和美股涨跌超过7%时提醒；下方可启用A股涨跌停事件。每只股票每类每天最多一次。“一直提醒”在老板键开启时仍弹窗；关闭自选行情或暂停时不监测。',
+  'stockAlerts.limitEvents':
+    '仅A股个股：涨停、跌停、涨停炸板、跌停炸板。按当日实际限价判断；开板须先观测到涨跌停，再离开限价。每类每天最多一次，重启不重复；关闭不影响7%提醒。',
   enabled: '底部显示沪深 A 股成交额。市场温度和风险提示需要此项。',
   comparisonMode: '昨日指上一个交易日。',
   showDifferenceAmount: '在百分比后显示增加或减少了多少亿元。',

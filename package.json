@@ -2,7 +2,7 @@
   "name": "a-share-turnover",
   "displayName": "牛来盯盘",
   "description": "沪深市场温度、成交额同刻对比、自选股、基金收益、全球指数与黄金原油铜银等商品参考行情，以及行情图表和财经快讯。",
-  "version": "1.23.16",
+  "version": "1.23.17",
   "publisher": "welove42",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -47,7 +47,7 @@
   "scripts": {
     "test": "npm run build && node --test test/*.test.cts",
     "smoke": "node scripts/smoke.cts",
-    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.16.vsix",
+    "package": "vsce package --no-dependencies --out ../a-share-turnover-1.23.17.vsix",
     "smoke:stocks": "node scripts/smoke-stocks.cts",
     "smoke:news": "node scripts/smoke-news.cts",
     "smoke:charts": "node scripts/smoke-charts.cts",
@@ -425,7 +425,13 @@
           ],
           "default": "whenVisible",
           "scope": "application",
-          "description": "自选个股涨幅超过7%或跌幅超过7%时弹窗提醒，覆盖A股、港股和美股。当天同一股票同一方向只提醒一次。一直提醒模式在老板键开启时仍监测；关闭自选行情或暂停刷新时停止监测。"
+          "description": "控制自选股异常波动弹窗。A股、港股、美股涨跌超过7%时提醒；A股个股还可提醒涨停、跌停及炸板。每只股票每类事件当天最多提醒一次，重启不重复。一直提醒模式在老板键开启时仍监测；关闭自选行情或暂停刷新时停止监测。"
+        },
+        "aShareTurnover.stockAlerts.limitEvents": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "提醒A股个股涨停、跌停、涨停炸板和跌停炸板，受异常波动提醒模式控制。使用行情源当日限价；开板需要先观测到涨跌停再离开。每只股票每类每天最多一次，不对ETF、指数、港美股或无有效限价的股票触发；关闭后仍保留7%涨跌提醒。"
         },
         "aShareTurnover.enabled": {
           "type": "boolean",

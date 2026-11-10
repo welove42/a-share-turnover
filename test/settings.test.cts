@@ -122,6 +122,36 @@ test('大盘成交额提醒在设置页调整开关和阈值，拒绝无效值�
     c.dispose();
   }
 });
+
+test('A股涨跌停事件在设置页默认开启，可独立关闭并恢复，不改变提醒模式', async () => {
+  const { h, c, panel, send } = setup();
+  try {
+    const fields = c.model().find((g) => g.id === 'risk').fields;
+    const field = fields.find((f) => f.key === 'stockAlerts.limitEvents');
+    assert.equal(field.value, true);
+    await send({ type: 'save', key: field.key, value: false });
+    assert.equal(h.values.get('aShareTurnover.stockAlerts.limitEvents'), false);
+    assert.equal(
+      c
+        .model()
+        .find((g) => g.id === 'risk')
+        .fields.find((f) => f.key === 'stockAlerts.mode').value,
+      'whenVisible'
+    );
+    await send({ type: 'save', key: field.key, value: 'yes' });
+    assert.equal(panel.webview.messages.at(-1).ok, false);
+    await send({ type: 'reset', key: field.key });
+    assert.equal(
+      c
+        .model()
+        .find((g) => g.id === 'risk')
+        .fields.find((f) => f.key === field.key).value,
+      true
+    );
+  } finally {
+    c.dispose();
+  }
+});
 test('无效配置、未授权命令和过期页面不能写入；老板键关闭设置页', async () => {
   const { h, c, panel, send } = setup();
   try {

@@ -84,6 +84,9 @@ function parseQuotes(text: string, symbols: string[]): QuoteBatch {
         high: signedNumber(q[33]),
         low: signedNumber(q[34]),
         turnoverRate: supportsTurnover(symbol) ? turnoverRate(q[38]) : null,
+        limitUp: signedNumber(q[47]),
+        limitDown: signedNumber(q[48]),
+        securityType: q[61] || '',
         ...(q[61] === 'ETF' ? { etf: parseEtfQuote(symbol, q) } : {})
       });
     } catch (error) {
