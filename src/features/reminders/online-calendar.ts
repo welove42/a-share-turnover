@@ -235,12 +235,6 @@ class OnlineCalendar {
   tradingUrl(year) {
     return `https://marketsopen.today/api/v1/trading-days?markets=SSE%2CHKEX&start=${year}-01-01&end=${year}-12-31`;
   }
-  economicUrl(from, to) {
-    return `https://www.financecalendar.com/wp-json/fc/v1/calendar?series=fomc%2Cus-nfp%2Cus-cpi&from=${from}&to=${to}&limit=500`;
-  }
-  earlyUrl(from, to) {
-    return `https://www.financecalendar.com/wp-json/fc/v1/calendar?category=market-holidays&country=US&from=${from}&to=${to}&limit=500`;
-  }
 }
 export {
   MARKETS,

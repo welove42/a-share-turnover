@@ -43,9 +43,9 @@
 
 ### 财经大事日历
 
-事件在 VS Code 运行期间默认于开始前 24 小时及 30 分钟内各提醒一次；启动较晚时只提醒当前最临近的阶段，同一事件不会因重启重复提醒。设置中可关闭提醒、关闭整个栏目，或按类型选择关注的事件。日历显示北京时间，点击事件可打开官方来源。
+事件在 VS Code 运行期间默认于开始前 24 小时及 30 分钟内各提醒一次；启动较晚时只提醒当前最临近的阶段，同一事件不会因重启重复提醒。设置中可关闭提醒、关闭整个栏目，或按类型选择关注的事件。日历显示北京时间，点击事件可打开对应来源。
 
-插件每天自动从 [Finance Calendar](https://www.financecalendar.com/) 获取美联储议息、非农、CPI 和美股提前收盘，从 [Markets Open](https://marketsopen.today/) 获取 A 股、港股和美股休市及港股半日市；同时尝试美联储和美国劳工统计局官方日历。Markets Open 数据采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)，界面保留来源、数据版本和获取时间。免费接口可能限流或变更，并不保证持续可用。
+议息使用[美联储官方日历](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)，美股提前收盘使用 [NYSE 官方公告](https://www.nyse.com/trade/hours-calendars)；CPI、非农尝试 BLS 官方日历，并用 [Forex Factory 免费周日历](https://nfs.faireconomy.media/ff_calendar_thisweek.json)补充本周安排。休市和港股半日市继续使用 [Markets Open](https://marketsopen.today/)（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)）。日历每天更新，失败后冷却并使用缓存；界面保留来源和原更新时间，远期未覆盖日期明确标注快照。
 
 每项数据按年份或时间窗口独立回退：接口未覆盖、网络出错或数据校验失败时，保留上次成功的缓存或使用内置官方公告快照，并标明来源与时间。A 股、港股内置快照覆盖 2026 年，美股覆盖 2026–2028 年；在线源尚未收录的未来年份不会凭空生成。股指交割按中金所规则及已验证的 A 股交易日历推算，临时调整以交易所公告为准。扩展不能在 VS Code 未运行时推送通知，美国事件根据美东夏令时自动转换北京时间。
 

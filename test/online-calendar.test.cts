@@ -115,6 +115,12 @@ test('财经数据仅接受准确时间、完整窗口及 NYSE 提前收盘', ()
 });
 test('在线、缓存和内置按类型与年份回退，更新失败不抹去可用结果', async () => {
   const h = harness();
+  const from = '2026-10-01',
+    to = '2026-12-29';
+  await h.context.globalState.update('eventOnlineCache', {
+    [`economic:${from}:${to}`]: { text: economic(from, to), at: Date.parse('2026-10-29T06:00:00Z') },
+    [`early:${from}:${to}`]: { text: early(from, to), at: Date.parse('2026-10-29T06:00:00Z') }
+  });
   h.api.window.showInformationMessage = async () => {};
   const { ReminderController } = h.load('../dist/features/reminders/controller.js');
   let fail = false;
@@ -131,11 +137,11 @@ test('在线、缓存和内置按类型与年份回退，更新失败不抹去�
       if (year === 2027) throw new Error('未来年份未覆盖');
       return days(year);
     }
-    const from = u.searchParams.get('from'),
-      to = u.searchParams.get('to');
-    return u.searchParams.has('series') ? economic(from, to) : early(from, to);
+    assert.ok(!url.includes('financecalendar.com'), '旧认证接口不能继续请求');
+    throw new Error('周日历离线');
   });
-  const now = () => new Date('2026-10-30T06:00:00Z');
+  let time = Date.parse('2026-10-30T06:00:00Z');
+  const now = () => new Date(time);
   const c = new ReminderController(h.context, {
     online,
     now,
@@ -148,14 +154,14 @@ test('在线、缓存和内置按类型与年份回退，更新失败不抹去�
   await c.refresh();
   let all = c.events();
   assert.ok(
-    all.some((x) => x.type === 'cpi' && x.date === '2026-11-10' && /Finance Calendar.*接口/.test(x.provenance))
+    all.some((x) => x.type === 'cpi' && x.date === '2026-11-10' && /Finance Calendar.*缓存/.test(x.provenance))
   );
   assert.ok(
     all.some((x) => x.type === 'nonfarm' && x.date === '2026-12-04' && /Finance Calendar/.test(x.provenance)),
     JSON.stringify(all.filter((x) => x.type === 'nonfarm').slice(0, 5))
   );
   assert.ok(
-    all.some((x) => x.name === '港股半日市' && x.date === '2026-12-24' && /Markets Open.*接口/.test(x.provenance))
+    all.some((x) => x.name === '港股半日市' && x.date === '2026-12-24' && /Markets Open.*已核实/.test(x.provenance))
   );
   assert.ok(all.some((x) => x.type === 'delivery' && x.date === '2026-11-23' && /推算/.test(x.provenance)));
   assert.ok(all.some((x) => x.type === 'usHoliday' && x.date === '2027-01-01' && /快照/.test(x.provenance)));
@@ -163,9 +169,11 @@ test('在线、缓存和内置按类型与年份回退，更新失败不抹去�
     all.some((x) => x.type === 'usHoliday' && x.date === '2026-11-27' && /Finance Calendar/.test(x.provenance))
   );
   fail = true;
+  time += 86400000;
   await c.refresh();
   all = c.events();
-  assert.ok(all.some((x) => x.type === 'cpi' && /缓存.*更新失败/.test(x.provenance)));
+  assert.ok(all.some((x) => x.type === 'cpi' && /缓存/.test(x.provenance)));
+  assert.ok(!c.item.tooltip.includes('HTTP'));
   const restarted = new ReminderController(h.context, {
     online,
     now,

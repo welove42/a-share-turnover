@@ -1,6 +1,6 @@
 # 牛来盯盘：使用手册
 
-本手册对应 **1.24.0**：在 VS Code 中查看行情、图表和财经提醒，也可通过自己配置的 API 进行 AI 分析。最新变化和历史版本见 [更新记录](../CHANGELOG.md)，面向扩展市场的介绍见 [展示文案](../README.marketplace.md)。
+本手册对应 **1.24.1**：在 VS Code 中查看行情、图表和财经提醒，也可通过自己配置的 API 进行 AI 分析。最新变化和历史版本见 [更新记录](../CHANGELOG.md)，面向扩展市场的介绍见 [展示文案](../README.marketplace.md)。
 
 ## 数据同步
 
@@ -332,7 +332,7 @@ Key 保存在 VS Code 安全存储，不写入 `settings.json`。接口更换后
 
 ## 财经大事提醒
 
-底部日历显示最近的大事及倒计时；悬停查看近期事件、来源、获取时间和覆盖提示，点击打开完整日历。选择其中的事件可打开对应官方页面；选择“刷新日历”可立即重新获取。命令面板也可搜索 **财经大事：查看提醒日历**。
+底部日历显示最近的大事及倒计时；悬停查看近期事件、来源、获取时间和覆盖提示，点击打开完整日历。选择事件可打开对应来源；选择“刷新日历”更新数据，成功请求至少间隔15分钟，失败来源遵守冷却时间。命令面板也可搜索 **财经大事：查看提醒日历**。
 
 | 类型 | 提醒内容 |
 | --- | --- |
@@ -366,7 +366,9 @@ Key 保存在 VS Code 安全存储，不写入 `settings.json`。接口更换后
 
 不想编辑代码也可以按 `Ctrl+,` 打开设置，搜索 `aShareTurnover.reminders.categories`，在列表中删除不需要的类型。搜索 `aShareTurnover.reminders.notifications` 并取消勾选，可保留状态栏和日历但关闭弹窗；搜索 `aShareTurnover.reminders.enabled` 并取消勾选，可关闭整个大事功能。
 
-议息、非农、CPI 和美股提前收盘从 [Finance Calendar](https://www.financecalendar.com/) 获取；A 股、港股、美股休市和港股半日市从 [Markets Open](https://marketsopen.today/) 获取。扩展也尝试美联储和美国劳工统计局官方日历。Markets Open 数据按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 使用，界面保留来源和数据版本。在线日历每日尝试更新；网络失败、数据格式异常或年份未覆盖时，分别使用上次成功缓存或内置官方公告快照，显示来源和获取时间。
+议息使用[美联储官方日历](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)，美股提前收盘使用 [NYSE 官方公告](https://www.nyse.com/trade/hours-calendars)。非农和 CPI 尝试 BLS 官方日历，并用 [Forex Factory 免费周日历](https://nfs.faireconomy.media/ff_calendar_thisweek.json)补充近期安排；周日历仅覆盖本周，不能当作全年日历。A 股、港股、美股休市和港股半日市继续使用 [Markets Open](https://marketsopen.today/)（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)）。Finance Calendar 不再发起请求，旧缓存仅离线兜底。
+
+正常每天更新；网络失败冷却6小时，401/403/404或年份未覆盖冷却7天，重启也保留冷却状态。失败时保留缓存原来的获取时间，不伪装成刚更新。悬浮窗显示来源、更新时间和缓存/快照状态，详细错误集中在“数据来源与覆盖”。未覆盖的远期日期以标注的缓存、官方公告快照为准，免费源不能保证始终可用。
 
 内置 A 股、港股休市快照覆盖2026年，美股覆盖2026–2028年；在线源未收录的未来年份不会自动推测。股指期货交割使用中金所规则和已验证的 A 股交易日历推算，具体合约及临时调整以中金所公告为准。休市日历与行情刷新时段是两个独立功能，日历不会自动修改港美股的行情轮询时段。
 

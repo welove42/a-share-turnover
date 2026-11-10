@@ -18,9 +18,9 @@ import {
   makeTradingEvents,
   parseEconomic,
   parseUsEarly,
-  ranges,
   OnlineCalendar
 } from './online-calendar';
+import { WEEKLY_URL, NYSE_URL, parseWeekly, parseNyseEarly, calendarSource } from './public-calendar';
 const TYPES = Object.keys(LABELS);
 const DYNAMIC = ['fed', 'nonfarm', 'cpi'];
 
@@ -48,6 +48,7 @@ class ReminderController {
   declare visible: boolean | undefined;
   declare lastTooltip: any;
   declare hidden: any;
+  private attempts: Record<string, { next: number; at?: number; error?: string }> = {};
 
   constructor(
     context,
@@ -61,6 +62,16 @@ class ReminderController {
     this.inflight = null;
     this.records = new Map();
     this.onlineErrors = new Map();
+    const attempts = context.globalState.get('eventCalendarAttemptsV2', {}) || {};
+    for (const [key, value] of Object.entries<any>(attempts)) {
+      if (!Number.isFinite(value?.next) || value.next > now().getTime() + 8 * DAY) continue;
+      this.attempts[key] = {
+        next: value.next,
+        at: Number.isFinite(value.at) ? value.at : undefined,
+        error: typeof value.error === 'string' ? value.error.slice(0, 160) : undefined
+      };
+      if (value.error && value.next > now().getTime()) this.onlineErrors.set(key, value.error);
+    }
     this.sources = {};
     this.notified = context.globalState.get('eventNotifications', {}) || {};
     this.item = vscode.window.createStatusBarItem('aShareTurnover.reminders', vscode.StatusBarAlignment.Right, 97);
@@ -105,6 +116,24 @@ class ReminderController {
         /* 损坏或格式变化的缓存不参与展示 */
       }
     }
+    for (const type of DYNAMIC) {
+      const c = cached[type],
+        key = `official:${type}`;
+      if (
+        !c ||
+        !Number.isFinite(c.at) ||
+        c.at > now().getTime() + 300000 ||
+        typeof c.html !== 'string' ||
+        c.html.length > 2000000
+      )
+        continue;
+      try {
+        if (!this.records.has(key))
+          this.records.set(key, { parsed: this.parseOnline(key, c.html), at: c.at, cached: true });
+      } catch {
+        /* 旧版官方缓存仅在能重新解析时迁移。 */
+      }
+    }
     this.listener = vscode.workspace.onDidChangeConfiguration((e) => {
       if (
         !e.affectsConfiguration('aShareTurnover.reminders') &&
@@ -131,10 +160,19 @@ class ReminderController {
     let entries = [...this.fixedEvents];
     for (const type of DYNAMIC)
       for (const e of this.sources[type].events) entries.push({ ...e, provenance: this.sources[type].status });
-    const records = [...this.records.entries()].sort((a, b) => a[1].at - b[1].at);
+    // 旧第三方缓存只兜底；近期周日历优于旧缓存，刚核实的官方日历最后覆盖。
+    const priority = ([key, r]) =>
+      key.startsWith('official:')
+        ? !this.onlineErrors.has(key) && this.now().getTime() - r.at < DAY
+          ? 3
+          : 1
+        : key === 'weekly'
+          ? 2
+          : 0;
+    const records = [...this.records.entries()].sort((a, b) => priority(a) - priority(b) || a[1].at - b[1].at);
     for (const [key, r] of records) {
       const parts = key.split(':'),
-        mark = `${key.startsWith('market:') || key.startsWith('days:') ? 'Markets Open（marketsopen.today，CC BY 4.0）' : 'Finance Calendar（financecalendar.com）'}${r.cached ? '缓存' : '接口'} · 北京时间 ${beijing(r.at)}${r.parsed.version ? ' · 数据版本 ' + r.parsed.version : ''}${this.onlineErrors.has(key) ? ' · 更新失败：' + this.onlineErrors.get(key) : ''}`;
+        mark = `${calendarSource(key)} · ${r.cached || this.onlineErrors.has(key) ? '缓存' : '已核实'} · 更新 ${beijing(r.at)} 北京${r.parsed.version ? ' · 版本 ' + r.parsed.version : ''}`;
       if (parts[0] === 'market') {
         const type = MARKETS[parts[1]],
           year = parts[2];
@@ -153,6 +191,23 @@ class ReminderController {
           ...half.map((e) => ({ ...e, provenance: mark })),
           ...deliveries.map((e) => ({ ...e, provenance: mark + '；按规则推算' }))
         );
+      } else if (parts[0] === 'official' || key === 'weekly') {
+        if (key === 'official:nyse')
+          entries = entries.filter(
+            (e) => !(e.type === 'usHoliday' && /提前收盘/.test(e.name) && r.parsed.years.includes(e.date.slice(0, 4)))
+          );
+        for (const e of r.parsed.events) {
+          entries = entries.filter(
+            (old) =>
+              !(
+                old.type === e.type &&
+                (e.type === 'usHoliday'
+                  ? old.date === e.date && /提前收盘/.test(old.name)
+                  : old.date.slice(0, 7) === e.date.slice(0, 7))
+              )
+          );
+          entries.push({ ...e, provenance: mark });
+        }
       } else if (parts[0] === 'economic') {
         for (const type of DYNAMIC)
           for (const e of r.parsed[type]) {
@@ -171,6 +226,10 @@ class ReminderController {
     return entries.filter((e) => this.categories.includes(e.type)).sort((a, b) => a.when - b.when);
   }
   parseOnline(key, text) {
+    if (key === 'weekly') return parseWeekly(text);
+    if (key === 'official:nyse') return parseNyseEarly(text);
+    if (key === 'official:fed') return { events: parseFed(text) };
+    if (key === 'official:cpi' || key === 'official:nonfarm') return { events: parseBls(text, key.split(':')[1]) };
     const p = key.split(':');
     if (p[0] === 'market' && MARKETS[p[1]] && /^20\d\d$/.test(p[2]) && p.length === 3)
       return parseHolidays(text, p[1], Number(p[2]));
@@ -184,8 +243,7 @@ class ReminderController {
       return p[0] === 'economic' ? parseEconomic(text, p[1], p[2]) : { events: parseUsEarly(text, p[1], p[2]) };
     throw new Error('日历缓存键无效');
   }
-  async refreshOnline(signal) {
-    for (const record of this.records.values()) record.cached = true;
+  async refreshOnline(signal, force = false) {
     const year = Number(beijing(this.now().getTime()).slice(0, 4)),
       jobs: { key: string; url: string }[] = [];
     for (const y of [year, year + 1]) {
@@ -193,24 +251,38 @@ class ReminderController {
         jobs.push({ key: `market:${market}:${y}`, url: this.online.marketUrl(market, y) });
       jobs.push({ key: `days:${y}`, url: this.online.tradingUrl(y) });
     }
-    for (const [from, to] of ranges(this.now().getTime())) {
-      jobs.push({ key: `economic:${from}:${to}`, url: this.online.economicUrl(from, to) });
-      jobs.push({ key: `early:${from}:${to}`, url: this.online.earlyUrl(from, to) });
-    }
+    // Finance Calendar 已要求认证，停用其网络请求；保留旧记录仅用于离线兜底。
+    jobs.push({ key: 'weekly', url: WEEKLY_URL }, { key: 'official:nyse', url: NYSE_URL });
+    for (const type of DYNAMIC) jobs.push({ key: `official:${type}`, url: data.SOURCES[type] });
     const saved: Record<string, OnlineRecord> = {};
     await Promise.all(
       jobs.map(async ({ key, url }) => {
+        const priorAttempt = this.attempts[key];
+        // 失败冷却不能被重启、老板键恢复或反复点击刷新绕过。
+        if (priorAttempt?.next > this.now().getTime() && (!force || priorAttempt.error)) return;
+        if (priorAttempt?.at && this.now().getTime() - priorAttempt.at < 15 * 60000) return;
         try {
-          const text = await this.online.fetch(url, signal),
+          const text = await (key.startsWith('official:') ? this.provider : this.online).fetch(url, signal),
             parsed = this.parseOnline(key, text),
             at = this.now().getTime();
+          if (key === 'weekly' && (!('to' in parsed) || parsed.to < at - 7 * DAY || parsed.from > at + 7 * DAY))
+            throw new Error('周日历尚未覆盖当前日期');
           if (signal.aborted || this.disposed) return;
           this.records.set(key, { parsed, at, cached: false });
           this.onlineErrors.delete(key);
+          this.attempts[key] = { next: at + DAY, at };
           saved[key] = { text, at };
         } catch (e) {
           if (!signal.aborted && !this.disposed) {
-            this.onlineErrors.set(key, e.message || '请求失败');
+            const message = (e.message || '请求失败').slice(0, 160);
+            const denied = [401, 403, 404].includes(e.statusCode);
+            const coverage = /未覆盖|未经核实|未知.*状态/.test(message);
+            this.onlineErrors.set(key, message);
+            this.attempts[key] = {
+              next: this.now().getTime() + (denied || coverage ? 7 * DAY : DAY / 4),
+              at: this.now().getTime(),
+              error: message
+            };
             const prior = this.records.get(key);
             if (prior) prior.cached = true;
           }
@@ -218,10 +290,16 @@ class ReminderController {
       })
     );
     if (signal.aborted || this.disposed) return;
-    const old = this.context.globalState.get('eventOnlineCache', {}) || {},
-      all = { ...old, ...saved },
+    const old = { ...(this.context.globalState.get('eventOnlineCache', {}) || {}) };
+    const legacy = this.context.globalState.get('eventCalendarCache', {}) || {};
+    for (const type of DYNAMIC) {
+      const key = `official:${type}`;
+      if (!old[key] && this.records.has(key) && legacy[type])
+        old[key] = { text: legacy[type].html, at: legacy[type].at };
+    }
+    const all = { ...old, ...saved },
       keep = {};
-    for (const group of ['market:', 'days:', 'economic:', 'early:']) {
+    for (const group of ['market:', 'days:', 'economic:', 'early:', 'official:', 'weekly']) {
       const candidates = Object.entries<OnlineRecord>(all)
         .filter(([key, value]) => key.startsWith(group) && Number.isFinite(value.at))
         .sort((a, b) => b[1].at - a[1].at);
@@ -229,6 +307,9 @@ class ReminderController {
         keep[key] = value;
     }
     await this.context.globalState.update('eventOnlineCache', keep).catch(() => {});
+    const activeKeys = new Set(jobs.map((j) => j.key));
+    this.attempts = Object.fromEntries(Object.entries(this.attempts).filter(([key]) => activeKeys.has(key)));
+    await this.context.globalState.update('eventCalendarAttemptsV2', this.attempts).catch(() => {});
     for (const key of this.records.keys()) if (!keep[key]) this.records.delete(key);
   }
   start() {
@@ -241,35 +322,16 @@ class ReminderController {
     if (this.disposed || this.hidden || !this.enabled) return;
     this.render();
     this.notifyDue();
-    if (!this.inflight && this.now().getTime() - (this.lastAttempt || 0) >= DAY) void this.refresh();
+    if (!this.inflight && this.now().getTime() - (this.lastAttempt || 0) >= DAY / 4) void this.refresh();
   }
-  async refresh() {
+  async refresh(force = false) {
     if (this.inflight || this.disposed || this.hidden || !this.enabled) return this.inflight;
     this.abort = new AbortController();
     this.lastAttempt = this.now().getTime();
     const signal = this.abort.signal;
     this.inflight = (async () => {
-      const cache = { ...(this.context.globalState.get('eventCalendarCache', {}) || {}) };
-      await Promise.all([
-        this.refreshOnline(signal),
-        ...DYNAMIC.map(async (type) => {
-          try {
-            // 只持久化可重新解析的官方原文，避免把损坏缓存当作可信日历。
-            const html = await this.provider.fetch(data.SOURCES[type], signal);
-            const events = type === 'fed' ? parseFed(html) : parseBls(html, type);
-            if (signal.aborted || this.disposed) return;
-            const at = this.now().getTime();
-            cache[type] = { html, at };
-            this.sources[type] = { events, status: `官方日历在线核实：北京时间 ${beijing(at)}` };
-          } catch (error) {
-            if (!signal.aborted && !this.disposed)
-              this.sources[type].status =
-                this.sources[type].status.replace(/；更新失败.*$/, '') + `；更新失败：${error.message || '请求失败'}`;
-          }
-        })
-      ]);
+      await this.refreshOnline(signal, force);
       if (!signal.aborted && !this.disposed) {
-        await this.context.globalState.update('eventCalendarCache', cache).catch(() => {});
         this.render();
         this.notifyDue();
       }
@@ -301,8 +363,8 @@ class ReminderController {
       .slice(0, 6)
       .map((e) => `${beijing(e.when)} 北京${e.allDay ? '（按当地09:30提醒）' : ''} · ${e.name} · ${e.provenance}`);
     lines.push('点击查看完整日历和来源。在线数据源可能尚未覆盖下一年；未覆盖时使用已标注的快照，以交易所公告为准。');
-    if (this.onlineErrors.size)
-      lines.push(`部分在线日历未更新（${this.onlineErrors.size}项），以事件所标注的缓存或快照为准。`);
+    if (future.slice(0, 6).some((e) => /缓存|快照/.test(e.provenance || '')))
+      lines.push('部分日期使用缓存或快照，来源与更新时间已标注；点击可查看更新详情。');
     const tooltip = lines.join('\n');
     // 不在每次计时器回调中重写相同内容，避免状态栏悬浮窗闪烁。
     if (this.lastTooltip !== tooltip) {
@@ -352,8 +414,12 @@ class ReminderController {
       },
       {
         label: '$(info) 数据来源与覆盖',
-        description: 'Markets Open · Finance Calendar · 官方日历',
-        detail: `在线接口未覆盖的年份使用快照；交易日期与交割以交易所公告为准。${this.onlineErrors.size ? ' 本次未成功的接口：' + [...this.onlineErrors.keys()].join('、') : ''}`,
+        description: '美联储 / NYSE / BLS · Forex Factory（本周）· Markets Open',
+        detail:
+          '周日历仅覆盖本周，远期沿用官方日历或标注的缓存/快照。每天自动更新；网络失败冷却6小时，拒绝访问或年份未覆盖冷却7天。' +
+          [...new Set([...this.onlineErrors].map(([key, error]) => `${calendarSource(key)}：${error}`))]
+            .map((s) => ' ' + s + '。')
+            .join(''),
         source: data.SOURCES.cnHoliday
       },
       ...entries.map((e) => ({
@@ -368,7 +434,7 @@ class ReminderController {
       placeHolder: '选择事件查看官方来源；时间均为北京时间'
     });
     if (selected?.action === 'refresh' && this.enabled) {
-      await this.refresh();
+      await this.refresh(true);
       return this.show();
     }
     if (selected?.source) await vscode.env.openExternal(vscode.Uri.parse(selected.source));
