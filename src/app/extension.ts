@@ -19,8 +19,12 @@ import { SettingsController } from '../features/settings/controller';
 import { StockAlerts } from '../features/watchlist/alerts';
 import { AiAnalysisController } from '../features/ai/controller';
 import { DataSync } from '../core/storage/sync';
+import { getKlineFeed } from '../features/charts/kline-feed';
 
 async function activate(context) {
+  const klines = getKlineFeed();
+  klines.attach(context.globalState);
+  context.subscriptions.push(klines);
   const controller = new TurnoverController(context);
   const sync = new DataSync(context, (message) => controller.log(message));
   await migrateFutures(context, (message) => controller.log(message));
@@ -31,6 +35,7 @@ async function activate(context) {
   };
   const news = new NewsController(context, { log: (message) => controller.log(message) });
   const charts = new ChartController(context, {
+    quoteSnapshot: (symbol) => (!stocks.stale(symbol) ? stocks.quotes.get(symbol) : undefined),
     selected: () => stocks.config.selected,
     name: (symbol) => stocks.quotes.get(symbol)?.name
   });

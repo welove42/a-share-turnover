@@ -9,6 +9,9 @@ export interface ChartInput {
   timestamp?: string;
   adjustment?: string;
   source?: string;
+  klineFetchedAt?: number;
+  klineStale?: boolean;
+  klineWarning?: string;
   previousClose?: number | null;
   etf?: unknown;
 }
@@ -147,7 +150,7 @@ export function summarizeChart(chart: ChartInput, mode: Period, now: Date) {
           : '信号不一致 / 整理'
       : '样本不足';
   return {
-    ...pick(chart, ['source', 'adjustment', 'timestamp']),
+    ...pick(chart, ['source', 'adjustment', 'timestamp', 'klineFetchedAt', 'klineStale', 'klineWarning']),
     date: latest.time,
     sample: { available: all.length, used: bars.length, closed: closed.length, from: bars[0].time, to: latest.time },
     state: direction,

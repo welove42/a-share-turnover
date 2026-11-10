@@ -30,10 +30,10 @@ test('历史分页请求包含截止日期、正确周期和640根，非法参�
   const urls = [];
   const p = new ChartProvider(async (url) => {
     urls.push(url);
-    return wrap([], 'week');
+    return { rc: 0, data: { code: '601766', market: 1, name: '测试', klines: [] } };
   });
   assert.equal((await p.loadEarlier('sh601766', 'weekly', '2008-08-18')).bars.length, 0);
-  assert.match(urls[0], /sh601766,week,,2008-08-18,640,qfq/);
+  assert.match(urls[0], /secid=1.601766.*klt=102&fqt=1&end=20080818&lmt=640/);
   await assert.rejects(p.loadEarlier('sh601766', 'daily', '2008-02-31'));
   await assert.rejects(p.loadEarlier('sh601766', 'intraday', '2008-08-18'));
   await assert.rejects(p.loadEarlier('sh601766', 'daily', '2008-08-18', AbortSignal.abort()), /取消/);

@@ -1,5 +1,6 @@
 import { requestJson } from '../../core/network/http';
 import { normalizeDate } from '../turnover/market';
+import { getKlineFeed } from '../charts/kline-feed';
 
 export interface DailySample {
   date: string;
@@ -93,15 +94,15 @@ export class WatchlistHistoryProvider implements ListHistoryProvider {
       });
       data = { bars: bars.slice(-40), source: 'Yahoo Finance 日线', unit: '股' };
     } else {
-      const p = await this.request(
-        `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},day,,,20,qfq`,
-        signal
-      );
+      const result = await getKlineFeed(this.request).load(symbol, 'daily', signal, { priority: 2 });
+      // 列表已有独立旧缓存；共享源返回过期数据时不能把它保存成今天新取得的均量基准。
+      if (result.stale) throw new Error('历史数据暂未更新');
+      const p = result.payload;
       const d = p?.code === 0 && p.data?.[symbol],
         rows = d?.qfqday || d?.day;
       if (!Array.isArray(rows)) throw new Error('历史日线暂不可用');
       data = {
-        bars: rows.map((row) => {
+        bars: rows.slice(-40).map((row) => {
           if (
             !Array.isArray(row) ||
             row.length < 6 ||
@@ -115,7 +116,7 @@ export class WatchlistHistoryProvider implements ListHistoryProvider {
             volume: quoteVolume(symbol, row[5])!
           };
         }),
-        source: '腾讯前复权日线',
+        source: result.source + (d.qfqday ? '前复权日线' : '不复权日线'),
         unit: symbol.startsWith('hk') ? '股' : '手'
       };
     }

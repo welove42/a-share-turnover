@@ -25,6 +25,9 @@ interface ChartData extends EtfReferenceData {
   historicalFetchedAt?: string;
   historyComplete?: boolean;
   historyReset?: boolean;
+  klineFetchedAt?: number;
+  klineStale?: boolean;
+  klineWarning?: string;
 }
 interface HoverState {
   bars: PriceBar[];
@@ -1105,7 +1108,7 @@ import * as marketIndicators from '../../shared/indicators';
                 ? `历史换手率：${data.historicalSource || '行情源'}${data.historicalStatus === 'stale' ? '（接口失败，使用缓存）' : ''}${data.historicalFetchedAt ? ` · 获取时间 ${data.historicalFetchedAt}（北京）` : ''}；未覆盖的时间显示“—”。`
                 : '';
       $('meta').textContent =
-        `${data.source} · ${names[mode]} · ${isIntraday(mode) ? '分钟采样' : data.adjustment} · ${mode === 'intraday5' ? `交易日 ${data.dates.length} 天 · ` : ''}数据日期 ${data.date}${data.timestamp ? ` · 报价时间 ${clock(data.timestamp)}` : ''}（北京）`;
+        `${data.source} · ${names[mode]} · ${isIntraday(mode) ? '分钟采样' : data.adjustment} · ${mode === 'intraday5' ? `交易日 ${data.dates.length} 天 · ` : ''}数据日期 ${data.date}${data.timestamp ? ` · 报价时间 ${clock(data.timestamp)}` : ''}（北京）${data.klineFetchedAt ? ' · 历史获取 ' + new Date(data.klineFetchedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : ''}${data.klineWarning ? ' · ' + data.klineWarning : ''}`;
       const last = data.bars.at(-1)!.close,
         delta = data.previousClose ? (last / data.previousClose - 1) * 100 : null;
       $('quote').textContent =

@@ -6,6 +6,7 @@ import { normalizeSymbol, INDEX_SYMBOL, StockProvider, dailyExtremes } from '../
 import { POLL_MS, session, normalizeDate, timeToMinute } from '../turnover/market';
 import { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } from './data';
 import { prependHistory, retainHistory, supportsHistory, MAX_HISTORY_BARS } from './history';
+import type { StockQuote } from '../../shared/types';
 
 interface ChartPanel {
   symbol: string;
@@ -26,6 +27,7 @@ class ChartController {
   declare context: any;
   declare provider: ChartProvider;
   declare quoteProvider: StockProvider;
+  private quoteSnapshot: (symbol: string) => StockQuote | undefined;
   declare now: () => Date;
   declare selected: () => string;
   declare name: (symbol: string) => string | undefined;
@@ -41,6 +43,7 @@ class ChartController {
     {
       provider = new ChartProvider(),
       quoteProvider = new StockProvider(),
+      quoteSnapshot = (_symbol: string): StockQuote | undefined => undefined,
       now = () => new Date(),
       selected = (): string => INDEX_SYMBOL,
       name = (_symbol: string): string | undefined => undefined
@@ -49,6 +52,7 @@ class ChartController {
     this.context = context;
     this.provider = provider;
     this.quoteProvider = quoteProvider;
+    this.quoteSnapshot = quoteSnapshot;
     this.now = now;
     this.selected = selected;
     this.name = name;
@@ -318,7 +322,13 @@ class ChartController {
         let pages = 0;
         while (!state.data.historyComplete && pages < 30) {
           if (state.data.bars.length >= MAX_HISTORY_BARS) throw new Error('历史记录达到容量上限');
-          const older = await this.provider.loadEarlier(symbol, mode, state.data.bars[0].time, abort.signal);
+          const older = await this.provider.loadEarlier(
+            symbol,
+            mode,
+            state.data.bars[0].time,
+            abort.signal,
+            state.data.sourceId
+          );
           if (!active()) return;
           state.data = prependHistory(state.data, older);
           this.cache.set(`${symbol}:${mode}`, { data: state.data, at: state.lastAttempt });
@@ -332,7 +342,11 @@ class ChartController {
         }
         if (all && !state.data.historyComplete) throw new Error('本次历史加载已暂停，可再次点击“全部历史”继续');
         // Supplement turnover once after prices are visible, not on each historical page.
-        if (state.data.turnoverApplicable && typeof this.provider.loadHistoricalTurnover === 'function') {
+        if (
+          state.data.turnoverApplicable &&
+          !state.data.sourceId &&
+          typeof this.provider.loadHistoricalTurnover === 'function'
+        ) {
           try {
             const rates = await this.provider.loadHistoricalTurnover(symbol, mode, abort.signal, {
               bars: state.data.bars
@@ -392,7 +406,11 @@ class ChartController {
         // Reset is a one-shot view event; do not cache it or repeat it during subsequent history/enrichment updates.
         const { historyReset, ...data } = retainHistory(state.data || this.cache.get(key)?.data, fresh);
         const needsHistory =
-          data.turnoverApplicable && mode !== 'intraday' && typeof this.provider.loadHistoricalTurnover === 'function';
+          data.turnoverApplicable &&
+          mode !== 'intraday' &&
+          !('sourceId' in data) &&
+          data.bars.some((bar) => bar.historicalTurnover == null) &&
+          typeof this.provider.loadHistoricalTurnover === 'function';
         const needsEtf = data.etfEligible && !data.etf;
         state.data = {
           ...data,
@@ -414,11 +432,15 @@ class ChartController {
         const tasks: Promise<void>[] = [];
         // Quote and historical enrichment never delay the first chart render.
         const needsExtremes = Object.hasOwn(data, 'dailyHigh') && (data.dailyHigh === null || data.dailyLow === null);
-        if ((data.turnoverApplicable && data.turnoverRate === null) || needsExtremes || needsEtf)
+        const needsLive = supportsHistory(mode) && 'sourceId' in data;
+        if ((data.turnoverApplicable && data.turnoverRate === null) || needsExtremes || needsEtf || needsLive)
           tasks.push(
             (async () => {
               try {
-                const result = await this.quoteProvider.load([state.symbol], abort.signal);
+                const snapshot = this.quoteSnapshot(state.symbol);
+                const result = snapshot
+                  ? { quotes: new Map([[state.symbol, snapshot]]) }
+                  : await this.quoteProvider.load([state.symbol], abort.signal);
                 if (this.disposed || abort.signal.aborted || state.generation !== generation) return;
                 const quote = result.quotes.get(state.symbol);
                 if (needsEtf) {
@@ -451,6 +473,10 @@ class ChartController {
                     Object.assign(patch, range, { dailyQuoteTimestamp: quote.timestamp });
                 }
                 if (Object.keys(patch).length) enrich(patch);
+                if (needsLive && typeof this.provider.withQuote === 'function') {
+                  const updated = await this.provider.withQuote(state.data, quote, abort.signal);
+                  if (updated !== state.data) enrich(updated);
+                }
               } catch {
                 if (needsEtf) enrich({ etfStatus: 'error', etfError: 'ETF 参考数据获取失败，可刷新重试。' });
                 /* A quote failure must not prevent the chart from rendering. */

@@ -51,6 +51,7 @@ Webview 只能使用浏览器 API，通过消息与主进程通信。esbuild 把
 ## 主要数据流
 
 - 行情：数据源解析和验证 → 功能控制器更新缓存 → 状态栏、侧栏或图表。请求取消或代次变化后忽略旧结果。
+- K线：`charts/kline-feed.ts` 由图表、列表和AI共享；东方财富、腾讯及适用品种的搜狐互为独立来源，最多两路请求，启动间隔750毫秒，前台优先。按来源冷却、按证券和周期缓存，分页锁定来源及复权口径；`live.ts` 用报价重建当前日K，并结合完整日线更新当前周/月K，不反复累加成交量。
 - AI：选择对象 → 检查公开行情时效 → 模型按需调用工具 → 精简结果回传 → 流式回答 → 本机保存。历史恢复不调用 API；行情追问刷新基础数据，解释和续写复用对话。
 - Agent：`ai/agent.ts` 管三次请求、六次工具和累计用量预算；`agent-data.ts` 封装白名单查询、缓存和取消；`agent-context.ts` 精简事实及历史；`protocol.ts` 处理 Responses 转换和明确的能力降级。工具消息保留配对但仅存在本轮，完整用户对话仍存本机。
 - 异动：`watchlist/alerts.ts` 的实际提醒事件交给 `activity.ts`，按未读个股设置原生 TreeView 角标，打开侧栏定位并装饰行；支持本机恢复、跨日清理和老板键隐藏，不改变每日提醒去重规则。
@@ -59,6 +60,8 @@ Webview 只能使用浏览器 API，通过消息与主进程通信。esbuild 把
 - 模型列表：`ai/models.ts` 仅向当前 API 前缀的 `/models` 发起带超时的请求；设置页 `model-picker.ts` 提供搜索和手填。获取列表不保存配置，不触发分析，取消或关闭页面后丢弃迟到结果。
 
 ## 开发命令
+
+行情缓存通过 `context.globalState` 留在本机：`sharedKlineCacheV1` 保存最近40组K线及原获取时间，`sharedKlineCooldownV1` 保存来源冷却；`stockQuotes` 是自选报价，`stockListHistoryV1` 是列表趋势与均量历史。Windows 默认配置位于 `%APPDATA%/Code/User/globalStorage/state.vscdb`，自定义用户目录或配置文件会使用对应位置。不要直接删除整个数据库，它也包含其他扩展状态。
 
 需要 Node.js 24。构建工具版本记录在 `package-lock.json`。
 

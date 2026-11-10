@@ -10,6 +10,9 @@ import { normalizeSymbol, supportsTurnover, turnoverRate, dailyExtremes } from '
 import { normalizeDate, timeToMinute } from '../turnover/market';
 import { MinuteFeed } from '../turnover/minute-feed';
 import { isEtfCandidate, parseEtfQuote } from '../funds/etf-quote';
+import { getKlineFeed, KlineFeed, type KlineResult } from './kline-feed';
+import { withLiveQuote } from './live';
+import type { StockQuote } from '../../shared/types';
 const PERIODS = { daily: 'day', weekly: 'week', monthly: 'month' };
 const MINUTES = ['m1', 'm5', 'm15', 'm30', 'm60'];
 
@@ -158,7 +161,7 @@ function parseChart(payload, input, mode, allowEmpty = false) {
   } else {
     const period = PERIODS[mode],
       adjusted = data['qfq' + period];
-    const rows = Array.isArray(adjusted) && adjusted.length ? adjusted : data[period];
+    const rows = Array.isArray(adjusted) && (adjusted.length || !Array.isArray(data[period])) ? adjusted : data[period];
     if (!Array.isArray(rows)) throw new Error('缺少所选周期K线数据');
     adjustment = rows === adjusted ? '前复权' : '不复权';
     for (const row of rows) {
@@ -239,12 +242,17 @@ function parseFiveDayChart(payload, input) {
   };
 }
 class ChartProvider {
+  private kline: KlineFeed;
   declare request: typeof requestJson;
   declare minuteFeed: MinuteFeed;
   declare turnoverCache: Map<any, any>;
 
-  constructor(request = requestJson) {
+  constructor(
+    request = requestJson,
+    private priority = 0
+  ) {
     this.request = request;
+    this.kline = getKlineFeed(request);
     this.minuteFeed = new MinuteFeed(request);
     this.turnoverCache = new Map();
   }
@@ -378,21 +386,63 @@ class ChartProvider {
       if (backup) data.source = '腾讯行情（分时备用）';
       return data;
     }
-    const url = MINUTES.includes(mode)
-      ? `https://ifzq.gtimg.cn/appstock/app/kline/mkline?param=${symbol},${mode},,240`
-      : `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},${PERIODS[mode]},,,240,qfq`;
-    return parseChart(await this.request(url, signal), symbol, mode);
+    return this.fromKline(await this.kline.load(symbol, mode, signal, { priority: this.priority }), symbol, mode);
   }
-  async loadEarlier(input: string, mode: string, before: string, signal?: AbortSignal) {
+  private fromKline(result: KlineResult, symbol: string, mode: string, allowEmpty = false) {
+    const parsed = parseChart(result.payload, symbol, mode, allowEmpty);
+    if (result.sourceId.startsWith('eastmoney:') || result.sourceId.startsWith('sohu:')) {
+      const rows =
+        result.payload.data[symbol]['qfq' + PERIODS[mode]] || result.payload.data[symbol][PERIODS[mode] || mode] || [];
+      const rates = new Map(
+        rows.map((row) => {
+          const raw = String(row[0]);
+          const time = MINUTES.includes(mode)
+            ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)} ${raw.slice(8, 10)}:${raw.slice(10, 12)}`
+            : raw;
+          return [time, turnoverRate(row[10])];
+        })
+      );
+      const amounts = new Map(rows.map((row) => [String(row[0]), turnoverRate(row[6])]));
+      for (const bar of parsed.bars) {
+        bar.historicalTurnover = rates.get(bar.time) as number | null | undefined;
+        if (result.sourceId.startsWith('eastmoney:'))
+          bar.amount = amounts.get(MINUTES.includes(mode) ? bar.time.replace(/[- :]/g, '') : bar.time) as
+            | number
+            | null
+            | undefined;
+      }
+    }
+    const hasRates = parsed.bars.length > 0 && parsed.bars.every((bar) => bar.historicalTurnover != null);
+    return {
+      ...parsed,
+      historicalStatus: hasRates ? (result.stale ? 'stale' : 'ready') : 'unavailable',
+      historicalSource: result.source,
+      historicalFetchedAt: new Date(result.fetchedAt).toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        hour12: false
+      }),
+      source: result.source + (result.stale ? '（缓存）' : ''),
+      sourceId: result.sourceId,
+      klineFetchedAt: result.fetchedAt,
+      klineStale: Boolean(result.stale),
+      klineWarning: result.warning || ''
+    };
+  }
+  async withQuote(data: any, quote: StockQuote, signal?: AbortSignal) {
+    if (!Object.hasOwn(PERIODS, data.mode)) return data;
+    const daily = data.mode === 'daily' ? data : await this.load(data.symbol, 'daily', signal);
+    if (signal?.aborted) throw new Error('行情请求已取消');
+    return withLiveQuote(data, quote, daily);
+  }
+  async loadEarlier(input: string, mode: string, before: string, signal?: AbortSignal, sourceId?: string) {
     const symbol = normalizeSymbol(input);
     if (!Object.hasOwn(PERIODS, mode) || !/^\d{4}-\d{2}-\d{2}$/.test(before)) throw new Error('历史查询参数无效');
     normalizeDate(before.replaceAll('-', ''));
     if (signal?.aborted) throw new Error('历史查询已取消');
     // Inclusive end keeps one shared bar for checking the adjustment base between pages.
-    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${symbol},${PERIODS[mode]},,${before},640,qfq`;
-    const payload = await this.request(url, signal);
+    const result = await this.kline.load(symbol, mode, signal, { end: before, sourceId, priority: this.priority });
     if (signal?.aborted) throw new Error('历史查询已取消');
-    return parseChart(payload, symbol, mode, true);
+    return this.fromKline(result, symbol, mode, true);
   }
 }
 export { eastmoneyUrl, eastmoneyChartUrl, supportsChips, parseChart, parseFiveDayChart, ChartProvider };

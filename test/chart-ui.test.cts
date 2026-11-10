@@ -121,7 +121,11 @@ function page({ mode = 'intraday', chips = true, saved = {}, symbol = 'sh600105'
         if (event === 'message') receivers.push(fn);
       }
     },
-    Date: { now: () => now },
+    Date: class extends Date {
+      static now() {
+        return now;
+      }
+    },
     setTimeout: (fn, ms) => {
       const id = ++nextTimer;
       timers.set(id, { at: now + ms, fn });
@@ -183,6 +187,27 @@ const longHistory = Array.from({ length: 4400 }, (_, i) => ({
   time: new Date(Date.UTC(2008, 7, 18 + i)).toISOString().slice(0, 10)
 }));
 const historyData = (bars) => ({ symbol: 'sh600105', mode: 'daily', adjustment: '前复权', bars });
+
+test('缓存K线照常绘制并显示实际获取时间，后续失败保留原图', () => {
+  const p = page({ mode: 'daily' });
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({
+    type: 'data',
+    data: {
+      ...historyData(sampleBars),
+      source: '东方财富（缓存）',
+      date: '2026-11-09',
+      klineFetchedAt: Date.parse('2026-11-09T07:00:00Z'),
+      klineStale: true,
+      klineWarning: '在线K线暂不可用，显示上次成功缓存'
+    }
+  });
+  assert.match(p.nodes.get('meta').textContent, /历史获取.*15:00:00.*上次成功缓存/);
+  const before = rendered(p).length;
+  assert.ok(before > 10);
+  p.receive({ type: 'error', mode: 'daily', preserve: true, message: '来源冷却中' });
+  assert.equal(rendered(p).length, before);
+});
 
 test('缩小触及边界自动补载，页面可浏览早期历史且自动刷新不跳回最新', () => {
   const p = page({ mode: 'daily', saved: { range: 240 } });

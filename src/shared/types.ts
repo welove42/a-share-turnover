@@ -37,6 +37,8 @@ export interface StockQuote {
   turnoverRate: NullableNumber;
   /** 累计成交量：A股/ETF统一为手，港美股为股；缺失不得填0。 */
   volume?: NullableNumber;
+  open?: NullableNumber;
+  amount?: NullableNumber;
   /** 当日报价直接给出的限价；缺失或不设涨跌幅限制时不按百分比推算。 */
   limitUp?: NullableNumber;
   limitDown?: NullableNumber;

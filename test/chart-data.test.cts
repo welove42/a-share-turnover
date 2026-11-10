@@ -409,8 +409,9 @@ test('图表请求只使用已校验代码与固定数据域名，取消信号�
     return wrap({ day: [['2026-10-26', '10', '11', '12', '9', '100']] });
   });
   await provider.load('600519', 'daily', signal);
-  assert.match(calls[0][0], /^https:\/\/web\.ifzq\.gtimg\.cn\/appstock\/app\/fqkline\/get\?param=sh600519,/);
-  assert.equal(calls[0][1], signal);
+  assert.match(calls[0][0], /^https:\/\/push2his\.eastmoney\.com\/api\/qt\/stock\/kline\/get\?secid=1.600519&/);
+  assert.ok(calls[0][1] instanceof AbortSignal); // 共享请求使用独立信号，各调用者取消不会互相影响。
+  assert.ok(calls.some(([url]) => url.startsWith('https://web.ifzq.gtimg.cn/')));
   await assert.rejects(provider.load('600519', 'other', signal), /类型/);
 });
 

@@ -45,7 +45,7 @@ class AnalysisContext {
     globals,
     commodities,
     news,
-    chartProvider = new ChartProvider(),
+    chartProvider = new ChartProvider(undefined, 1),
     quoteProvider = new AiQuoteProvider(),
     historyProvider = new AiHistoryProvider(),
     now = () => new Date(),

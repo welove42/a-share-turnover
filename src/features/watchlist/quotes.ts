@@ -84,6 +84,8 @@ function parseQuotes(text: string, symbols: string[]): QuoteBatch {
         timestamp: q[30],
         high: signedNumber(q[33]),
         volume: quoteVolume(symbol, q[6]),
+        open: signedNumber(q[5]),
+        amount: turnoverRate(q[37]) === null ? null : Number(q[37]) * 10000,
         low: signedNumber(q[34]),
         turnoverRate: supportsTurnover(symbol) ? turnoverRate(q[38]) : null,
         limitUp: signedNumber(q[47]),
