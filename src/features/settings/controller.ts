@@ -78,7 +78,7 @@ const GROUPS = [
     keys: ['reminders.enabled', 'reminders.notifications', 'reminders.categories', 'additionalClosedDates']
   },
   { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.save', 'ai.test'] },
-  { id: 'sync', title: '数据同步', keys: ['sync.fundHoldings'], actions: ['sync.enable', 'sync.showData'] }
+  { id: 'sync', title: '数据同步', keys: ['sync.fundHoldings'], actions: ['sync.manage', 'sync.showData'] }
 ];
 const LABELS = {
   'sync.fundHoldings': '同步本机基金持仓',
@@ -197,11 +197,11 @@ const OPTIONS = {
 const ACTIONS = {
   'ai.save': '保存配置',
   'ai.test': '测试连接',
-  'sync.enable': '开启 VS Code 同步',
+  'sync.manage': '管理 VS Code 同步',
   'sync.showData': '查看同步数据'
 };
 const SYNC_INFO =
-  '在每台电脑登录同一 Microsoft 或 GitHub 账号，开启 VS Code 的“设置”和“扩展”同步，并安装相同版本的牛来盯盘。';
+  '在每台电脑登录同一 Microsoft 或 GitHub 账号，开启“设置”和“扩展”同步，并安装相同版本的牛来盯盘。已开启同步的设备无需重复登录，可直接查看同步数据。';
 const SYNC_DETAILS = [
   {
     label: '跟随账号同步',
@@ -346,7 +346,7 @@ class SettingsController {
     this.context = context;
     this.stocks = stocks;
     this.actions = {
-      'sync.enable': () => openNativeSync('enable'),
+      'sync.manage': () => openNativeSync('manage'),
       'sync.showData': () => openNativeSync('showData'),
       ...actions
     };

@@ -96,7 +96,7 @@ test('数据同步说明与按钮在页面内展示，开关提交真实布尔�
         title: '数据同步',
         info: '登录同一账号',
         details: [{ label: '保留在本机', text: 'API Key、AI 对话、缓存' }],
-        actions: [{ id: 'sync.enable', label: '开启 VS Code 同步' }],
+        actions: [{ id: 'sync.manage', label: '管理 VS Code 同步' }],
         fields: [
           { key: 'sync.fundHoldings', label: '同步本机基金持仓', help: '默认关闭', type: 'boolean', value: false }
         ]
@@ -111,11 +111,11 @@ test('数据同步说明与按钮在页面内展示，开关提交真实布尔�
   toggle.dispatch('change');
   assert.equal(p.sent.at(-1).key, 'sync.fundHoldings');
   assert.equal(p.sent.at(-1).value, true);
-  const button = nodes.find((n) => n.textContent === '开启 VS Code 同步');
+  const button = nodes.find((n) => n.textContent === '管理 VS Code 同步');
   button.dispatch('click');
-  assert.equal(p.sent.at(-1).action, 'sync.enable');
+  assert.equal(p.sent.at(-1).action, 'sync.manage');
   assert.equal(button.disabled, true);
-  p.receive({ type: 'result', action: 'sync.enable', ok: true, note: '已打开 VS Code 同步界面' });
+  p.receive({ type: 'result', action: 'sync.manage', ok: true, note: '已打开 VS Code 同步界面' });
   assert.equal(button.disabled, false);
   assert.equal(p.nodes.get('save-status').textContent, '已打开 VS Code 同步界面');
 });

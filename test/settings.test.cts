@@ -7,10 +7,7 @@ test('数据同步页说明范围，默认不开持仓同步，原生入口只�
   const commands = [];
   const { h, c, panel, send } = setup({}, (api) => {
     api.commands = {
-      getCommands: async () => [
-        'workbench.userDataSync.actions.turnOn',
-        'workbench.userDataSync.actions.showSyncedData'
-      ],
+      getCommands: async () => ['workbench.action.quickOpen', 'workbench.userDataSync.actions.showSyncedData'],
       executeCommand: async (id) => {
         commands.push(id);
       }
@@ -25,8 +22,8 @@ test('数据同步页说明范围，默认不开持仓同步，原生入口只�
     assert.equal(h.values.get('aShareTurnover.sync.fundHoldings'), true);
     await send({ type: 'reset', key: 'sync.fundHoldings' });
     assert.equal(h.values.get('aShareTurnover.sync.fundHoldings'), false);
-    await send({ type: 'action', action: 'sync.enable' });
-    assert.equal(commands.at(-1), 'workbench.userDataSync.actions.turnOn');
+    await send({ type: 'action', action: 'sync.manage' });
+    assert.equal(commands.at(-1), 'workbench.action.quickOpen');
     const result = panel.webview.messages.findLast((m) => m.type === 'result');
     assert.match(result.note, /已打开/);
     assert.doesNotMatch(result.note, /同步成功|已同步/);
@@ -35,7 +32,7 @@ test('数据同步页说明范围，默认不开持仓同步，原生入口只�
     await send({ type: 'action', action: 'workbench.actions.syncData.reset' });
     assert.equal(panel.webview.messages.at(-1).ok, false);
     c.setHidden(true);
-    await send({ type: 'action', action: 'sync.enable' });
+    await send({ type: 'action', action: 'sync.manage' });
     assert.equal(commands.length, 2);
   } finally {
     c.dispose();

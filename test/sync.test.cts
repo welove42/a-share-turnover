@@ -208,19 +208,36 @@ test('图表副图同步只更新当前页面，不请求行情或把接收值�
   }
 });
 
-test('同步入口调用固定的原生命令，编辑器不支持时明确反馈', async () => {
+test('同步入口交给原生面板判断状态，不因turnOn已注册就强制首次登录；不支持时明确反馈', async () => {
   const h = harness(),
     calls = [];
   h.api.commands = {
-    getCommands: async () => ['workbench.userDataSync.actions.turnOn', 'workbench.userDataSync.actions.showSyncedData'],
-    executeCommand: async (id) => calls.push(id)
+    getCommands: async () => [
+      'workbench.action.quickOpen',
+      'workbench.userDataSync.actions.showSyncedData',
+      'workbench.userDataSync.actions.turnOn',
+      'workbench.userDataSync.actions.manage'
+    ],
+    executeCommand: async (...args) => {
+      assert.notEqual(args[0], 'workbench.userDataSync.actions.turnOn');
+      calls.push(args);
+    }
   };
   const { openNativeSync } = h.load('../dist/core/storage/sync.js');
-  await openNativeSync('enable');
+  await openNativeSync('manage');
   await openNativeSync('showData');
-  assert.deepEqual(calls, ['workbench.userDataSync.actions.turnOn', 'workbench.userDataSync.actions.showSyncedData']);
+  assert.deepEqual(calls, [
+    ['workbench.action.quickOpen', '>Settings Sync: '],
+    ['workbench.userDataSync.actions.showSyncedData']
+  ]);
+  h.api.commands.getCommands = async () => [
+    'workbench.userDataSync.actions.showSyncedData',
+    'workbench.userDataSync.actions.turnOn'
+  ];
+  await assert.rejects(openNativeSync('manage'), /无法打开同步操作列表/);
+  assert.equal(calls.length, 2, '无命令面板时也不退回强制首次登录');
   h.api.commands.getCommands = async () => [];
-  await assert.rejects(openNativeSync('enable'), /未提供原生设置同步/);
+  await assert.rejects(openNativeSync('manage'), /未提供原生设置同步/);
 });
 
 test('基金列表自动应用云端持仓，随后编辑其他基金不会覆盖刚收到的持仓', async () => {
