@@ -965,7 +965,7 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "长对话达到阈值时，用已配置模型生成关键要点摘要；每次追问最多额外一次摘要请求，可能产生少量用量。失败保留用户原话。"
+          "description": "长对话达到阈值时，用已配置模型生成关键要点摘要；每次追问最多额外一次摘要请求，可能产生少量用量。失败保留完整问答；不设输入 token 硬上限。"
         },
         "aShareTurnover.ai.behaviorContext": {
           "type": "boolean",

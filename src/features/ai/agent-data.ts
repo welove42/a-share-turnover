@@ -4,6 +4,7 @@ import { summarizeChart, summarizeIntraday, dayOf, type Period } from './technic
 import { isEtfCandidate } from '../funds/etf-quote';
 import type { AnalysisSnapshot, ToolDefinition } from './types';
 import { stockSession } from '../turnover/market';
+import { supportsTurnover } from '../watchlist/quotes';
 
 const names = {
   get_quote: '最新个股/指数报价',
@@ -56,6 +57,11 @@ function requestedPeriods(question: string): Period[] {
 }
 
 export interface QueryData {
+  missingQueries?(
+    snapshot: AnalysisSnapshot,
+    target: string,
+    question: string
+  ): Array<{ name: QueryName; args: Record<string, unknown>; label: string }>;
   prepare(
     target: string,
     previous: AnalysisSnapshot | null,
@@ -73,6 +79,54 @@ export class AgentData implements QueryData {
     private now = () => Date.now()
   ) {}
 
+  /** 关键上下文确有缺口时由宿主先查一次，不依赖模型主动提出；已有可用数据不重复请求。 */
+  missingQueries(snapshot: AnalysisSnapshot, target: string, question: string) {
+    const queries: Array<{ name: QueryName; args: Record<string, unknown>; label: string }> = [];
+    if (explanationOnly(question) && !/分析|走势/.test(question)) return queries;
+    const sector = snapshot.sectors;
+    if (
+      supportsTurnover(target) &&
+      sector?.applicable !== false &&
+      (!sector?.industry ||
+        sector.missing ||
+        sector.fetchFailed ||
+        !sector.rows?.some(
+          (r) =>
+            (r.type === '所属行业' || r.name === sector.industry) &&
+            Number.isFinite(r.percent) &&
+            (r.timestamp || r.time)
+        ))
+    )
+      queries.push({ name: 'get_environment', args: { scope: 'sector' }, label: '所属板块' });
+    const market = snapshot.market;
+    if (
+      !market ||
+      market.missing ||
+      market.fetchFailed ||
+      !Number.isFinite(market.amount) ||
+      !market.markets?.some((m) => Number.isFinite(m.breadth?.advancing) && Number.isFinite(m.breadth?.declining)) ||
+      !market.benchmarks?.some((q) => Number.isFinite(q.price))
+    )
+      queries.push({ name: 'get_market', args: {}, label: '大盘与涨跌家数' });
+    for (const [period, label] of [
+      ['daily', '日线'],
+      ['weekly', '周线'],
+      ['monthly', '月线'],
+      ['intraday', '分时']
+    ]) {
+      const value = snapshot.timeframes?.[period];
+      if (!value || value.missing || value.fetchFailed)
+        queries.push({
+          name: 'get_technical',
+          args: { period, ...(period === 'intraday' ? {} : { bars: period === 'daily' ? 10 : 6 }) },
+          label
+        });
+    }
+    if (!snapshot.globalMarkets?.quotes?.length)
+      queries.push({ name: 'get_environment', args: { scope: 'global' }, label: '全球市场' });
+    return queries;
+  }
+
   private async cached(key: string, ttl: number, signal: AbortSignal, read: (signal: AbortSignal) => Promise<any>) {
     if (signal.aborted) throw abortError();
     const time = this.now(),
@@ -83,11 +137,19 @@ export class AgentData implements QueryData {
     if (result.ok) {
       const value = { ...result.value, fetchedAt: new Date(time).toISOString() };
       if (this.cache.size >= 60) this.cache.delete(this.cache.keys().next().value!);
-      this.cache.set(key, { at: time, value });
+      // “请求成功但数据缺失”不能作为有效行情缓存，后续主动分析仍可补查。
+      if (!value.missing && !value.fetchFailed && !value.market?.missing && !value.sectors?.missing)
+        this.cache.set(key, { at: time, value });
       return value;
     }
     const issue = /HTTP\s*(401|403|429|501)/i.exec(result.error)?.[0];
-    const reason = issue ? `（数据源包含 ${issue.toUpperCase()}）` : /超时/.test(result.error) ? '（数据源超时）' : /冷却|暂停重复请求/.test(result.error) ? '（数据源处于失败冷却）' : '';
+    const reason = issue
+      ? `（数据源包含 ${issue.toUpperCase()}）`
+      : /超时/.test(result.error)
+        ? '（数据源超时）'
+        : /冷却|暂停重复请求/.test(result.error)
+          ? '（数据源处于失败冷却）'
+          : '';
     if (old && time >= old.at && time - old.at < 7 * 86400000)
       return {
         ...old.value,
@@ -211,13 +273,45 @@ export class AgentData implements QueryData {
             : scope === 'global'
               ? ['global', 'commodities']
               : ['sectors'];
-      const env = await this.source.environment.load(
-        code,
-        querySignal,
-        args.query || this.source.stocks?.quotes.get(code)?.name,
-        sections
-      );
-      if (name === 'get_market') return { market: env.market || { missing: true } };
+      const [env, benchmarks] = await Promise.all([
+        this.source.environment.load(
+          code,
+          querySignal,
+          args.query || this.source.stocks?.quotes.get(code)?.name,
+          sections
+        ),
+        name === 'get_market'
+          ? attempt(
+              (s) => this.source.quoteProvider.load(['sh000001', 'sz399001', 'sz399006', 'sh000300'], s),
+              querySignal,
+              12000
+            )
+          : Promise.resolve(null)
+      ]);
+      if (name === 'get_market')
+        return {
+          market: {
+            ...(env.market || { turnoverMissing: true }),
+            benchmarks: ['sh000001', 'sz399001', 'sz399006', 'sh000300'].map((symbol) => {
+              const quote = benchmarks?.ok ? benchmarks.value.quotes.get(symbol) : null;
+              return quote
+                ? {
+                    ...pick(quote, [
+                      'symbol',
+                      'name',
+                      'price',
+                      'percent',
+                      'delta',
+                      'previousClose',
+                      'date',
+                      'timestamp'
+                    ]),
+                    source: quote.source || '腾讯行情'
+                  }
+                : { symbol, missing: true };
+            })
+          }
+        };
       if (name === 'get_news') {
         const items = env.news?.items || [],
           query = args.query?.trim().toLowerCase();
@@ -242,17 +336,35 @@ export class AgentData implements QueryData {
       this.execute('get_quote', {}, target, signal),
       this.execute('get_market', {}, target, signal),
       this.execute('get_technical', { period: 'intraday' }, target, signal),
-      ...periods.map((period) => this.execute('get_technical', { period, bars: period === 'daily' ? 10 : 6 }, target, signal))
+      ...periods.map((period) =>
+        this.execute('get_technical', { period, bars: period === 'daily' ? 10 : 6 }, target, signal)
+      )
     ]);
-    const updatedPeriods = Object.fromEntries(periods.map((period, index) => {
-      const value = technical[index];
-      const previousPeriod = previous.timeframes?.[period];
-      return [period, value.summary
-        ? { ...value.summary, recentBars: value.bars?.slice().reverse(), recentBarsOrder: '新到旧', fetchedAt: value.fetchedAt, fetchFailed: value.fetchFailed }
-        : previousPeriod && !previousPeriod.missing
-          ? { ...previousPeriod, fetchedAt: previousPeriod.fetchedAt || previous.capturedAt, fetchFailed: true, error: value.error }
-          : { missing: true, ...value }];
-    }));
+    const updatedPeriods = Object.fromEntries(
+      periods.map((period, index) => {
+        const value = technical[index];
+        const previousPeriod = previous.timeframes?.[period];
+        return [
+          period,
+          value.summary
+            ? {
+                ...value.summary,
+                recentBars: value.bars?.slice().reverse(),
+                recentBarsOrder: '新到旧',
+                fetchedAt: value.fetchedAt,
+                fetchFailed: value.fetchFailed
+              }
+            : previousPeriod && !previousPeriod.missing
+              ? {
+                  ...previousPeriod,
+                  fetchedAt: previousPeriod.fetchedAt || previous.capturedAt,
+                  fetchFailed: true,
+                  error: value.error
+                }
+              : { missing: true, ...value }
+        ];
+      })
+    );
     const resolved = new Set(periods.filter((_, index) => technical[index]?.summary && !technical[index]?.fetchFailed));
     // 各区块保留自己的时间；更新报价不能让旧日/周/月线看起来也刚更新。
     return {
@@ -276,12 +388,24 @@ export class AgentData implements QueryData {
       },
       notes: [
         ...new Set([
-          ...(previous.notes || []).filter((note) => !((resolved.has('daily') && note.startsWith('日线缺失')) || (resolved.has('weekly') && note.startsWith('周线缺失')) || (resolved.has('monthly') && note.startsWith('月线缺失')))),
+          ...(previous.notes || []).filter(
+            (note) =>
+              !(
+                (resolved.has('daily') && note.startsWith('日线缺失')) ||
+                (resolved.has('weekly') && note.startsWith('周线缺失')) ||
+                (resolved.has('monthly') && note.startsWith('月线缺失'))
+              )
+          ),
           '追问已检查当前报价、大盘、分时及问题明确要求的周期；其他数据保留原时间。',
           ...[quote, market, minute, ...technical].filter((v) => v.fetchFailed).map((v) => v.error)
         ])
       ].slice(-12),
-      coverage: [{ label: '本轮行情', detail: `已检查报价 / 大盘 / 分时${periods.length ? ' / ' + periods.map((p, index) => `${({ daily: '日线', weekly: '周线', monthly: '月线' })[p]}${technical[index]?.fetchFailed ? technical[index]?.summary || (previous.timeframes?.[p] && !previous.timeframes[p]?.missing) ? '（缓存）' : '缺失' : '已获取'}`).join(' / ') : ''}，详见数据时间` }]
+      coverage: [
+        {
+          label: '本轮行情',
+          detail: `已检查报价 / 大盘 / 分时${periods.length ? ' / ' + periods.map((p, index) => `${{ daily: '日线', weekly: '周线', monthly: '月线' }[p]}${technical[index]?.fetchFailed ? (technical[index]?.summary || (previous.timeframes?.[p] && !previous.timeframes[p]?.missing) ? '（缓存）' : '缺失') : '已获取'}`).join(' / ') : ''}，详见数据时间`
+        }
+      ]
     };
   }
 }
@@ -302,7 +426,12 @@ export function applyEvidence(snapshot: AnalysisSnapshot, target: string, eviden
     } else if (item.tool === 'get_technical' && value.summary) {
       const period = value.period?.startsWith('intraday') ? 'intraday' : value.period;
       if (['intraday', 'daily', 'weekly', 'monthly'].includes(period))
-        next.timeframes![period] = { ...value.summary, fetchedAt: value.fetchedAt, fetchFailed: value.fetchFailed };
+        next.timeframes![period] = {
+          ...value.summary,
+          ...(value.bars?.length ? { recentBars: value.bars.slice().reverse(), recentBarsOrder: '新到旧' } : {}),
+          fetchedAt: value.fetchedAt,
+          fetchFailed: value.fetchFailed
+        };
       if (period === 'daily') next.daily = next.timeframes!.daily;
     } else
       for (const key of ['market', 'sectors', 'globalMarkets', 'commodities', 'news', 'etf'])
@@ -311,5 +440,16 @@ export function applyEvidence(snapshot: AnalysisSnapshot, target: string, eviden
           if (key === 'market') next.relativeStrength = undefined;
         }
   }
+  // 成功补齐的旧缺失提示必须一起撤销，避免模型把旧提示当作当前状态。
+  next.notes = (snapshot.notes || []).filter(
+    (note) =>
+      !Object.entries({ daily: '日线', weekly: '周线', monthly: '月线', intraday: '分时' }).some(
+        ([period, label]) =>
+          note.startsWith(label + '缺失') &&
+          next.timeframes?.[period] &&
+          !next.timeframes[period].missing &&
+          !next.timeframes[period].fetchFailed
+      )
+  );
   return next;
 }

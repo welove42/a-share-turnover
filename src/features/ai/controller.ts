@@ -693,7 +693,7 @@ class AiAnalysisController {
         } catch {
           if (!active()) return;
           this.memoryRetryAt = Date.now() + 5 * 60000;
-          memoryNote = '摘要暂不可用：保留用户原话，旧回答仅保留完整证据句';
+          memoryNote = '摘要暂不可用：保留尚未摘要的完整问答';
         }
       }
       const rolled = rollConversation(prior, this.memory);
@@ -763,6 +763,13 @@ class AiAnalysisController {
         request: this.requestTurn,
         data: this.agentData,
         target: this.target,
+        snapshot: this.snapshot,
+        onSnapshot: (snapshot) => {
+          if (active()) {
+            this.snapshot = snapshot;
+            this.publish();
+          }
+        },
         onStatus: (text) => {
           if (active()) {
             this.status = text;

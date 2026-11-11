@@ -1,9 +1,9 @@
 import { completeTurn, endpoint } from './client';
 import { CapabilityError } from './protocol';
-import { TOOLS, type QueryData } from './agent-data';
-import { estimateTokens, fitMessages, pack } from './agent-context';
+import { TOOLS, applyEvidence, type QueryData } from './agent-data';
+import { estimateTokens, snapshotText } from './agent-context';
 import { abortError } from './data';
-import type { AgentMessage, AgentReport, TurnOptions, TurnResult } from './types';
+import type { AnalysisSnapshot, AgentReport, TurnOptions, TurnResult, ToolCall } from './types';
 
 export type TurnRequest = (options: TurnOptions) => Promise<TurnResult>;
 export interface AgentOptions extends TurnOptions {
@@ -13,8 +13,10 @@ export interface AgentOptions extends TurnOptions {
   onStatus?: (text: string) => void;
   onResetText?: () => void;
   onReport?: (report: AgentReport) => void;
+  snapshot?: AnalysisSnapshot | null;
+  onSnapshot?: (snapshot: AnalysisSnapshot) => void;
 }
-export const AGENT_LIMITS = { requests: 3, queries: 6, input: 12000, output: 3000, timeout: 180000 };
+export const AGENT_LIMITS = { requests: 3, queries: 6, output: 3000, timeout: 180000 };
 
 /** 每次用户操作最多三次模型请求；能力回退同样占预算，绝不重试鉴权/限流错误。 */
 export class AnalysisAgent {
@@ -54,19 +56,111 @@ export class AnalysisAgent {
       limited: false
     };
     let messages = options.messages;
-    const base = [...messages],
-      seen = new Map<string, Promise<string>>(),
+    const seen = new Map<string, Promise<string>>(),
       evidence: unknown[] = [];
     const started = Date.now();
     let content = '';
+    // 缺口补查和模型发起的查询共用计数与去重；同一个工具不会因两条路径反复调用。
+    const query = async (call: ToolCall) => {
+      if (options.signal?.aborted) throw abortError();
+      let args: any;
+      try {
+        args = JSON.parse(call.function.arguments);
+      } catch {
+        args = null;
+      }
+      const defaults = {
+        symbol: target === 'market' ? 'sh000001' : target,
+        ...(call.function.name === 'get_technical' ? { period: 'daily', bars: 0 } : {}),
+        ...(call.function.name === 'get_environment' ? { scope: 'sector' } : {})
+      };
+      const canonical = args && typeof args === 'object' && !Array.isArray(args) ? { ...defaults, ...args } : args;
+      const signature =
+        call.function.name +
+        ':' +
+        JSON.stringify(
+          canonical && typeof canonical === 'object' ? Object.fromEntries(Object.entries(canonical).sort()) : canonical
+        );
+      let result: string;
+      if (seen.has(signature)) result = await seen.get(signature)!;
+      else if (report.queries >= AGENT_LIMITS.queries) {
+        report.limited = true;
+        result = '{"missing":true,"reason":"查询次数已用完，请根据已有数据回答。"}';
+      } else {
+        report.queries++;
+        const pending = (async () => {
+          let value: any;
+          try {
+            value = await data.execute(call.function.name, args, target, options.signal!);
+          } catch {
+            if (options.signal?.aborted) throw abortError();
+            value = { missing: true, reason: '查询失败或参数不支持，不得补猜。' };
+          }
+          if (options.signal?.aborted) throw abortError();
+          // 数据适配器已限制条数；保留它返回的完整证据，不能再按 token 裁成缺少来源和日期的片段。
+          value ??= { missing: true, reason: '工具未返回有效数据。' };
+          evidence.push({ tool: call.function.name, args, data: value });
+          return JSON.stringify(value);
+        })();
+        seen.set(signature, pending);
+        result = await pending;
+      }
+      return { role: 'tool' as const, tool_call_id: call.id, content: result };
+    };
     try {
+      const missing = options.snapshot
+        ? data.missingQueries?.(options.snapshot, target, messages.at(-1)?.content || '') || []
+        : [];
+      if (missing.length) {
+        const selected = missing.slice(0, AGENT_LIMITS.queries);
+        if (selected.length < missing.length) report.limited = true;
+        onStatus('正在自动补查缺失数据：' + selected.map((item) => item.label).join(' / ') + '…');
+        await Promise.all(
+          selected.map((item, index) =>
+            query({
+              id: `repair-${index}`,
+              type: 'function',
+              function: { name: item.name, arguments: JSON.stringify(item.args) }
+            })
+          )
+        );
+        if (options.signal?.aborted) throw abortError();
+        const updated = applyEvidence(options.snapshot!, target, evidence);
+        updated.coverage = [
+          ...(updated.coverage || []).filter((c) => c.label !== '自动补查'),
+          { label: '自动补查', detail: selected.map((item) => item.label).join(' / ') }
+        ];
+        options.onSnapshot?.(updated);
+        messages = messages.map((m) =>
+          m.content.startsWith('当前行情快照')
+            ? { ...m, content: '当前行情快照（逐项核对数据时间）：\n' + snapshotText(updated) }
+            : m
+        );
+        // 明确补查结果，包括失败原因；正文不能把“未提供”当作“不去查”的理由。
+        const attempts = evidence.map((item: any) => ({
+          tool: item.tool,
+          args: item.args,
+          missing: !!(item.data.missing || item.data.sectors?.missing || item.data.market?.turnoverMissing),
+          fetchFailed: !!item.data.fetchFailed,
+          reason: item.data.error || item.data.reason || item.data.sectors?.reason
+        }));
+        messages = [
+          ...messages.slice(0, -1),
+          {
+            role: 'user',
+            content:
+              '本轮已自动补查以下缺口，结果已合入当前行情快照；仍缺失须说明实际原因，不重复查询：\n' +
+              JSON.stringify(attempts)
+          },
+          messages.at(-1)!
+        ];
+      }
       while (report.requests < AGENT_LIMITS.requests) {
         if (options.signal?.aborted) throw abortError();
         const final =
           report.requests === AGENT_LIMITS.requests - 1 ||
           report.queries >= AGENT_LIMITS.queries ||
-          report.outputTokens > 1500 ||
-          report.inputTokens >= 6000;
+          report.outputTokens > 1500;
         const tools = !final && mode === 'agent' ? TOOLS : [];
         if (!tools.length)
           messages = [
@@ -78,25 +172,11 @@ export class AnalysisAgent {
             },
             ...messages.slice(1)
           ];
-        let input = estimateTokens({ messages, tools });
-        const remaining = AGENT_LIMITS.input - report.inputTokens;
-        if (input > Math.min(5500, remaining)) {
-          // 重新构造完整文本请求，不能截断成孤立的 tool 消息或丢失 call_id 配对。
-          messages = fitMessages(
-            [messages[0], ...base.slice(1)],
-            evidence,
-            Math.min(5500, remaining) - estimateTokens(tools) - 80
-          );
-          input = estimateTokens({ messages, tools });
-        }
-        if (input > remaining && report.requests === 0)
-          throw new Error('本轮关键对话超过上下文预算，已保留用户原话而未强行截断。请稍后重试摘要，或新建分析。');
-        if (input > remaining || AGENT_LIMITS.output - report.outputTokens < 300) {
+        const input = estimateTokens({ messages, tools });
+        if (AGENT_LIMITS.output - report.outputTokens < 300) {
           report.limited = true;
           break;
         }
-        if (input > 5500)
-          throw new Error('本轮关键对话超过上下文预算，已保留用户原话而未强行截断。请稍后重试摘要，或新建分析。');
         const timeoutMs = Math.min(
           options.timeoutMs || AGENT_LIMITS.timeout,
           AGENT_LIMITS.timeout - (Date.now() - started)
@@ -150,51 +230,14 @@ export class AnalysisAgent {
           break;
         }
         onResetText();
-        // 预留最终回答输入/输出额度；最多执行六次工具，即使模型一次返回很多调用。
-        const results = await Promise.all(
-          turn.calls.map(async (call) => {
-            let result: string;
-            let args: any;
-            try {
-              args = JSON.parse(call.function.arguments);
-            } catch {
-              args = null;
-            }
-            const signature =
-              call.function.name +
-              ':' +
-              JSON.stringify(args && typeof args === 'object' ? Object.fromEntries(Object.entries(args).sort()) : args);
-            if (seen.has(signature)) result = await seen.get(signature)!;
-            else if (report.queries >= AGENT_LIMITS.queries) {
-              report.limited = true;
-              result = '{"missing":true,"reason":"查询预算已用完，请根据已有数据回答。"}';
-            } else {
-              report.queries++;
-              onStatus('正在补查行情与相关数据…');
-              const pending = (async () => {
-                let value: string;
-                try {
-                  value = pack(await data.execute(call.function.name, args, target, options.signal!), 1000);
-                } catch (error) {
-                  if (options.signal?.aborted) throw abortError();
-                  value = '{"missing":true,"reason":"查询失败或参数不支持，不得补猜。"}';
-                }
-                evidence.push({ tool: call.function.name, args, data: JSON.parse(value) });
-                return value;
-              })();
-              seen.set(signature, pending);
-              result = await pending;
-            }
-            return { role: 'tool' as const, tool_call_id: call.id, content: result };
-          })
-        );
+        onStatus('正在补查行情与相关数据…');
+        const results = await Promise.all(turn.calls.map(query));
         messages = [
           ...messages,
           { role: 'assistant', content: turn.content, tool_calls: turn.calls, responseItems: turn.responseItems },
           ...results
         ];
-        if (report.inputTokens >= AGENT_LIMITS.input || report.outputTokens >= AGENT_LIMITS.output)
-          report.limited = true;
+        if (report.outputTokens >= AGENT_LIMITS.output) report.limited = true;
       }
       if (!content.trim()) throw new Error('AI 本轮已达到查询或用量上限，尚未生成完整结论；请缩小问题范围。');
       return { content, report, evidence };

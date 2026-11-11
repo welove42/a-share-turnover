@@ -295,10 +295,10 @@ test('长历史不再重复发送旧行情包，保留近期问答与旧结论�
     }))
   ];
   const compact = conversationContext(history);
-  assert.ok(compact.length <= 8);
+  assert.equal(compact.length, history.length);
   for (const row of history.slice(1).filter((m) => m.role === 'user'))
     assert.ok(JSON.stringify(compact).includes(row.content));
-  assert.match(JSON.stringify(compact), /旧结论/);
+  assert.equal(compact[2].content, history[2].content);
   assert.doesNotMatch(JSON.stringify(compact), /x{100}/);
   assert.equal(history.length, 26);
   const snapshot = JSON.parse(
@@ -313,19 +313,28 @@ test('长历史不再重复发送旧行情包，保留近期问答与旧结论�
   assert.equal(snapshot.timeframes.weekly.date, '2026-11-06');
 });
 
-test('未摘要的用户原话超过预算时明确停止，不强行删掉用户约束后调用模型', async () => {
+test('输入超过旧上限仍发送完整上下文，工具证据也不按 token 截断', async () => {
   const opts = options(),
-    sizes = [];
-  opts.messages.splice(1, 0, { role: 'user', content: '旧数据'.repeat(30000) });
-  await assert.rejects(
-    new AnalysisAgent().run({
-      ...opts,
-      request: async (o) => {
-        sizes.push(estimateTokens({ messages: o.messages, tools: o.tools }));
-        return sizes.length === 1 ? { content: '', calls: [call()] } : { content: '简短结论', calls: [] };
-      }
-    }),
-    /保留用户原话/
-  );
-  assert.equal(sizes.length, 0);
+    requests = [];
+  const original = '背景。'.repeat(10000) + '重要更正：只关注长期回撤。';
+  opts.messages.splice(1, 0, { role: 'user', content: original });
+  const payload = {
+    rows: Array.from({ length: 30 }, (_, i) => ({ date: `2026-11-${i + 1}`, value: i, description: '必须保留的证据' }))
+  };
+  const result = await new AnalysisAgent().run({
+    ...opts,
+    data: { execute: async () => payload },
+    request: async (o) => {
+      requests.push(o);
+      assert.equal(o.messages[1].content, original);
+      if (requests.length === 1)
+        return { content: '', calls: [call()], usage: { prompt_tokens: 22000, completion_tokens: 50 } };
+      assert.deepEqual(JSON.parse(o.messages.find((m) => m.role === 'tool').content), payload);
+      return { content: '完整分析', calls: [], usage: { prompt_tokens: 23000, completion_tokens: 100 } };
+    }
+  });
+  assert.equal(requests.length, 2);
+  assert.equal(result.report.inputTokens, 45000);
+  assert.ok(estimateTokens({ messages: requests[0].messages, tools: requests[0].tools }) > 12000);
+  assert.equal(result.report.limited, false);
 });

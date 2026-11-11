@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { summarizeConversation, usableMemory, rollConversation } = require('../dist/features/ai/conversation-memory');
-const { conversationContext, fitMessages } = require('../dist/features/ai/agent-context');
+const { conversationContext } = require('../dist/features/ai/agent-context');
 const { InterestStore } = require('../dist/features/ai/interests');
 const { ProfileStore } = require('../dist/features/ai/profile');
 const { harness } = require('./vscode-mock.cts');
@@ -22,7 +22,7 @@ const options = () => ({
 const history = () =>
   Array.from({ length: 18 }, (_, i) => ({
     role: i % 2 ? 'assistant' : 'user',
-    content: i % 2 ? '近期数据仍需核实。'.repeat(55) : `问题${i}：我想关注风险。`
+    content: i % 2 ? '近期数据仍需核实。'.repeat(350) : `问题${i}：我想关注风险。`
   }));
 test('长对话用模型合并摘要，近期原文完整保留，已覆盖记录不重复压缩', async () => {
   const rows = history();
@@ -58,7 +58,7 @@ test('摘要无效或取消不生成覆盖游标；原文后半段的约束保�
     ...conversationContext(rows),
     { role: 'user', content: '现在呢' }
   ];
-  assert.match(JSON.stringify(fitMessages(base, [], 3000)), /更正：只看长期/);
+  assert.match(JSON.stringify(base), /更正：只看长期/);
   const control = new AbortController();
   await assert.rejects(
     summarizeConversation(history(), undefined, { ...options(), signal: control.signal }, async () => {

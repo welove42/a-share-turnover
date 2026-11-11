@@ -433,7 +433,7 @@ test('手动停止保留可追问的部分内容，迟到回复不污染下一�
   }
 });
 
-test('首次无正文失败不能追问；恢复失败仍保留上下文，长对话压缩后继续', async () => {
+test('首次无正文失败不能追问；恢复失败仍保留上下文，未触发摘要时保留完整问答', async () => {
   let partial = false;
   const requests = [];
   const { c, panel } = await setup({
@@ -460,7 +460,10 @@ test('首次无正文失败不能追问；恢复失败仍保留上下文，长�
     const count = requests.length;
     await c.analyze('继续');
     assert.equal(requests.length, count + 1);
-    assert.ok(requests.at(-1).messages.length <= 10);
+    assert.ok(requests.at(-1).messages.length > 10);
+    assert.ok(
+      requests.at(-1).messages.filter((m) => m.role === 'assistant' && m.content.includes('部分分析')).length >= 9
+    );
     assert.doesNotMatch(c.status, /10 轮/);
   } finally {
     c.dispose();
