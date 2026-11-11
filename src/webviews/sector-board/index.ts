@@ -128,7 +128,7 @@ function render() {
 // 按成交额递归切分矩形，面积比例来自真实数据；不把缺失值填成零。
 function renderMap(rows: Row[]) {
   const all = rows.filter((r) => r.amount !== null && r.amount > 0).sort((a, b) => b.amount! - a.amount!);
-  const list = all.slice(0, 120),
+  const list = all.slice(0, 40),
     map = $('heatmap');
   map.replaceChildren();
   $('coverage').textContent = `成交额前 ${list.length} / ${all.length} 个板块`;
