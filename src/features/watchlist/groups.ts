@@ -75,7 +75,7 @@ class StockGroups {
         };
   }
   get quotes() {
-    return this.market === 'a' ? this.parent.quotes : this.parent.overseas.displayQuotes(this.market);
+    return this.market === 'a' ? this.parent.displayQuotes() : this.parent.overseas.displayQuotes(this.market);
   }
   get groups() {
     return this.config.groups;

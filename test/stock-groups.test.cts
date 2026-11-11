@@ -125,7 +125,7 @@ test('分组内部按涨跌幅排序；拖动后保存当前各组显示顺序�
       [C, 2],
       [D, 4]
     ])
-      c.quotes.set(s, { percent: p });
+      c.quotes.set(s, { percent: p, date: c.clock().date, timestamp: c.clock().date.replaceAll('-', '') + '150000' });
     assert.deepEqual(members(c, 'watch'), [B, A]);
     assert.deepEqual(members(c, 'hold'), [D, C]);
     await c.handleDrop(c.element(B), transfer(c, [c.element(A)]), token());

@@ -295,6 +295,42 @@ class WatchlistController {
       clock.polling && stockTradingMinute(clock.minute) - stockTradingMinute(timeToMinute(q.timestamp.slice(8, 12))) > 2
     );
   }
+  /** 盘前清空展示，不修改真实报价和缓存；有当天集合竞价行情后恢复。 */
+  dailyReset(symbol: string) {
+    if (symbol === INDEX_SYMBOL || !this.config.symbols.includes(symbol)) return false;
+    const clock = this.clock(),
+      q = this.quotes.get(symbol);
+    return (
+      clock.phase !== 'closed' &&
+      clock.minute >= 540 &&
+      (!q || q.date !== clock.date || q.timestamp.slice(8, 12) < '0915')
+    );
+  }
+  resetPrice(symbol: string) {
+    const q = this.quotes.get(symbol),
+      clock = this.clock();
+    if (!q) return '—';
+    if (q.date === clock.date && q.previousClose != null && q.previousClose > 0) {
+      const decimals = q.priceText.split('.')[1]?.length ?? 2;
+      return q.previousClose.toFixed(Math.min(decimals, 4));
+    }
+    // 仅使用上一交易日收盘后的报价，避免将断线时的旧盘中价当成昨收。
+    const date = new Date(clock.date + 'T04:00:00Z');
+    for (let i = 0; i < 30; i++) {
+      date.setUTCDate(date.getUTCDate() - 1);
+      const previous = stockSession(date, this.config.closedDates);
+      if (previous.phase === 'closed') continue;
+      return q.date === previous.date && q.timestamp.slice(8, 12) >= '1500' && q.price != null && q.price > 0
+        ? q.priceText
+        : '—';
+    }
+    return '—';
+  }
+  displayQuotes() {
+    return new Map(
+      [...this.quotes].map(([symbol, quote]) => [symbol, this.dailyReset(symbol) ? { ...quote, percent: 0 } : quote])
+    );
+  }
   getChildren(element) {
     if (this.hidden) return element ? [] : DEBUG_ITEMS;
     if (!this.config.enabled) return [];
@@ -303,7 +339,9 @@ class WatchlistController {
     if (element.kind === 'stockGroup') return this.groupingFor(element.market)?.children(element.id) || [];
     if (element.kind !== 'group') return [];
     if (this.config.groups.length) return this.grouping.buckets().map((g) => this.grouping.element(g.id));
-    return orderedSymbols(this.config.symbols, this.quotes, this.config.sortBy).map((symbol) => this.element(symbol));
+    return orderedSymbols(this.config.symbols, this.displayQuotes(), this.config.sortBy).map((symbol) =>
+      this.element(symbol)
+    );
   }
   element(symbol) {
     if (!this.elements.has(symbol)) this.elements.set(symbol, { kind: 'stock', symbol });
@@ -346,10 +384,13 @@ class WatchlistController {
       return this.activity.decorate(item, element);
     }
     const q = this.quotes.get(element.symbol),
-      stale = this.stale(element.symbol);
-    const label = q
-      ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]`
-      : `—   —   [${element.symbol}]`;
+      reset = this.dailyReset(element.symbol),
+      stale = reset || this.stale(element.symbol);
+    const label = reset
+      ? `${percentText(0).padStart(7)}   ${this.resetPrice(element.symbol).padStart(8)}   [${q?.name || element.symbol}]`
+      : q
+        ? `${percentText(q.percent).padStart(7)}   ${q.priceText.padStart(8)}   [${q.name}]`
+        : `—   —   [${element.symbol}]`;
     const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
     item.id = `stock:${element.symbol}`;
     item.contextValue = 'aShareStock';
@@ -358,21 +399,27 @@ class WatchlistController {
       title: '查看详细行情图表',
       arguments: [element.symbol]
     };
-    item.description = this.errors.has(element.symbol)
-      ? '获取失败'
-      : stale
-        ? q && q.date !== this.clock().date
-          ? q.date.slice(5)
-          : '缓存'
-        : '';
-    item.iconPath = this.errors.has(element.symbol)
-      ? new vscode.ThemeIcon('warning')
-      : trendIcon(this.context.extensionUri, q?.percent, this.config.colors);
+    item.description = reset
+      ? '待今日行情'
+      : this.errors.has(element.symbol)
+        ? '获取失败'
+        : stale
+          ? q && q.date !== this.clock().date
+            ? q.date.slice(5)
+            : '缓存'
+          : '';
+    item.iconPath = reset
+      ? trendIcon(this.context.extensionUri, 0, this.config.colors)
+      : this.errors.has(element.symbol)
+        ? new vscode.ThemeIcon('warning')
+        : trendIcon(this.context.extensionUri, q?.percent, this.config.colors);
     item.tooltip = this.tooltip(element.symbol);
     item.accessibilityInformation = {
-      label: `${q?.name || element.symbol} ${element.symbol}，现价 ${q?.priceText || '未知'}，涨跌幅 ${percentText(q?.percent ?? null)}${stale ? '，非实时或缓存' : ''}`
+      label: reset
+        ? `${q?.name || element.symbol} ${element.symbol}，昨收 ${this.resetPrice(element.symbol)}，涨跌幅已重置，等待今日行情`
+        : `${q?.name || element.symbol} ${element.symbol}，现价 ${q?.priceText || '未知'}，涨跌幅 ${percentText(q?.percent ?? null)}${stale ? '，非实时或缓存' : ''}`
     };
-    this.insights.decorate(item, q, 'a', stale);
+    if (!reset) this.insights.decorate(item, q, 'a', stale);
     return this.activity.decorate(item, element);
   }
   tooltip(symbol) {
@@ -381,9 +428,11 @@ class WatchlistController {
     tip.isTrusted = false;
     tip.supportHtml = false;
     tip.appendText(
-      q
-        ? `${q.name}（${symbol}）\n\n现价：${q.priceText}　涨跌幅：${percentText(q.percent)}\n涨跌额：${signed(q.delta, 3)}　昨收：${q.previousClose}\n最高：${q.high ?? '—'}　最低：${q.low ?? '—'}\n行情时间：${q.date} ${quoteClock(q.timestamp)}（北京）`
-        : `${symbol}\n尚未获取行情`
+      this.dailyReset(symbol)
+        ? `${q?.name || symbol}（${symbol}）\n\n上个交易日收盘价：${this.resetPrice(symbol)}\n涨跌幅已重置为 0.00%，等待今日行情；重置值不是实时涨跌幅。`
+        : q
+          ? `${q.name}（${symbol}）\n\n现价：${q.priceText}　涨跌幅：${percentText(q.percent)}\n涨跌额：${signed(q.delta, 3)}　昨收：${q.previousClose}\n最高：${q.high ?? '—'}　最低：${q.low ?? '—'}\n行情时间：${q.date} ${quoteClock(q.timestamp)}（北京）`
+          : `${symbol}\n尚未获取行情`
     );
     if (this.paused) tip.appendText('\n自动刷新已暂停。');
     if (this.stale(symbol)) tip.appendText('\n当前为缓存、非当日行情或行情未更新，请核对行情时间。');
@@ -424,6 +473,7 @@ class WatchlistController {
         this.quotes.get(symbol),
         this.errors.get(symbol),
         this.stale(symbol),
+        this.dailyReset(symbol),
         this.paused
       ]);
       if (signature !== this.signatures.get(symbol)) {
@@ -446,10 +496,13 @@ class WatchlistController {
     }
     const symbol = this.config.selected,
       q = this.quotes.get(symbol);
-    const stale = this.stale(symbol);
-    const text = q
-      ? `[${q.name}] ${q.priceText} ${q.percent > 0 ? '$(triangle-up)' : q.percent < 0 ? '$(triangle-down)' : '$(dash)'} (${percentText(q.percent)})${this.paused ? ' · 暂停' : stale ? ' · 未更新' : ''}`
-      : `[${symbol === INDEX_SYMBOL ? '上证指数' : symbol}] ${this.errors.has(symbol) ? '获取失败' : '待获取'}`;
+    const reset = this.dailyReset(symbol),
+      stale = reset || this.stale(symbol);
+    const text = reset
+      ? `[${q?.name || symbol}] ${this.resetPrice(symbol)} $(dash) (${percentText(0)}) · 待今日行情`
+      : q
+        ? `[${q.name}] ${q.priceText} ${q.percent > 0 ? '$(triangle-up)' : q.percent < 0 ? '$(triangle-down)' : '$(dash)'} (${percentText(q.percent)})${this.paused ? ' · 暂停' : stale ? ' · 未更新' : ''}`
+        : `[${symbol === INDEX_SYMBOL ? '上证指数' : symbol}] ${this.errors.has(symbol) ? '获取失败' : '待获取'}`;
     const tooltip = this.tooltip(symbol);
     tooltip.appendText('\n点击切换上证指数 / 自选股。');
     const color = !stale && !this.paused ? stockStatusColor(q?.percent, this.config.colors) : undefined;
@@ -863,7 +916,9 @@ class WatchlistController {
         const q = this.quotes.get(s);
         return {
           label: q?.name || (s === INDEX_SYMBOL ? '上证指数' : s),
-          description: `${s}  ${q?.priceText || '—'}  ${percentText(q?.percent ?? null)}${s === this.config.selected ? '  当前显示' : ''}`,
+          description: this.dailyReset(s)
+            ? `${s}  ${this.resetPrice(s)}  ${percentText(0)} · 待今日行情${s === this.config.selected ? '  当前显示' : ''}`
+            : `${s}  ${q?.priceText || '—'}  ${percentText(q?.percent ?? null)}${s === this.config.selected ? '  当前显示' : ''}`,
           symbol: s
         };
       });

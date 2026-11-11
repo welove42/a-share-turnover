@@ -49,6 +49,48 @@ function dragController(h) {
   return h.trees.get('welove42.aShareTurnover.marketWatch').dragAndDropController;
 }
 
+test('交易日9点重置旧报价显示，今日竞价恢复；休市不清空缓存', () => {
+  const h = setup({
+    'aShareTurnover.stocks.symbols': ['sh600519'],
+    'aShareTurnover.stocks.statusBarSymbol': 'sh600519'
+  });
+  try {
+    const old = quote('sh600519', '贵州茅台', '11.30', '8.9', '20261026150000');
+    h.c.quotes.set('sh600519', old);
+    h.c.paused = true;
+    const item = () => h.c.getTreeItem(h.c.element('sh600519'));
+    h.setNow('2026-10-27T08:59:59+08:00');
+    h.c.publish();
+    assert.match(item().label, /8\.90%/);
+    h.c.emitter.fired.length = 0;
+    h.setNow('2026-10-27T09:00:00+08:00');
+    h.c.tick();
+    assert.match(item().label, /0\.00%.*11\.30.*贵州茅台/);
+    assert.equal(item().description, '待今日行情');
+    assert.match(item().tooltip.value, /不是实时涨跌幅/);
+    assert.match(item().tooltip.value, /上个交易日收盘价：11\.30/);
+    assert.match(h.c.status.text, /11\.30.*0\.00%.*待今日行情/);
+    assert.ok(h.c.emitter.fired.some((e) => e?.symbol === 'sh600519'));
+    assert.equal(h.c.quotes.get('sh600519'), old);
+    h.c.quotes.set('sh600519', quote('sh600519', '贵州茅台', '11.30', '8.9', '20261026143000'));
+    assert.match(item().label, /0\.00%.*—/);
+    h.c.quotes.set('sh600519', quote('sh600519', '贵州茅台', '11.50', '2.68', '20261027091000'));
+    assert.match(item().label, /0\.00%.*11\.20/);
+    h.c.quotes.set('sh600519', quote('sh600519', '贵州茅台', '11.50', '2.68', '20261027091501'));
+    h.setNow('2026-10-27T09:15:02+08:00');
+    h.c.publish();
+    assert.match(item().label, /2\.68%.*11\.50/);
+    h.c.quotes.set('sh600519', old);
+    h.setNow('2026-10-31T09:00:00+08:00');
+    assert.match(item().label, /8\.90%/);
+    h.setNow('2026-10-27T09:00:00+08:00');
+    h.c.config.closedDates = ['2026-10-27'];
+    assert.match(item().label, /8\.90%/);
+  } finally {
+    h.c.dispose();
+  }
+});
+
 test('自选配色即时同步 A 股港美股和状态栏，不重复请求行情；默认和中性色可恢复', async () => {
   const h = setup({
     'aShareTurnover.stocks.symbols': ['sh600519', 'sz000001'],
