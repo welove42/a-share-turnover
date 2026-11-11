@@ -1,19 +1,23 @@
 :root { color-scheme: light dark; }
+body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
+body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; }
 * { box-sizing: border-box; }
 body { padding: 0; margin: 0; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
 main { max-width: 1120px; margin: 0 auto; padding: 28px 32px 48px; }
 header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 h1 { font-size: 21px; margin: 0 0 8px; }
 header p, .footnote { color: var(--vscode-descriptionForeground); margin: 0; line-height: 1.6; }
-button, select, input { font: inherit; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-contrastBorder, transparent); border-radius: 4px; padding: 7px 12px; }
+button, select, input { font: inherit; }
 button, select { cursor: pointer; }
-button:hover, select:hover { background: var(--vscode-button-secondaryHoverBackground); }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-.toolbar { display: flex; align-items: center; gap: 10px; margin: 25px 0 14px; flex-wrap: wrap; }
-.toolbar label { color: var(--vscode-descriptionForeground); }
-.month-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.month-nav input { width: 142px; }
-.month-nav button { font-size: 20px; line-height: 1; padding: 4px 10px; }
+#refresh, .toolbar button, .toolbar select, .toolbar input { height: 34px; min-width: 0; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; padding: 0 12px; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); line-height: normal; }
+#refresh:hover, .toolbar button:hover, .toolbar select:hover, .toolbar input:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 25px 0 14px; flex-wrap: wrap; }
+.filter-group, .month-nav { display: flex; align-items: center; gap: 8px; }
+.filter-group label { color: var(--vscode-descriptionForeground); white-space: nowrap; }
+.filter-group select { width: 120px; }
+.month-nav input { width: 146px; }
+.month-nav #prev, .month-nav #next { display: inline-flex; width: 34px; align-items: center; justify-content: center; padding: 0; font-size: 20px; }
 .calendar { border: 1px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; }
 .weekdays, .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .weekdays { background: var(--vscode-sideBar-background); color: var(--vscode-descriptionForeground); text-align: center; }
@@ -39,4 +43,5 @@ h2 { font-size: 16px; margin: 0 0 12px; }
 .source-link { padding: 0; border: 0; background: transparent; color: var(--vscode-textLink-foreground); }
 .source-link:hover { background: transparent; text-decoration: underline; }
 .footnote { margin-top: 12px; font-size: 12px; }
-@media (max-width: 600px) { main { padding: 18px 12px 32px; } .day { padding: 5px 3px; min-height: 66px; } .event-label, .more { font-size: 10px; } .today-label { display: none; } .month-nav { margin-left: 0; } }
+@media (max-width: 600px) { main { padding: 18px 12px 32px; } .day { padding: 5px 3px; min-height: 66px; } .event-label, .more { font-size: 10px; } .today-label { display: none; } }
+@media (max-width: 340px) { .month-nav { width: 100%; gap: 6px; } .month-nav input { flex: 1; width: 0; } }
