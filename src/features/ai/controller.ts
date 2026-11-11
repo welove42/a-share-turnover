@@ -18,9 +18,12 @@ import { endpoint, modelName, secretId, complete, completeTurn, diagnosticText }
 import { AnalysisContext, SYSTEM } from './context';
 import { AiHistoryStore } from './history';
 import { listModels } from './models';
-import { conversationContext, snapshotText } from './agent-context';
+import { conversationContext, snapshotText, estimateTokens } from './agent-context';
 import { AnalysisAgent, type TurnRequest } from './agent';
 import { AgentData, applyEvidence, explanationOnly, type QueryData } from './agent-data';
+import { summarizeConversation, rollConversation, type ConversationMemory } from './conversation-memory';
+import { ProfileStore } from './profile';
+import type { InterestStore } from './interests';
 const VIEW = 'welove42.aShareTurnover.aiAnalysis';
 const PHASES = {
   querying: '正在补查行情与相关数据…',
@@ -42,6 +45,12 @@ class AiAnalysisController {
   private agent = new AnalysisAgent();
   private agentData: QueryData;
   private requestTurn: TurnRequest;
+  private memory?: ConversationMemory;
+  private memoryRetryAt = 0;
+  private interests?: InterestStore;
+  private profile: ProfileStore;
+  private profileVisible = false;
+  private profileStatus = '';
   declare collect: (target: string, signal?: AbortSignal) => Promise<AnalysisSnapshot>;
   declare messages: AnalysisMessage[];
   declare history: ChatMessage[];
@@ -102,6 +111,7 @@ class AiAnalysisController {
     context: vscode.ExtensionContext,
     {
       stocks,
+      interests,
       market,
       globals,
       commodities,
@@ -116,6 +126,8 @@ class AiAnalysisController {
     }: AnalysisDependencies = {}
   ) {
     Object.assign(this, { context, stocks, request, requestModels, config, openSettings });
+    this.interests = interests;
+    this.profile = new ProfileStore(context.globalState);
     const source = collect ? null : new AnalysisContext({ stocks, market, globals, commodities, news });
     this.collect = collect || ((target, signal) => source!.collect(target, signal));
     this.agentData =
@@ -200,6 +212,27 @@ class AiAnalysisController {
     const token = this.token;
     view.webview.onDidReceiveMessage((message) => {
       if (this.hidden || this.disposed || this.view !== view || message?.token !== token) return;
+      if (message.type === 'profile') {
+        this.profileVisible = !this.profileVisible;
+        this.profileStatus = '';
+        this.publish();
+        return;
+      }
+      if (message.type === 'profileSave' || message.type === 'profileClear') {
+        if (this.busy) return;
+        void (async () => {
+          try {
+            if (message.type === 'profileClear') await this.profile.clear();
+            else await this.profile.edit(message.value, this.target);
+            this.status = message.type === 'profileClear' ? '已清空用户画像' : '画像已保存，下次分析生效';
+          } catch (e) {
+            this.status = e.message;
+          }
+          this.profileStatus = this.status;
+          this.publish();
+        })();
+        return;
+      }
       if (message.type === 'ready') this.publish();
       else if (message.type === 'settings') this.openSettings();
       else if (message.type === 'refreshTargets') this.publish();
@@ -255,7 +288,10 @@ class AiAnalysisController {
       saveWarning: this.saveWarning || '',
       historyVisible: Boolean(this.historyVisible),
       historyItems: this.historyItems || [],
-      activeSessionId: this.sessionId
+      activeSessionId: this.sessionId,
+      profileVisible: this.profileVisible,
+      profileStatus: this.profileStatus,
+      profile: this.profile.forAnalysis(this.target || '')
     });
   }
   record(): AiConversation | null {
@@ -278,7 +314,8 @@ class AiAnalysisController {
       history: this.history,
       interruptedHistory,
       snapshot: this.snapshot,
-      draft: this.draft
+      draft: this.draft,
+      memory: this.memory
     };
   }
   saveCurrent() {
@@ -308,6 +345,7 @@ class AiAnalysisController {
     this.saveTimer = null;
     this.messages = [];
     this.history = [];
+    this.memory = undefined;
     this.interruptedHistory = null;
     this.snapshot = null;
     this.sessionId = null;
@@ -323,6 +361,7 @@ class AiAnalysisController {
     this.target = record.target;
     this.messages = record.messages;
     this.history = record.history;
+    this.memory = record.memory;
     this.interruptedHistory = record.interruptedHistory;
     this.snapshot = record.snapshot;
     this.draft = record.draft || '';
@@ -409,6 +448,20 @@ class AiAnalysisController {
     if (report)
       this.output.appendLine(
         `本轮${report.mode === 'agent' ? 'Agent' : '兼容分析'}：模型请求 ${report.requests} 次，工具查询 ${report.queries} 次；${report.estimated ? '含估算（未报告输出按请求上限预扣）' : '服务商报告'}输入 ${report.inputTokens} / 输出 ${report.outputTokens} tokens。`
+      );
+    const auxiliary = this.context.globalState.get<
+      Array<{
+        name: string;
+        elapsedMs: number;
+        complete: boolean;
+        inputTokens: number;
+        outputTokens: number;
+        estimated: boolean;
+      }>
+    >('ai.preparationDiagnostic.v1', []);
+    for (const item of auxiliary)
+      this.output.appendLine(
+        `本轮${item.name}（额外请求）：${item.complete ? '已返回' : '中断或失败'}，${item.elapsedMs}ms；${item.estimated ? '估算（输出按上限预扣）' : '服务商报告'}输入 ${item.inputTokens} / 输出 ${item.outputTokens} tokens。`
       );
     this.output.show(true);
   }
@@ -544,7 +597,126 @@ class AiAnalysisController {
       if (!active()) return;
       this.snapshot = snapshot;
       const content = followup ? question.trim() : `请综合分析 ${this.name()}，结合各周期和市场背景。`;
-      const prior = followup ? followupHistory : [];
+      let prior = followup ? followupHistory : [];
+      const aiOptions = {
+        url,
+        model,
+        key,
+        signal: abort.signal,
+        protocol: (url.endsWith('/responses') ||
+        (new URL(url).hostname === 'api.openai.com' && /^gpt-6(?:[.-]|$)/.test(model))
+          ? 'responses'
+          : 'chat') as 'responses' | 'chat'
+      };
+      const preparation: Array<{
+        name: string;
+        elapsedMs: number;
+        complete: boolean;
+        inputTokens: number;
+        outputTokens: number;
+        estimated: boolean;
+      }> = [];
+      await this.context.globalState.update('ai.preparationDiagnostic.v1', []).then(undefined, () => {});
+      if (!active()) return;
+      // 摘要与画像有独立的短超时及请求上限，诊断单列其用量，避免把额外费用藏在正文预算外。
+      const auxiliary =
+        (name: string): TurnRequest =>
+        async (args) => {
+          const started = Date.now();
+          const item = {
+            name,
+            elapsedMs: 0,
+            complete: false,
+            inputTokens: estimateTokens(args.messages),
+            outputTokens: args.maxTokens || 0,
+            estimated: true
+          };
+          preparation.push(item);
+          try {
+            const result = await this.requestTurn(args);
+            item.complete = true;
+            const input = result.usage?.input_tokens ?? result.usage?.prompt_tokens;
+            const output = result.usage?.output_tokens ?? result.usage?.completion_tokens;
+            if (Number.isFinite(input) && Number.isFinite(output)) {
+              item.inputTokens = input!;
+              item.outputTokens = output!;
+              item.estimated = false;
+            }
+            return result;
+          } finally {
+            item.elapsedMs = Date.now() - started;
+            if (active())
+              await this.context.globalState
+                .update(
+                  'ai.preparationDiagnostic.v1',
+                  preparation.map((value) => ({ ...value }))
+                )
+                .then(undefined, () => {});
+          }
+        };
+      this.interests?.noteSector(this.target, this.snapshot?.sectors?.industry);
+      const focus =
+        this.interests?.summary(this.target, this.stocks?.config.symbols || [], this.snapshot?.sectors?.industry) ||
+        null;
+      const preferences = vscode.workspace.getConfiguration('aShareTurnover');
+      if (this.interests && preferences.get('ai.profileEnabled', true)) {
+        this.status = '正在整理关注点与用户画像…';
+        this.publish();
+        try {
+          await this.profile.learn(question, focus, this.target, aiOptions, auxiliary('画像整理'));
+        } catch {
+          /* 画像服务失败不阻止分析，仍使用用户此前确认的记录。 */
+        }
+        if (!active()) return;
+      }
+      let memoryNote = '';
+      if (followup && preferences.get('ai.semanticMemory', true) && Date.now() >= this.memoryRetryAt) {
+        this.status = '正在检查对话记忆…';
+        this.publish();
+        const started = Date.now();
+        try {
+          const compressed = await summarizeConversation(prior, this.memory, aiOptions, auxiliary('对话摘要'));
+          if (!active()) return;
+          this.memory = compressed.memory;
+          memoryNote = compressed.attempted
+            ? '已更新语义摘要，近期问答保留原文'
+            : compressed.memory
+              ? '复用会话记忆与近期原文'
+              : '';
+          if (compressed.attempted)
+            void Promise.resolve(
+              this.context.globalState.update('ai.memoryDiagnostic.v1', {
+                elapsedMs: Date.now() - started,
+                usage: compressed.usage || null
+              })
+            ).catch(() => {});
+        } catch {
+          if (!active()) return;
+          this.memoryRetryAt = Date.now() + 5 * 60000;
+          memoryNote = '摘要暂不可用：保留用户原话，旧回答仅保留完整证据句';
+        }
+      }
+      const rolled = rollConversation(prior, this.memory);
+      const removed = prior.length - rolled.history.length;
+      prior = rolled.history;
+      this.memory = rolled.memory;
+      if (removed) {
+        this.history = this.history.slice(removed);
+        if (this.interruptedHistory) this.interruptedHistory = this.interruptedHistory.slice(removed);
+      }
+      const profile =
+        preferences.get('ai.profileEnabled', true) && (this.interests || this.profile.read().initialized)
+          ? this.profile.forAnalysis(this.target)
+          : null;
+      if (memoryNote || focus)
+        this.snapshot = {
+          ...this.snapshot,
+          coverage: [
+            ...(this.snapshot.coverage || []).filter((c) => !['对话记忆', '浏览偏好'].includes(c.label)),
+            ...(memoryNote ? [{ label: '对话记忆', detail: memoryNote }] : []),
+            ...(focus ? [{ label: '浏览偏好', detail: `${focus.horizonHint}（弱参考）` }] : [])
+          ]
+        };
       const user: ChatMessage = { role: 'user', content };
       const answer: AnalysisMessage = {
         role: 'assistant',
@@ -560,7 +732,17 @@ class AiAnalysisController {
       const requestMessages = [
         { role: 'system' as const, content: SYSTEM + recovery },
         { role: 'user' as const, content: '当前行情快照（逐项核对数据时间）：\n' + snapshotText(this.snapshot) },
-        ...conversationContext(prior),
+        ...conversationContext(prior, this.memory, content),
+        ...(profile || focus
+          ? [
+              {
+                role: 'user' as const,
+                content:
+                  '用户关注与画像（仅辅助信息，当前明确问题优先；不作为实时行情）：\n' +
+                  JSON.stringify({ profile, focus, askHolding: !followup && this.target !== 'market' && !!profile })
+              }
+            ]
+          : []),
         user
       ];
       this.messages.push({ role: 'user', content: followup ? question.trim() : `分析 ${this.name()}` }, answer);
@@ -637,7 +819,7 @@ class AiAnalysisController {
         ...applyEvidence(this.snapshot!, this.target, result.evidence),
         agent: { report: result.report, evidence: result.evidence }
       };
-      this.history = [...prior, user, { role: 'assistant', content: result.content }].slice(-120) as ChatMessage[];
+      this.history = [...prior, user, { role: 'assistant', content: result.content }] as ChatMessage[];
       this.status = `${result.report.mode === 'compatible' ? '兼容分析完成（接口不支持工具调用）' : '分析完成'} · 追问会检查行情并按需补查`;
     } catch (error) {
       if (active()) {

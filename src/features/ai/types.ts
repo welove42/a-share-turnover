@@ -122,6 +122,7 @@ export interface AnalysisSnapshot {
   agent?: { report: AgentReport; evidence: unknown[] };
 }
 export interface AiConversation {
+  memory?: import('./conversation-memory').ConversationMemory;
   id: string;
   target: string;
   name: string;

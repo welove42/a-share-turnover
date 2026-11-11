@@ -26,6 +26,7 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
         <header>
           <div><strong>AI 分析</strong><span id="model"></span></div>
           <div class="header-actions">
+            <button id="profile" class="quiet" title="查看和修改分析偏好与持仓">画像</button>
             <button id="history" class="quiet" title="恢复本地保存的分析对话">历史</button
             ><button id="diagnostics" class="quiet" title="查看最近请求的耗时和结束原因">诊断</button
             ><button id="settings" class="quiet" title="配置 API 地址、模型和密钥">设置</button>
@@ -70,6 +71,64 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
         <p id="status" role="status" aria-live="polite"></p>
         <p id="save-warning" role="status" hidden></p>
         <p id="context-summary" hidden aria-label="分析上下文"></p>
+        <form id="profile-panel" hidden>
+          <div class="profile-heading">
+            <h3>我的分析偏好</h3>
+            <button id="profile-close" class="quiet" type="button">关闭</button>
+          </div>
+          <p class="muted">
+            可跳过；仅存本机。启用画像后，分析会发送偏好及当前个股仓位、成本给你配置的 AI 服务。浏览行为仅作参考。
+          </p>
+          <label
+            >风险偏好<select id="profile-risk">
+              <option value="unknown">未确认</option>
+              <option value="conservative">保守</option>
+              <option value="balanced">稳健 / 均衡</option>
+              <option value="aggressive">激进</option>
+            </select></label
+          >
+          <label
+            >关注周期<select id="profile-horizon">
+              <option value="unknown">未确认</option>
+              <option value="short">短线</option>
+              <option value="medium">中线</option>
+              <option value="long">长线</option>
+              <option value="mixed">多周期</option>
+            </select></label
+          >
+          <label>主要关注<input id="profile-goal" maxlength="300" placeholder="例如：更关注回撤风险" /></label>
+          <fieldset id="profile-holding">
+            <legend id="profile-symbol">当前个股持仓</legend>
+            <label
+              >持仓状态<select id="profile-position">
+                <option value="unknown">未提供</option>
+                <option value="none">空仓 / 观察</option>
+                <option value="held">已持仓</option>
+              </select></label
+            ><label
+              >每股 / 每份成本（报价币种）<input
+                id="profile-cost"
+                type="number"
+                min="0.000001"
+                step="any"
+                placeholder="可留空" /></label
+            ><label
+              >该股占总投资资产（%）<input
+                id="profile-exposure"
+                type="number"
+                min="0"
+                max="100"
+                step="any"
+                placeholder="可留空"
+            /></label>
+          </fieldset>
+          <p id="profile-note" class="muted"></p>
+          <div class="actions">
+            <button id="profile-save" type="submit">保存</button
+            ><button id="profile-clear" class="secondary" type="button">清空画像</button>
+          </div>
+          <p id="profile-status" role="status" aria-live="polite"></p>
+        </form>
         <main id="conversation" tabindex="0" aria-label="分析内容">
           <div id="welcome">
             <h2>边写代码，边看分析</h2>
@@ -101,7 +160,7 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
           <p id="followup-hint" class="muted" role="status"></p>
         </form>
         <footer>
-          对话自动保存在本机，可从“历史”恢复或删除。<br />仅发送公开行情、快讯和本次对话，不读取代码或持仓。<br />AI
+          对话与画像保存在本机，可查看或清空。<br />分析会发送行情、对话及已启用的偏好和自填持仓，不读取代码或券商账户。<br />AI
           可能有误，分析仅供参考。
         </footer>
         <aside id="history-panel" hidden aria-label="AI 分析历史">

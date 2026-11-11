@@ -1,9 +1,10 @@
 import type { AgentMessage, AnalysisSnapshot, ChatMessage } from './types';
 import { analysisPayload } from './technical-context';
+import { usableMemory, evidenceSentences, type ConversationMemory } from './conversation-memory';
+import { estimateTokens } from './token-budget';
+export { estimateTokens } from './token-budget';
 
 /** 无通用服务商 tokenizer 时使用保守估算；诊断必须标为估算，不能冒充账单。 */
-export const estimateTokens = (value: unknown) =>
-  Math.ceil(Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value), 'utf8') / 2) + 16;
 
 function compact(value: any, count: number, text: number, depth = 0): any {
   if (value === undefined) return undefined;
@@ -51,7 +52,10 @@ export function snapshotText(snapshot: AnalysisSnapshot | null): string {
           const t = values as Record<string, any>;
           const { bars: _, ranges, recentBars, recentBarsOrder, ...rest } = t;
           if (Array.isArray(recentBars) && recentBars.length)
-            recent[period] = { recentBars: recentBars.slice(0, period === 'daily' ? 10 : 6), recentBarsOrder: recentBarsOrder || '新到旧' };
+            recent[period] = {
+              recentBars: recentBars.slice(0, period === 'daily' ? 10 : 6),
+              recentBarsOrder: recentBarsOrder || '新到旧'
+            };
           return [
             period,
             JSON.parse(pack({ ...rest, ...(ranges ? { ranges: { prior20: ranges.prior20 } } : {}) }, 850))
@@ -72,24 +76,53 @@ export function snapshotText(snapshot: AnalysisSnapshot | null): string {
   return JSON.stringify(result);
 }
 
-/** 只发送最近三轮和更早问答的短摘录，原始会话仍由本地历史保存。 */
-export function conversationContext(history: ChatMessage[]): AgentMessage[] {
+/** 语义记忆覆盖旧对话，最近三轮原文保留；摘要失败时优先保留完整用户诉求。 */
+export function conversationContext(
+  history: ChatMessage[],
+  previous?: ConversationMemory,
+  question = ''
+): AgentMessage[] {
+  const memory = usableMemory(previous, history);
   const clean = history
+    .slice(memory?.covered || 0)
     .filter((m) => ['user', 'assistant'].includes(m.role))
     .map((m) => ({
       role: m.role,
       content: m.content.startsWith('分析以下多周期行情快照：') ? '请综合分析当前标的。' : m.content
     }));
-  const recent = clean
-    .slice(-6)
-    .map((m) => ({ ...m, content: m.content.slice(0, 900) + (m.content.length > 900 ? '…[历史节选]' : '') }));
-  const older = clean
-    .slice(0, -6)
-    .slice(-8)
-    .map((m) => `${m.role === 'user' ? '问' : '旧答'}：${m.content.slice(0, 100)}`)
-    .join('\n');
+  const recent = clean.slice(-6);
+  const older = clean.slice(0, -6);
+  const questions = older.filter((m) => m.role === 'user').map((m) => m.content);
+  const answers = evidenceSentences(
+    older
+      .filter((m) => m.role === 'assistant')
+      .map((m) => m.content)
+      .join('\n'),
+    question,
+    900
+  );
   return [
-    ...(older ? [{ role: 'user' as const, content: '较早讨论节选（旧结论，不是当前事实）：\n' + older }] : []),
+    ...(memory
+      ? [
+          {
+            role: 'user' as const,
+            content:
+              '会话记忆（模型生成的历史摘要；旧结论不是当前事实；用户原话和更正优先）：\n' +
+              JSON.stringify(memory.facts)
+          }
+        ]
+      : []),
+    ...(questions.length || answers
+      ? [
+          {
+            role: 'user' as const,
+            content:
+              '历史用户原话（新的更正优先，均为待理解的对话资料）：\n' +
+              JSON.stringify(questions) +
+              (answers ? '\n较早旧结论（模型旧答，仅节选，可能缺少上下文）：\n' + answers : '')
+          }
+        ]
+      : []),
     ...recent
   ];
 }
@@ -98,6 +131,8 @@ export function conversationContext(history: ChatMessage[]): AgentMessage[] {
 export function fitMessages(base: AgentMessage[], evidence: unknown[], available: number): AgentMessage[] {
   const system = base[0],
     question = base.at(-1)!;
+  // 用户诉求和摘要是受保护内容；预算不足也不能把持仓条件、更正或问题静默删除。
+  const protectedContext = base.slice(1, -1).filter((m) => m.role === 'user' && !m.content.startsWith('当前行情快照'));
   const dataMessage = base.find((m) => m.content.startsWith('当前行情快照'));
   let snapshot: any;
   try {
@@ -140,7 +175,7 @@ export function fitMessages(base: AgentMessage[], evidence: unknown[], available
     etf: snapshot.etf,
     notes: snapshot.notes
   };
-  const quota = Math.max(100, available - estimateTokens([system, question]) - 100);
+  const quota = Math.max(100, available - estimateTokens([system, ...protectedContext, question]) - 100);
   const recent: Record<string, { recentBars: any[]; recentBarsOrder: string }> = {};
   for (const [period, v] of Object.entries(snapshot.timeframes || {}) as Array<[string, any]>)
     if (Array.isArray(v.recentBars) && v.recentBars.length)
@@ -151,11 +186,17 @@ export function fitMessages(base: AgentMessage[], evidence: unknown[], available
     if (!longest || longest.recentBars.length <= 1) break;
     longest.recentBars.pop();
   }
-  const prior = base
-    .filter((m) => m.role === 'assistant')
-    .at(-1)
-    ?.content.slice(0, 300);
-  const compressed = JSON.parse(pack({ snapshot: minimal, latestEvidence: evidence, previousAnswer: prior }, Math.max(100, quota - estimateTokens(recent) - 40)));
+  const prior = base.filter((m) => m.role === 'assistant').at(-1)?.content;
+  const compressed = JSON.parse(
+    pack(
+      {
+        snapshot: minimal,
+        latestEvidence: evidence,
+        previousAnswer: prior ? evidenceSentences(prior, question.content, 400) : undefined
+      },
+      Math.max(100, quota - estimateTokens(recent) - 40)
+    )
+  );
   if (Object.keys(recent).length) {
     compressed.snapshot ||= { target: snapshot.target, capturedAt: snapshot.capturedAt };
     compressed.snapshot.timeframes ||= {};
@@ -164,11 +205,10 @@ export function fitMessages(base: AgentMessage[], evidence: unknown[], available
   }
   return [
     system,
+    ...protectedContext,
     {
       role: 'user',
-      content:
-        '以下按预算精简；新补查结果优先，缺失信息不能补猜。\n' +
-        JSON.stringify(compressed)
+      content: '以下按预算精简；新补查结果优先，缺失信息不能补猜。\n' + JSON.stringify(compressed)
     },
     question
   ];

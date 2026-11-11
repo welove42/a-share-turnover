@@ -31,6 +31,47 @@ async function setup(options = {}, configured = true) {
   await c.ready;
   return { h, c, panel, requests };
 }
+
+test('首次整理画像后带入分析，当前问题优先；追问不重复问仓位，关闭后不发送画像', async () => {
+  const calls = [];
+  const { c, h } = await setup({
+    interests: {
+      noteSector() {},
+      summary() {
+        return { horizonHint: '长期背景', confidence: '低', currentSymbol: 'sh600519' };
+      }
+    },
+    requestTurn: async (args) => {
+      calls.push(args);
+      return {
+        content: args.messages[0].content.startsWith('为行情分析更新用户画像')
+          ? JSON.stringify({ observation: '近期查看月线，弱参考' })
+          : '分析结果',
+        calls: [],
+        usage: { input_tokens: 100, output_tokens: 20 }
+      };
+    }
+  });
+  try {
+    await c.open('sh600519');
+    assert.equal(calls.length, 2);
+    const focus = calls[1].messages.find((m) => m.content.startsWith('用户关注与画像'));
+    assert.match(focus.content, /长期背景/);
+    assert.match(focus.content, /"askHolding":true/);
+    assert.match(focus.content, /"risk":"unknown"/);
+    assert.equal(h.store.get('ai.preparationDiagnostic.v1')[0].inputTokens, 100);
+    await c.analyze('只解释MACD');
+    assert.equal(calls.length, 3);
+    assert.match(calls[2].messages.find((m) => m.content.startsWith('用户关注与画像')).content, /"askHolding":false/);
+    assert.equal(calls[2].messages.at(-1).content, '只解释MACD');
+    h.values.set('aShareTurnover.ai.profileEnabled', false);
+    await c.analyze('我想解释RSI');
+    assert.equal(calls.length, 4);
+    assert.match(calls[3].messages.find((m) => m.content.startsWith('用户关注与画像')).content, /"profile":null/);
+  } finally {
+    c.dispose();
+  }
+});
 test('未配置不请求，配置后点击即分析；行情追问自动刷新，历史仍可继续', async () => {
   let collects = 0;
   const { h, c, panel, requests } = await setup(

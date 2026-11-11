@@ -961,6 +961,24 @@
           "scope": "application",
           "description": "超过阈值时状态栏成交额一栏放量红色、缩量绿色；回到阈值内恢复常规颜色设置。独立于弹窗开关。"
         },
+        "aShareTurnover.ai.semanticMemory": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "长对话达到阈值时，用已配置模型生成关键要点摘要；每次追问最多额外一次摘要请求，可能产生少量用量。失败保留用户原话。"
+        },
+        "aShareTurnover.ai.behaviorContext": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "在本机统计近30天主动查看A股详情、切换周期和指标的次数。仅分析时发送关注摘要，不同步或上传原始操作日志；关闭后不再采集或使用。"
+        },
+        "aShareTurnover.ai.profileEnabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "首次分析及明确说明偏好时整理本机画像，浏览观察最多每天在主动分析时更新一次；每轮最多额外调用一次。分析时带入画像及用户填写的当前个股仓位/成本；可在AI面板查看、修改、清空。"
+        },
         "aShareTurnover.ai.baseUrl": {
           "type": "string",
           "default": "",

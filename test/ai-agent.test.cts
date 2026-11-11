@@ -295,9 +295,10 @@ test('长历史不再重复发送旧行情包，保留近期问答与旧结论�
     }))
   ];
   const compact = conversationContext(history);
-  assert.ok(compact.length <= 7);
-  assert.ok(JSON.stringify(compact).length < 8000);
-  assert.match(compact[0].content, /旧结论/);
+  assert.ok(compact.length <= 8);
+  for (const row of history.slice(1).filter((m) => m.role === 'user'))
+    assert.ok(JSON.stringify(compact).includes(row.content));
+  assert.match(JSON.stringify(compact), /旧结论/);
   assert.doesNotMatch(JSON.stringify(compact), /x{100}/);
   assert.equal(history.length, 26);
   const snapshot = JSON.parse(
@@ -312,17 +313,19 @@ test('长历史不再重复发送旧行情包，保留近期问答与旧结论�
   assert.equal(snapshot.timeframes.weekly.date, '2026-11-06');
 });
 
-test('工具定义与上下文均计入累计预算，超长历史会收敛到可发送大小', async () => {
+test('未摘要的用户原话超过预算时明确停止，不强行删掉用户约束后调用模型', async () => {
   const opts = options(),
     sizes = [];
   opts.messages.splice(1, 0, { role: 'user', content: '旧数据'.repeat(30000) });
-  const result = await new AnalysisAgent().run({
-    ...opts,
-    request: async (o) => {
-      sizes.push(estimateTokens({ messages: o.messages, tools: o.tools }));
-      return sizes.length === 1 ? { content: '', calls: [call()] } : { content: '简短结论', calls: [] };
-    }
-  });
-  assert.ok(sizes.reduce((a, b) => a + b, 0) <= AGENT_LIMITS.input);
-  assert.equal(result.report.estimated, true);
+  await assert.rejects(
+    new AnalysisAgent().run({
+      ...opts,
+      request: async (o) => {
+        sizes.push(estimateTokens({ messages: o.messages, tools: o.tools }));
+        return sizes.length === 1 ? { content: '', calls: [call()] } : { content: '简短结论', calls: [] };
+      }
+    }),
+    /保留用户原话/
+  );
+  assert.equal(sizes.length, 0);
 });

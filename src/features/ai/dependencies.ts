@@ -18,6 +18,7 @@ import type { AiHistoryProvider } from './history-data';
 import type { AiConfiguration, AnalysisSnapshot } from './types';
 import type { QueryData } from './agent-data';
 import type { TurnRequest } from './agent';
+import type { InterestStore } from './interests';
 
 /** 使用已有行情控制器作为缓存来源；不把它们的持仓或密钥传给 AI。 */
 export interface ContextSources {
@@ -44,6 +45,7 @@ export interface EnvironmentDependencies extends ContextSources {
   timeoutMs?: number;
 }
 export interface AnalysisDependencies extends ContextSources {
+  interests?: InterestStore;
   collect?: (target: string, signal?: AbortSignal) => Promise<AnalysisSnapshot>;
   request?: typeof complete;
   requestTurn?: TurnRequest;

@@ -89,10 +89,14 @@ export class AnalysisAgent {
           );
           input = estimateTokens({ messages, tools });
         }
+        if (input > remaining && report.requests === 0)
+          throw new Error('本轮关键对话超过上下文预算，已保留用户原话而未强行截断。请稍后重试摘要，或新建分析。');
         if (input > remaining || AGENT_LIMITS.output - report.outputTokens < 300) {
           report.limited = true;
           break;
         }
+        if (input > 5500)
+          throw new Error('本轮关键对话超过上下文预算，已保留用户原话而未强行截断。请稍后重试摘要，或新建分析。');
         const timeoutMs = Math.min(
           options.timeoutMs || AGENT_LIMITS.timeout,
           AGENT_LIMITS.timeout - (Date.now() - started)

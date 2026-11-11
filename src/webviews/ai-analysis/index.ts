@@ -2,9 +2,11 @@
 import { elements } from '../shared/dom';
 import { renderAnalysisText } from './text';
 import { TargetPicker } from './target-picker';
+import { profileView } from './profile';
 interface PageElements {
   model: HTMLElement;
   history: HTMLButtonElement;
+  profile: HTMLButtonElement;
   diagnostics: HTMLButtonElement;
   settings: HTMLButtonElement;
   choose: HTMLButtonElement;
@@ -45,7 +47,8 @@ interface PageElements {
     token = document.body.dataset.token;
   const $ = elements<PageElements>(),
     send = (type, rest = {}) => vscode.postMessage({ type, token, ...rest });
-  for (const id of ['settings', 'analyze', 'stop', 'clear', 'history', 'diagnostics', 'historyClose'])
+  const updateProfile = profileView(send);
+  for (const id of ['settings', 'analyze', 'stop', 'clear', 'history', 'diagnostics', 'historyClose', 'profile'])
     $(id).addEventListener('click', () => send(id));
   const targetPicker = new TargetPicker(
     {
@@ -111,6 +114,7 @@ interface PageElements {
   window.addEventListener('message', (event) => {
     const m = event.data;
     if (m?.token !== token || m.type !== 'state') return;
+    updateProfile(m);
     targetPicker.update(m.targetOptions || [], m.target, m.targetPickerRequest || 0, Boolean(m.historyVisible));
     $('history-panel').hidden = !m.historyVisible;
     if (!m.historyVisible) {

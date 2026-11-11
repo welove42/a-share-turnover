@@ -98,6 +98,40 @@ function page() {
   };
 }
 const text = (node) => node.textContent + node.children.map(text).join('');
+
+test('画像在面板内编辑，流式更新不覆盖草稿，保存绑定当前股票，清空需确认', () => {
+  const p = page(),
+    state = {
+      profileVisible: true,
+      target: 'sh600519',
+      profile: {
+        risk: 'unknown',
+        horizon: 'long',
+        goal: '关注风险',
+        holding: { status: 'held', cost: 50, exposure: 10 }
+      }
+    };
+  p.receive(state);
+  const node = (id) => p.nodes.get('profile-' + id);
+  assert.equal(node('cost').value, '50');
+  node('goal').value = '关注长期回撤';
+  p.receive({ ...state, status: '正在分析' });
+  assert.equal(node('goal').value, '关注长期回撤');
+  node('panel').dispatch('submit');
+  assert.equal(p.sent.at(-1).type, 'profileSave');
+  assert.equal(p.sent.at(-1).value.goal, '关注长期回撤');
+  assert.equal(p.sent.at(-1).value.holding.cost, 50);
+  const length = p.sent.length;
+  node('clear').dispatch('click');
+  assert.equal(p.sent.length, length);
+  node('clear').dispatch('click');
+  assert.equal(p.sent.at(-1).type, 'profileClear');
+  p.receive({ ...state, busy: true });
+  assert.equal(node('save').disabled, true);
+  assert.equal(node('cost').disabled, true);
+  p.receive({ ...state, target: 'market', busy: false });
+  assert.equal(node('holding').hidden, true);
+});
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
 
 const targets = [

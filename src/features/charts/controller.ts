@@ -7,6 +7,7 @@ import { POLL_MS, session, normalizeDate, timeToMinute } from '../turnover/marke
 import { ChartProvider, eastmoneyUrl, eastmoneyChartUrl, supportsChips } from './data';
 import { prependHistory, retainHistory, supportsHistory, MAX_HISTORY_BARS } from './history';
 import type { StockQuote } from '../../shared/types';
+import type { InterestAction } from '../ai/interests';
 
 interface ChartPanel {
   symbol: string;
@@ -29,6 +30,7 @@ class ChartController {
   declare quoteProvider: StockProvider;
   private quoteSnapshot: (symbol: string) => StockQuote | undefined;
   private onOpen: (symbol: string) => void;
+  private onInteraction: (symbol: string, action: InterestAction, value?: string) => void;
   declare now: () => Date;
   declare selected: () => string;
   declare name: (symbol: string) => string | undefined;
@@ -46,6 +48,7 @@ class ChartController {
       quoteProvider = new StockProvider(),
       quoteSnapshot = (_symbol: string): StockQuote | undefined => undefined,
       onOpen = (_symbol: string): void => {},
+      onInteraction = (_symbol: string, _action: InterestAction, _value?: string): void => {},
       now = () => new Date(),
       selected = (): string => INDEX_SYMBOL,
       name = (_symbol: string): string | undefined => undefined
@@ -56,6 +59,7 @@ class ChartController {
     this.quoteProvider = quoteProvider;
     this.quoteSnapshot = quoteSnapshot;
     this.onOpen = onOpen;
+    this.onInteraction = onInteraction;
     this.now = now;
     this.selected = selected;
     this.name = name;
@@ -101,6 +105,8 @@ class ChartController {
       }
       existing.panel.reveal();
       this.onOpen(symbol);
+      this.onInteraction(symbol, 'open');
+      if (requestedMode) this.onInteraction(symbol, 'period', nextMode);
       return;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -143,6 +149,8 @@ class ChartController {
     ];
     panel.webview.html = chartHtml(panel.webview, this.context, symbol, state.token, state.mode);
     this.onOpen(symbol);
+    this.onInteraction(symbol, 'open');
+    if (requestedMode) this.onInteraction(symbol, 'period', state.mode);
   }
   send(state, message) {
     if (!this.disposed && this.panels.get(state.symbol) === state)
@@ -153,9 +161,11 @@ class ChartController {
     return this.disposed ? undefined : [...this.panels.values()].find((state) => state.panel.visible);
   }
   changeMode(state, mode) {
+    if (this.hidden || this.disposed) return;
     const next = availableMode(state.symbol, mode);
     if (!isWebMode(next)) state.lastNativeMode = next;
     if (state.mode !== next) {
+      this.onInteraction(state.symbol, 'period', next);
       this.cancel(state);
       state.mode = next;
       state.data = null;
@@ -232,8 +242,10 @@ class ChartController {
     if (isWebMode(state.mode)) this.changeMode(state, 'intraday');
   }
   selectIndicator(state, indicator) {
+    if (this.hidden || this.disposed) return;
     if (!INDICATORS.includes(indicator) || indicator === this.indicator) return;
     this.indicator = indicator;
+    this.onInteraction(state.symbol, 'indicator', indicator);
     void Promise.resolve(this.context.globalState.update('chartIndicator', this.indicator)).catch(() => {});
     if (state.ready) this.send(state, { type: 'select-indicator', indicator: this.indicator });
   }

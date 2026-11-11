@@ -582,7 +582,8 @@ interface PageElements {
         const b = node('button', action.label);
         b.type = 'button';
         b.addEventListener('click', () => {
-          if (group.id === 'ai') configureAi(action.id === 'ai.test' ? 'test' : 'save');
+          if (action.id === 'ai.save' || action.id === 'ai.test')
+            configureAi(action.id === 'ai.test' ? 'test' : 'save');
           else {
             b.disabled = true;
             send({ type: 'action', action: action.id });

@@ -20,6 +20,7 @@ import { StockAlerts } from '../features/watchlist/alerts';
 import { AiAnalysisController } from '../features/ai/controller';
 import { DataSync } from '../core/storage/sync';
 import { getKlineFeed } from '../features/charts/kline-feed';
+import { InterestStore } from '../features/ai/interests';
 
 async function activate(context) {
   const klines = getKlineFeed();
@@ -34,8 +35,12 @@ async function activate(context) {
     return quote ? { ...quote, stale: !stocks.config.enabled || stocks.paused || stocks.stale('sh000001') } : null;
   };
   const news = new NewsController(context, { log: (message) => controller.log(message) });
+  const interests = new InterestStore(context.globalState, () =>
+    vscode.workspace.getConfiguration('aShareTurnover').get('ai.behaviorContext', true)
+  );
   const charts = new ChartController(context, {
     onOpen: (symbol) => stocks.activity.clear(symbol),
+    onInteraction: (symbol, action, value) => interests.record(symbol, action, value),
     quoteSnapshot: (symbol) => (!stocks.stale(symbol) ? stocks.quotes.get(symbol) : undefined),
     selected: () => stocks.config.selected,
     name: (symbol) => stocks.quotes.get(symbol)?.name
@@ -48,6 +53,7 @@ async function activate(context) {
   const reminders = new ReminderController(context);
   const alerts = new StockAlerts(context, stocks);
   const ai = new AiAnalysisController(context, {
+    interests,
     stocks,
     market: controller,
     globals,
@@ -56,6 +62,7 @@ async function activate(context) {
     openSettings: () => settings.open('ai')
   });
   const settings = new SettingsController(context, {
+    actions: { 'ai.clearInterests': () => interests.clear() },
     stocks,
     ai,
     sources: [stocks, globals, funds, commodities, futures],

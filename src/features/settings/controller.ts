@@ -78,7 +78,12 @@ const GROUPS = [
     title: '大事提醒与休市',
     keys: ['reminders.enabled', 'reminders.notifications', 'reminders.categories', 'additionalClosedDates']
   },
-  { id: 'ai', title: 'AI 分析', keys: ['ai.baseUrl', 'ai.model'], actions: ['ai.save', 'ai.test'] }
+  {
+    id: 'ai',
+    title: 'AI 分析',
+    keys: ['ai.baseUrl', 'ai.model', 'ai.semanticMemory', 'ai.behaviorContext', 'ai.profileEnabled'],
+    actions: ['ai.save', 'ai.test', 'ai.clearInterests']
+  }
 ];
 const LABELS = {
   'funds.estimateEnabled': '显示基金盘中估算',
@@ -87,6 +92,9 @@ const LABELS = {
   'stocks.downColor': '下跌颜色',
   'ai.baseUrl': 'API 地址',
   'ai.model': '模型名称',
+  'ai.semanticMemory': '智能整理长对话',
+  'ai.behaviorContext': '参考近期浏览偏好',
+  'ai.profileEnabled': '启用用户画像',
   'stockAlerts.mode': '自选股异常波动提醒',
   'stockAlerts.limitEvents': 'A 股涨跌停与炸板提醒',
   'turnoverAlerts.enabled': '大盘放量 / 缩量弹窗提醒',
@@ -199,7 +207,8 @@ const OPTIONS = {
 };
 const ACTIONS = {
   'ai.save': '保存配置',
-  'ai.test': '测试连接'
+  'ai.test': '测试连接',
+  'ai.clearInterests': '清空浏览偏好记录'
 };
 const ADD_LABELS = {
   'stocks.symbols': '添加 A 股',

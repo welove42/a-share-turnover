@@ -1,6 +1,7 @@
 /** 仅在 VS Code 本机状态中保存会话。串行写入和容量上限避免流式更新互相覆盖、无限增长。 */
 import type { Memento } from 'vscode';
 import type { AiConversation, AiArchive, ChatMessage, AnalysisMessage } from './types';
+import { validMemory } from './conversation-memory';
 const KEY = 'ai.conversations.v1';
 const MAX_SESSIONS = 20,
   MAX_RECORD_CHARS = 500000,
@@ -48,7 +49,8 @@ function normalize(value: any): AiConversation | null {
         ? history(value.interruptedHistory)
         : null,
     snapshot: value.snapshot && typeof value.snapshot === 'object' ? value.snapshot : null,
-    draft: typeof value.draft === 'string' ? value.draft.slice(0, 2000) : ''
+    draft: typeof value.draft === 'string' ? value.draft.slice(0, 2000) : '',
+    memory: validMemory(value.memory) ? value.memory : undefined
   };
   const json = JSON.stringify(record);
   return json.length <= MAX_RECORD_CHARS ? JSON.parse(json) : null;
