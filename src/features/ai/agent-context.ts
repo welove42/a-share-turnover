@@ -39,6 +39,7 @@ export function snapshotText(snapshot: AnalysisSnapshot | null): string {
   const { agent: _, ...data } = raw as typeof raw & { agent?: unknown };
   // 各周期保留主要结论、时间及证据；冗长外围明细由工具按需补齐。
   const parts: Record<string, unknown> = {};
+  const recent: Record<string, { recentBars: unknown[]; recentBarsOrder: string }> = {};
   for (const [k, v] of Object.entries(data)) {
     if (k === 'market' && v) {
       const { history: _, ...market } = v as Record<string, unknown>;
@@ -48,7 +49,9 @@ export function snapshotText(snapshot: AnalysisSnapshot | null): string {
         Object.entries(v).map(([period, values]) => {
           if (!values || typeof values !== 'object') return [period, values];
           const t = values as Record<string, any>;
-          const { bars: _, ranges, ...rest } = t;
+          const { bars: _, ranges, recentBars, recentBarsOrder, ...rest } = t;
+          if (Array.isArray(recentBars) && recentBars.length)
+            recent[period] = { recentBars: recentBars.slice(0, period === 'daily' ? 10 : 6), recentBarsOrder: recentBarsOrder || '新到旧' };
           return [
             period,
             JSON.parse(pack({ ...rest, ...(ranges ? { ranges: { prior20: ranges.prior20 } } : {}) }, 850))
@@ -57,7 +60,16 @@ export function snapshotText(snapshot: AnalysisSnapshot | null): string {
       );
     } else parts[k] = JSON.parse(pack(v, ['sectors', 'globalMarkets'].includes(k) ? 550 : 400));
   }
-  return pack(parts, 3600);
+  // 先为近期 K 线预留预算，避免通用压缩把多日序列截到只剩一根。
+  const budget = Math.max(500, 3600 - estimateTokens(recent) - 100);
+  const result = JSON.parse(pack(parts, budget));
+  if (Object.keys(recent).length) {
+    if (result.omitted) Object.assign(result, { target: data.target, capturedAt: data.capturedAt });
+    result.timeframes ||= {};
+    for (const [period, value] of Object.entries(recent))
+      result.timeframes[period] = { ...(result.timeframes[period] || {}), ...value };
+  }
+  return JSON.stringify(result);
 }
 
 /** 只发送最近三轮和更早问答的短摘录，原始会话仍由本地历史保存。 */
@@ -129,17 +141,34 @@ export function fitMessages(base: AgentMessage[], evidence: unknown[], available
     notes: snapshot.notes
   };
   const quota = Math.max(100, available - estimateTokens([system, question]) - 100);
+  const recent: Record<string, { recentBars: any[]; recentBarsOrder: string }> = {};
+  for (const [period, v] of Object.entries(snapshot.timeframes || {}) as Array<[string, any]>)
+    if (Array.isArray(v.recentBars) && v.recentBars.length)
+      recent[period] = { recentBars: v.recentBars.slice(), recentBarsOrder: v.recentBarsOrder || '新到旧' };
+  // 预算不足时先丢弃最旧的样本，保留最新几根而不是截掉最近日期。
+  while (estimateTokens(recent) > Math.max(100, quota / 2)) {
+    const longest = Object.values(recent).sort((a, b) => b.recentBars.length - a.recentBars.length)[0];
+    if (!longest || longest.recentBars.length <= 1) break;
+    longest.recentBars.pop();
+  }
   const prior = base
     .filter((m) => m.role === 'assistant')
     .at(-1)
     ?.content.slice(0, 300);
+  const compressed = JSON.parse(pack({ snapshot: minimal, latestEvidence: evidence, previousAnswer: prior }, Math.max(100, quota - estimateTokens(recent) - 40)));
+  if (Object.keys(recent).length) {
+    compressed.snapshot ||= { target: snapshot.target, capturedAt: snapshot.capturedAt };
+    compressed.snapshot.timeframes ||= {};
+    for (const [period, value] of Object.entries(recent))
+      compressed.snapshot.timeframes[period] = { ...(compressed.snapshot.timeframes[period] || {}), ...value };
+  }
   return [
     system,
     {
       role: 'user',
       content:
         '以下按预算精简；新补查结果优先，缺失信息不能补猜。\n' +
-        pack({ snapshot: minimal, latestEvidence: evidence, previousAnswer: prior }, quota)
+        JSON.stringify(compressed)
     },
     question
   ];

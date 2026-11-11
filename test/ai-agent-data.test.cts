@@ -2,7 +2,7 @@ const test = require('node:test'),
   assert = require('node:assert/strict');
 const { AgentData, explanationOnly, applyEvidence } = require('../dist/features/ai/agent-data.js');
 const { AnalysisEnvironment } = require('../dist/features/ai/environment.js');
-const { snapshotText } = require('../dist/features/ai/agent-context.js');
+const { snapshotText, fitMessages } = require('../dist/features/ai/agent-context.js');
 test('更新个股或大盘报价后不沿用旧相对强弱，比较其他股票不覆盖当前快照', () => {
   const snapshot = { quote: { price: 10 }, relativeStrength: { difference: 2 }, timeframes: {} };
   const updated = applyEvidence(snapshot, 'sh600519', [{ tool: 'get_quote', args: {}, data: { price: 11 } }]);
@@ -112,6 +112,50 @@ test('上午分析后下午追问自动更新报价/分时/大盘，旧周线保
   assert.ok(f.calls.includes('market'));
   assert.ok(f.calls.includes('intraday'));
   assert.equal(next.relativeStrength, undefined);
+});
+
+test('追问洗盘出货主动补查日线，最近K线进入模型上下文，清除旧的日线缺失提示', async () => {
+  const f = fixture(), first = await f.data.prepare('sh600519', null, undefined, f.signal);
+  first.notes = ['日线缺失，不推断该周期走势。'];
+  const next = await f.data.prepare('sh600519', first, '分析一下最近的日线走势，是洗盘还是出货', f.signal);
+  assert.ok(f.calls.includes('daily'));
+  assert.equal(next.timeframes.daily.recentBars.length, 10);
+  assert.ok(!next.notes.some((n) => n.startsWith('日线缺失')));
+  const sent = JSON.parse(snapshotText(next));
+  assert.equal(sent.timeframes.daily.recentBars.length, 10);
+  assert.equal(sent.timeframes.daily.recentBarsOrder, '新到旧');
+  assert.equal(sent.timeframes.daily.recentBars[0].time, next.timeframes.daily.recentBars[0].time);
+  assert.ok(Number.isFinite(sent.timeframes.daily.recentBars[0].volume));
+  const fitted = fitMessages([
+    { role: 'system', content: '请回答' },
+    { role: 'user', content: '当前行情快照（逐项核对数据时间）：\n' + snapshotText(next) },
+    { role: 'user', content: '分析日线' }
+  ], [], 3500);
+  const compact = JSON.parse(fitted[1].content.slice(fitted[1].content.indexOf('\n') + 1));
+  assert.ok(compact.snapshot.timeframes.daily.recentBars.length >= 5);
+  assert.equal(compact.snapshot.timeframes.daily.recentBars[0].time, next.timeframes.daily.recentBars[0].time);
+});
+
+test('解释近期日线走势仍补查；只解释术语时不补查', async () => {
+  const f = fixture(), first = await f.data.prepare('sh600519', null, undefined, f.signal);
+  await f.data.prepare('sh600519', first, '解释一下洗盘是什么意思', f.signal);
+  assert.deepEqual(f.calls, ['all']);
+  await f.data.prepare('sh600519', first, '解释一下最近的日线走势', f.signal);
+  assert.ok(f.calls.includes('daily'));
+});
+
+test('明确提及多个周期时逐一补查，失败保留旧日线和原时间并标明失败', async () => {
+  const f = fixture(), first = await f.data.prepare('sh600519', null, undefined, f.signal);
+  first.timeframes.daily = { date: '2026-11-09', state: '整理', fetchedAt: first.capturedAt };
+  f.fail();
+  f.advance(3600000);
+  const next = await f.data.prepare('sh600519', first, '看看日线和周线走势', f.signal);
+  assert.ok(f.calls.includes('daily'));
+  assert.ok(f.calls.includes('weekly'));
+  assert.equal(next.timeframes.daily.date, '2026-11-09');
+  assert.equal(next.timeframes.daily.fetchedAt, first.capturedAt);
+  assert.equal(next.timeframes.daily.fetchFailed, true);
+  assert.equal(next.timeframes.weekly.fetchFailed, true);
 });
 
 test('术语解释不查数据，模糊追问默认检查行情，续写原样保留快照', async () => {

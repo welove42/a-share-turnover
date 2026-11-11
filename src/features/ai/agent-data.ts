@@ -46,6 +46,15 @@ export function explanationOnly(question?: string): boolean {
   );
 }
 
+/** 明确要求的周期先补查，不依赖模型是否选择调用工具。 */
+function requestedPeriods(question: string): Period[] {
+  const periods: Period[] = [];
+  if (/日线|日\s*k|近(?:几|多|\d+)日|近期走势|最近走势|洗盘|出货/i.test(question)) periods.push('daily');
+  if (/周线|周\s*k/i.test(question)) periods.push('weekly');
+  if (/月线|月\s*k/i.test(question)) periods.push('monthly');
+  return periods;
+}
+
 export interface QueryData {
   prepare(
     target: string,
@@ -77,17 +86,19 @@ export class AgentData implements QueryData {
       this.cache.set(key, { at: time, value });
       return value;
     }
+    const issue = /HTTP\s*(401|403|429|501)/i.exec(result.error)?.[0];
+    const reason = issue ? `（数据源包含 ${issue.toUpperCase()}）` : /超时/.test(result.error) ? '（数据源超时）' : /冷却|暂停重复请求/.test(result.error) ? '（数据源处于失败冷却）' : '';
     if (old && time >= old.at && time - old.at < 7 * 86400000)
       return {
         ...old.value,
         cached: true,
         fetchFailed: true,
-        error: '本次查询失败，以下为原时间数据，不能当作最新行情。'
+        error: `本次查询失败${reason}，以下为原时间数据，不能当作最新行情。`
       };
     return {
       missing: true,
       fetchFailed: true,
-      error: '本次数据查询失败，不能推断缺失值。',
+      error: `本次数据查询失败${reason}，不能推断缺失值。`,
       fetchedAt: new Date(time).toISOString()
     };
   }
@@ -225,12 +236,24 @@ export class AgentData implements QueryData {
 
   async prepare(target: string, previous: AnalysisSnapshot | null, question: string | undefined, signal: AbortSignal) {
     if (!question || !previous) return this.source.collect(target, signal);
-    if (explanationOnly(question)) return previous;
-    const [quote, market, minute] = await Promise.all([
+    if (explanationOnly(question) && !/分析|走势|是.*还是/.test(question)) return previous;
+    const periods = requestedPeriods(question);
+    const [quote, market, minute, ...technical] = await Promise.all([
       this.execute('get_quote', {}, target, signal),
       this.execute('get_market', {}, target, signal),
-      this.execute('get_technical', { period: 'intraday' }, target, signal)
+      this.execute('get_technical', { period: 'intraday' }, target, signal),
+      ...periods.map((period) => this.execute('get_technical', { period, bars: period === 'daily' ? 10 : 6 }, target, signal))
     ]);
+    const updatedPeriods = Object.fromEntries(periods.map((period, index) => {
+      const value = technical[index];
+      const previousPeriod = previous.timeframes?.[period];
+      return [period, value.summary
+        ? { ...value.summary, recentBars: value.bars?.slice().reverse(), recentBarsOrder: '新到旧', fetchedAt: value.fetchedAt, fetchFailed: value.fetchFailed }
+        : previousPeriod && !previousPeriod.missing
+          ? { ...previousPeriod, fetchedAt: previousPeriod.fetchedAt || previous.capturedAt, fetchFailed: true, error: value.error }
+          : { missing: true, ...value }];
+    }));
+    const resolved = new Set(periods.filter((_, index) => technical[index]?.summary && !technical[index]?.fetchFailed));
     // 各区块保留自己的时间；更新报价不能让旧日/周/月线看起来也刚更新。
     return {
       ...previous,
@@ -238,6 +261,7 @@ export class AgentData implements QueryData {
       quote,
       market: market.market || { missing: true },
       relativeStrength: undefined,
+      daily: updatedPeriods.daily || previous.daily,
       timeframes: {
         ...Object.fromEntries(
           Object.entries(previous.timeframes || {}).map(([period, values]) => [
@@ -245,18 +269,19 @@ export class AgentData implements QueryData {
             { ...values, fetchedAt: values?.fetchedAt || previous.capturedAt }
           ])
         ),
+        ...updatedPeriods,
         intraday: minute.summary
           ? { ...minute.summary, fetchedAt: minute.fetchedAt, fetchFailed: minute.fetchFailed }
           : { missing: true, ...minute }
       },
       notes: [
         ...new Set([
-          ...(previous.notes || []),
-          '追问已检查当前报价、大盘和分时；其他周期及外围保留原数据时间，按问题补查。',
-          ...[quote, market, minute].filter((v) => v.fetchFailed).map((v) => v.error)
+          ...(previous.notes || []).filter((note) => !((resolved.has('daily') && note.startsWith('日线缺失')) || (resolved.has('weekly') && note.startsWith('周线缺失')) || (resolved.has('monthly') && note.startsWith('月线缺失')))),
+          '追问已检查当前报价、大盘、分时及问题明确要求的周期；其他数据保留原时间。',
+          ...[quote, market, minute, ...technical].filter((v) => v.fetchFailed).map((v) => v.error)
         ])
       ].slice(-12),
-      coverage: [{ label: '当前报价 / 大盘 / 分时', detail: '已检查时效，详见各项行情时间' }]
+      coverage: [{ label: '本轮行情', detail: `已检查报价 / 大盘 / 分时${periods.length ? ' / ' + periods.map((p, index) => `${({ daily: '日线', weekly: '周线', monthly: '月线' })[p]}${technical[index]?.fetchFailed ? technical[index]?.summary || (previous.timeframes?.[p] && !previous.timeframes[p]?.missing) ? '（缓存）' : '缺失' : '已获取'}`).join(' / ') : ''}，详见数据时间` }]
     };
   }
 }
