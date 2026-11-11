@@ -35,6 +35,7 @@ async function activate(context) {
   };
   const news = new NewsController(context, { log: (message) => controller.log(message) });
   const charts = new ChartController(context, {
+    onOpen: (symbol) => stocks.activity.clear(symbol),
     quoteSnapshot: (symbol) => (!stocks.stale(symbol) ? stocks.quotes.get(symbol) : undefined),
     selected: () => stocks.config.selected,
     name: (symbol) => stocks.quotes.get(symbol)?.name
@@ -190,8 +191,6 @@ async function activate(context) {
     bind('welove42.aShareTurnover.stockGroups.move', (element) => stocks.groupCommand('move', element)),
     bind('welove42.aShareTurnover.stockGroups.add', (element) => stocks.groupCommand('add', element)),
     bind('welove42.aShareTurnover.stocks.remove', (element) => stocks.remove(element)),
-    bind('welove42.aShareTurnover.stocks.clearActivity', (element) => stocks.activity.clear(element)),
-    bind('welove42.aShareTurnover.stocks.clearAllActivity', () => stocks.activity.clearAll()),
     bind('welove42.aShareTurnover.stocks.refresh', () =>
       Promise.all([stocks.refresh(), stocks.overseas.refreshAll(true)])
     ),

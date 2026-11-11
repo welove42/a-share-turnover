@@ -121,14 +121,6 @@ export class StockActivity implements vscode.Disposable {
     this.refresh();
     this.owner.emitter.fire(undefined);
   }
-  clearAll() {
-    if (this.disposed || !this.visible() || !this.entries.size) return;
-    this.revision++;
-    this.entries.clear();
-    this.save();
-    this.refresh();
-    this.owner.emitter.fire(undefined);
-  }
   async revealLatest() {
     this.refresh();
     if (!this.visible()) return;

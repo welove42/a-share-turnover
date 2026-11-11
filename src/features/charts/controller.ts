@@ -28,6 +28,7 @@ class ChartController {
   declare provider: ChartProvider;
   declare quoteProvider: StockProvider;
   private quoteSnapshot: (symbol: string) => StockQuote | undefined;
+  private onOpen: (symbol: string) => void;
   declare now: () => Date;
   declare selected: () => string;
   declare name: (symbol: string) => string | undefined;
@@ -44,6 +45,7 @@ class ChartController {
       provider = new ChartProvider(),
       quoteProvider = new StockProvider(),
       quoteSnapshot = (_symbol: string): StockQuote | undefined => undefined,
+      onOpen = (_symbol: string): void => {},
       now = () => new Date(),
       selected = (): string => INDEX_SYMBOL,
       name = (_symbol: string): string | undefined => undefined
@@ -53,6 +55,7 @@ class ChartController {
     this.provider = provider;
     this.quoteProvider = quoteProvider;
     this.quoteSnapshot = quoteSnapshot;
+    this.onOpen = onOpen;
     this.now = now;
     this.selected = selected;
     this.name = name;
@@ -97,6 +100,7 @@ class ChartController {
         this.changeMode(existing, nextMode);
       }
       existing.panel.reveal();
+      this.onOpen(symbol);
       return;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -138,6 +142,7 @@ class ChartController {
       })
     ];
     panel.webview.html = chartHtml(panel.webview, this.context, symbol, state.token, state.mode);
+    this.onOpen(symbol);
   }
   send(state, message) {
     if (!this.disposed && this.panels.get(state.symbol) === state)

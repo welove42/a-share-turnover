@@ -84,22 +84,26 @@ test('打开侧栏定位最新异动并选中，其他未读保留；已读仍�
     s.c.dispose();
   }
 });
-test('清除单只和全部异动标记会同步角标并持久化，不重置弹窗去重', async () => {
+test('打开详情自动清除该股高亮并持久化，不影响其他股票和提醒去重', async () => {
   const s = setup();
+  const { ChartController } = s.h.load('../dist/features/charts/controller.js');
+  const charts = new ChartController(s.h.context, { onOpen: (symbol) => s.c.activity.clear(symbol) });
   try {
     const first = s.c.element('sh600105'),
       second = s.c.element('sh600519');
     s.alerts.check([quote()], 'a');
     s.c.activity.record(quote('sh600519'), 'a', '跌幅超过7%');
     assert.equal(s.c.tree.badge.value, 2);
-    s.c.activity.clear(first);
+    const command = s.c.getTreeItem(first).command;
+    assert.equal(command.command, 'welove42.aShareTurnover.stocks.openChart');
+    await charts.open(...command.arguments);
     assert.equal(typeof s.c.getTreeItem(first).label, 'string');
     assert.ok(s.c.getTreeItem(second).label.highlights.length);
     assert.equal(s.c.tree.badge.value, 1);
     s.alerts.check([quote()], 'a');
     assert.equal(s.notices.length, 1);
     assert.equal(typeof s.c.getTreeItem(first).label, 'string');
-    s.c.activity.clearAll();
+    await charts.open(...s.c.getTreeItem(second).command.arguments);
     assert.equal(s.c.tree.badge, undefined);
     assert.equal(typeof s.c.getTreeItem(second).label, 'string');
     await tick();
@@ -107,7 +111,10 @@ test('清除单只和全部异动标记会同步角标并持久化，不重置�
     s.advance(10000);
     s.alerts.check([quote('sh600105', 10.99, 10)], 'a');
     assert.match(s.c.getTreeItem(first).description, /涨停炸板/);
+    await charts.open(...s.c.getTreeItem(first).command.arguments);
+    assert.equal(typeof s.c.getTreeItem(first).label, 'string');
   } finally {
+    charts.dispose();
     s.alerts.dispose();
     s.c.dispose();
   }
