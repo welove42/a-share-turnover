@@ -99,31 +99,36 @@ function page() {
 }
 const text = (node) => node.textContent + node.children.map(text).join('');
 
-test('画像在面板内编辑，流式更新不覆盖草稿，保存绑定当前股票，清空需确认', () => {
+test('全局画像与个股持仓分开编辑，切股不覆盖全局草稿，清空分别生效', () => {
   const p = page(),
-    state = {
-      profileVisible: true,
-      target: 'sh600519',
-      profile: {
-        risk: 'unknown',
-        horizon: 'long',
-        goal: '关注风险',
-        holding: { status: 'held', cost: 50, exposure: 10 }
-      }
-    };
+    profile = { risk: 'unknown', horizon: 'long', goal: '关注风险' },
+    state = { profileVisible: true, target: 'sh600519', profile, holding: { status: 'held', cost: 50, exposure: 10 } };
   p.receive(state);
   const node = (id) => p.nodes.get('profile-' + id);
-  assert.equal(node('cost').value, '50');
+  assert.equal(node('title').textContent, '全局用户画像');
+  assert.equal(node('holding').hidden, true);
   node('goal').value = '关注长期回撤';
-  p.receive({ ...state, status: '正在分析' });
+  p.receive({ ...state, target: 'sz000001', holding: null });
   assert.equal(node('goal').value, '关注长期回撤');
   node('panel').dispatch('submit');
   assert.equal(p.sent.at(-1).type, 'profileSave');
-  assert.equal(p.sent.at(-1).value.goal, '关注长期回撤');
-  assert.equal(p.sent.at(-1).value.holding.cost, 50);
+  assert.equal(p.sent.at(-1).value.holding, undefined);
+  p.receive(state);
+  node('toggle').dispatch('click');
+  assert.equal(node('holding').hidden, false);
+  assert.equal(node('general').hidden, true);
+  assert.equal(node('cost').value, '50');
+  node('panel').dispatch('submit');
+  assert.equal(p.sent.at(-1).type, 'holdingSave');
+  assert.equal(p.sent.at(-1).symbol, 'sh600519');
+  assert.equal(p.sent.at(-1).value.cost, 50);
   const length = p.sent.length;
   node('clear').dispatch('click');
   assert.equal(p.sent.length, length);
+  node('clear').dispatch('click');
+  assert.equal(p.sent.at(-1).type, 'holdingClear');
+  node('toggle').dispatch('click');
+  node('clear').dispatch('click');
   node('clear').dispatch('click');
   assert.equal(p.sent.at(-1).type, 'profileClear');
   p.receive({ ...state, busy: true });
@@ -131,16 +136,15 @@ test('画像在面板内编辑，流式更新不覆盖草稿，保存绑定当�
   assert.equal(node('cost').disabled, true);
   p.receive({ ...state, target: 'market', busy: false });
   assert.equal(node('holding').hidden, true);
+  assert.equal(node('toggle').hidden, true);
 });
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
-
 const targets = [
   { symbol: 'market', label: '沪深大盘' },
   { symbol: 'sh601138', label: '工业富联' },
   { symbol: 'sh563530', label: '卫星ETF易方达' },
   { symbol: 'sz002475', label: '立讯精密' }
 ];
-
 test('分析下拉在页面内展开，按名称和代码过滤，点击选中且展开搜索不调用分析', () => {
   const p = page();
   p.receive({ targetOptions: targets, target: 'sh601138' });

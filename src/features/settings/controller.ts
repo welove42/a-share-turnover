@@ -94,7 +94,7 @@ const LABELS = {
   'ai.model': '模型名称',
   'ai.semanticMemory': '智能整理长对话',
   'ai.behaviorContext': '参考近期浏览偏好',
-  'ai.profileEnabled': '启用用户画像',
+  'ai.profileEnabled': '启用全局用户画像',
   'stockAlerts.mode': '自选股异常波动提醒',
   'stockAlerts.limitEvents': 'A 股涨跌停与炸板提醒',
   'turnoverAlerts.enabled': '大盘放量 / 缩量弹窗提醒',

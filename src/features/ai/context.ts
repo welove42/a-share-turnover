@@ -278,7 +278,7 @@ class AnalysisContext {
       },
       {
         label: '全球',
-        detail: `${data.globalMarkets?.quotes?.length || 0}/${data.globalMarkets?.requested || 10} 指数`
+        detail: `${data.globalMarkets?.quotes?.length || 0}/${data.globalMarkets?.requested || 10} 指数 · ${data.globalMarkets?.futures?.length || 0}/2 期货参考`
       },
       { label: '商品', detail: `${data.commodities?.quotes?.length || 0}/4` },
       { label: '快讯', detail: `${data.news?.items?.length || 0} 条` }

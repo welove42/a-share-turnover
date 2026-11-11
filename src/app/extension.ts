@@ -62,7 +62,12 @@ async function activate(context) {
     openSettings: () => settings.open('ai')
   });
   const settings = new SettingsController(context, {
-    actions: { 'ai.clearInterests': () => interests.clear() },
+    actions: {
+      'ai.clearInterests': async () => {
+        await interests.clear();
+        await ai.clearInterestProfile();
+      }
+    },
     stocks,
     ai,
     sources: [stocks, globals, funds, commodities, futures],

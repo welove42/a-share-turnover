@@ -26,7 +26,7 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
         <header>
           <div><strong>AI 分析</strong><span id="model"></span></div>
           <div class="header-actions">
-            <button id="profile" class="quiet" title="查看和修改分析偏好与持仓">画像</button>
+            <button id="profile" class="quiet" title="查看全局用户画像与独立持仓记录">画像</button>
             <button id="history" class="quiet" title="恢复本地保存的分析对话">历史</button
             ><button id="diagnostics" class="quiet" title="查看最近请求的耗时和结束原因">诊断</button
             ><button id="settings" class="quiet" title="配置 API 地址、模型和密钥">设置</button>
@@ -73,30 +73,33 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
         <p id="context-summary" hidden aria-label="分析上下文"></p>
         <form id="profile-panel" hidden>
           <div class="profile-heading">
-            <h3>我的分析偏好</h3>
+            <h3 id="profile-title">全局用户画像</h3>
             <button id="profile-close" class="quiet" type="button">关闭</button>
           </div>
-          <p class="muted">
-            可跳过；仅存本机。启用画像后，分析会发送偏好及当前个股仓位、成本给你配置的 AI 服务。浏览行为仅作参考。
+          <p id="profile-description" class="muted">
+            所有个股分析共用一份画像。仅存本机，启用后发送给你配置的 AI 服务；浏览行为仅作参考。
           </p>
-          <label
-            >风险偏好<select id="profile-risk">
-              <option value="unknown">未确认</option>
-              <option value="conservative">保守</option>
-              <option value="balanced">稳健 / 均衡</option>
-              <option value="aggressive">激进</option>
-            </select></label
-          >
-          <label
-            >关注周期<select id="profile-horizon">
-              <option value="unknown">未确认</option>
-              <option value="short">短线</option>
-              <option value="medium">中线</option>
-              <option value="long">长线</option>
-              <option value="mixed">多周期</option>
-            </select></label
-          >
-          <label>主要关注<input id="profile-goal" maxlength="300" placeholder="例如：更关注回撤风险" /></label>
+          <div id="profile-general">
+            <label
+              >风险偏好<select id="profile-risk">
+                <option value="unknown">未确认</option>
+                <option value="conservative">保守</option>
+                <option value="balanced">稳健 / 均衡</option>
+                <option value="aggressive">激进</option>
+              </select></label
+            >
+            <label
+              >关注周期<select id="profile-horizon">
+                <option value="unknown">未确认</option>
+                <option value="short">短线</option>
+                <option value="medium">中线</option>
+                <option value="long">长线</option>
+                <option value="mixed">多周期</option>
+              </select></label
+            >
+            <label>主要关注<input id="profile-goal" maxlength="300" placeholder="例如：更关注回撤风险" /></label>
+            <p id="profile-interests" class="muted"></p>
+          </div>
           <fieldset id="profile-holding">
             <legend id="profile-symbol">当前个股持仓</legend>
             <label
@@ -126,6 +129,7 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext, token: 
           <div class="actions">
             <button id="profile-save" type="submit">保存</button
             ><button id="profile-clear" class="secondary" type="button">清空画像</button>
+            <button id="profile-toggle" class="quiet" type="button">个股持仓</button>
           </div>
           <p id="profile-status" role="status" aria-live="polite"></p>
         </form>

@@ -6,12 +6,13 @@ type CachedResult<T> =
   | { ok: false; error: string; cached?: boolean; fetchedAt?: number };
 import { MarketProvider } from '../turnover/provider';
 import { GlobalIndexProvider, BUILTIN_INDICES, validId, isGlobalQuote } from '../global-indices/data';
-import { CommodityProvider, entryFor, isCommodityQuote } from '../commodities/data';
+import { CommodityProvider, entryFor, isCommodityQuote, registerCommodity } from '../commodities/data';
 import { NewsProvider, isArticle } from '../news/data';
 import { AiSectorProvider } from './sector-data';
 import { marketTemperature } from '../temperature/service';
 import { session } from '../turnover/market';
 import { pick, attempt, abortError, quoteTime } from './data';
+import { cashTiming, futureTiming, regionalSessions } from './global-timing';
 const WORLD_IDS = [
   '100.NDX',
   '100.SPX',
@@ -25,6 +26,7 @@ const WORLD_IDS = [
   '100.UDI'
 ];
 const COMMODITY_CODES = ['XAU', 'OIL', 'CAD', 'XAG'];
+const FUTURES_REFERENCES = ['NQ', 'NK'];
 const MAX_AGE = 7 * 86400000;
 const MACRO =
   /美联储|央行|降息|加息|利率|通胀|非农|就业|CPI|PPI|PMI|GDP|关税|财政|货币|汇率|美元|人民币|美股|港股|日经|韩国|欧洲|欧央行|原油|黄金|油价|地缘|战争|停火|制裁|选举|外贸|出口|进口|刺激|监管|证监会/i;
@@ -78,6 +80,8 @@ class AnalysisEnvironment {
     sectorProvider = new AiSectorProvider({ now: () => now().getTime() }),
     timeoutMs = 18000
   }: EnvironmentDependencies = {}) {
+    // AI 外围数据不依赖用户是否添加期货，也不修改侧栏候选项和默认自选。
+    registerCommodity({ code: 'NK', name: '日经225期货', unit: '点', aliases: '日经 NK Nikkei rj CFD', market: 'cfd' });
     Object.assign(this, {
       market,
       globals,
@@ -142,7 +146,7 @@ class AnalysisEnvironment {
       !this.market?.state?.error &&
       ms - Date.parse(localSnapshot.fetchedAt) >= 0 &&
       ms - Date.parse(localSnapshot.fetchedAt) < 20000;
-    const [market, world, commodities, sectors, news] = await Promise.all([
+    const [market, world, commodities, sectors, news, futures] = await Promise.all([
       !wants('market')
         ? skipped
         : recentSnapshot
@@ -156,13 +160,17 @@ class AnalysisEnvironment {
               this.globalProvider.load(ids, s, (q) => {
                 if (!s.aborted) receivedWorld.set(q.id, q);
               }),
-            signal
+            signal,
+            0
           ),
       !wants('commodities')
         ? skipped
         : this.fetch('commodities', (s) => this.commodityProvider.load(COMMODITY_CODES, s), signal),
       !wants('sectors') ? skipped : attempt((s) => this.sectorProvider.load(symbol, s), signal, this.timeoutMs),
-      !wants('news') ? skipped : this.fetch('news', (s) => this.newsProvider.load(s), signal, 120000)
+      !wants('news') ? skipped : this.fetch('news', (s) => this.newsProvider.load(s), signal, 120000),
+      !wants('global')
+        ? skipped
+        : this.fetch('global-futures', (s) => this.commodityProvider.load(FUTURES_REFERENCES, s), signal, 0)
     ]);
     if (signal?.aborted) throw abortError();
     const notes: string[] = [],
@@ -210,6 +218,10 @@ class AnalysisEnvironment {
       worldRows.push({
         ...pick(q, ['id', 'name', 'region', 'price', 'percent', 'delta', 'previousClose']),
         ...quoteTime(q.timestamp, ms, q.timestampKind),
+        ...cashTiming(q.id, q.timestamp, now, q.timestampKind),
+        ...(!fresh || Boolean(world.error)
+          ? { currentReference: false, fetchFailed: true, usage: '本次获取失败，沿用原时间报价，仅作背景' }
+          : {}),
         source: q.source === 'sina' ? '新浪财经' : '东方财富',
         cached: !fresh || (!partial && Boolean(world.cached)),
         fetchedAt: stored?.fetchedAt ? new Date(stored.fetchedAt).toISOString() : undefined
@@ -222,9 +234,52 @@ class AnalysisEnvironment {
       quotes: worldRows,
       missing,
       extraIndicesOmitted: allIds.length - ids.length,
+      checkedAt: wants('global') ? now.toISOString() : undefined,
+      sessions: regionalSessions(now),
       timing:
         '各市场交易时区不同，最新可用报价可能属于上一交易日；请逐项核对 time，不视为同一时刻同时交易。来源更新时间不能当作交易所逐笔时间。'
     };
+    const futuresRows: PublicMarketSection[] = [];
+    const missingFutures: string[] = [];
+    if (wants('global'))
+      for (const code of FUTURES_REFERENCES) {
+        const quote = futures.ok && futures.value.quotes?.get(code);
+        const valid =
+          isCommodityQuote(quote) &&
+          quote.price > 0 &&
+          quote.timestamp * 1000 <= ms + 300000 &&
+          ms - quote.timestamp * 1000 <= MAX_AGE;
+        if (valid && !futures.error) this.commodityCache.set(code, { q: quote, fetchedAt: futures.fetchedAt! });
+        const stored = this.commodityCache.get(code);
+        const q = valid ? quote : stored?.q;
+        if (!q || ms - q.timestamp * 1000 > MAX_AGE) {
+          missingFutures.push(entryFor(code)!.name);
+          continue;
+        }
+        const failed = !valid || !!futures.error;
+        futuresRows.push({
+          ...pick(q, ['code', 'price', 'percent', 'delta', 'previousClose']),
+          name: entryFor(code)!.name,
+          unit: '点',
+          ...quoteTime(q.timestamp, ms),
+          ...futureTiming(q.timestamp, now, failed),
+          source: '新浪财经 CFD 参考行情',
+          cached: failed || !!futures.cached,
+          fetchFailed: failed,
+          fetchedAt:
+            valid && futures.ok
+              ? new Date(futures.fetchedAt).toISOString()
+              : stored
+                ? new Date(stored.fetchedAt).toISOString()
+                : undefined,
+          underlying: code === 'NQ' ? '纳斯达克100（不是纳斯达克综合）' : '日经225',
+          comparisonBase: '行情源昨收参考价；不能与现货涨跌幅直接相减'
+        });
+      }
+    data.globalMarkets.futures = futuresRows;
+    data.globalMarkets.missingFutures = missingFutures;
+    data.globalMarkets.assessmentRule =
+      '美、日、韩分别评价；现货收盘与盘外期货分开。期货仅作情绪参考，不能证明科技硬件行业或具体个股同步上涨。韩国缺少可用盘外代理时只陈述KOSPI最近常规时段行情。';
     if (missing.length) notes.push('部分全球指数不可用：' + missing.join('、'));
     const commodityRows: PublicMarketSection[] = [],
       missingCommodities: string[] = [];

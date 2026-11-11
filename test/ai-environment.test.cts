@@ -217,7 +217,7 @@ test('老板键取消时所有背景请求停止，迟到的接口结果不能�
   await new Promise((r) => setImmediate(r));
   abort.abort();
   await assert.rejects(pending, { name: 'AbortError' });
-  assert.equal(signals.length, 5);
+  assert.equal(signals.length, 6);
   assert.ok(signals.every((s) => s.aborted));
   assert.equal(env.cache.size, 0);
   const canceled = new AbortController();

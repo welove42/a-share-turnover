@@ -115,8 +115,9 @@ test('画像无证据不猜风险，明确更正更新偏好，仓位独立于�
     { risk: 'balanced', horizon: 'medium', goal: '降低回撤', holding: { status: 'held', cost: 50, exposure: 10 } },
     'sh600519'
   );
-  assert.equal(store.forAnalysis('sh600519').holding.cost, 50);
-  assert.equal(store.forAnalysis('sz000001').holding, null);
+  await store.editHolding({ status: 'held', cost: 50, exposure: 10 }, 'sh600519');
+  assert.equal(store.positionForAnalysis('sh600519').cost, 50);
+  assert.equal(store.positionForAnalysis('sz000001'), null);
   assert.equal(new ProfileStore(h.context.globalState).read().horizon, 'medium');
   await store.clear();
   assert.equal(store.read().initialized, false);
@@ -131,9 +132,9 @@ test('对话提取仓位成本保留待确认标记，不采纳原话没有的�
     }),
     calls: []
   }));
-  assert.equal(store.forAnalysis('sh600519').holding.cost, 50);
-  assert.equal(store.forAnalysis('sh600519').holding.exposure, null);
-  assert.equal(store.forAnalysis('sh600519').holding.confirmed, false);
+  assert.equal(store.positionForAnalysis('sh600519').cost, 50);
+  assert.equal(store.positionForAnalysis('sh600519').exposure, null);
+  assert.equal(store.positionForAnalysis('sh600519').confirmed, false);
 });
 
 test('长聊滚动保存后保留摘要及摘要游标，无摘要不静默裁剪', async () => {
@@ -173,7 +174,7 @@ test('其他股票的成本不写入当前标的；恢复时丢弃损坏和未�
     }),
     calls: []
   }));
-  assert.equal(store.forAnalysis('sh600519').holding, null);
+  assert.equal(store.positionForAnalysis('sh600519'), null);
   h.store.set('ai.profile.v1', {
     risk: 'bad',
     horizon: 'long',
@@ -185,7 +186,7 @@ test('其他股票的成本不写入当前标的；恢复时丢弃损坏和未�
   const restored = new ProfileStore(h.context.globalState).read();
   assert.equal(restored.risk, 'unknown');
   assert.equal(restored.horizon, 'long');
-  assert.deepEqual(restored.holdings, {});
+  assert.equal(restored.holdings, undefined);
   assert.doesNotMatch(JSON.stringify(restored), /do-not-keep/);
 });
 test('画像清空后迟到的模型提取不能写回', async () => {

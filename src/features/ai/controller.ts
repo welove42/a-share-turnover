@@ -218,13 +218,24 @@ class AiAnalysisController {
         this.publish();
         return;
       }
-      if (message.type === 'profileSave' || message.type === 'profileClear') {
+      if (['profileSave', 'profileClear', 'holdingSave', 'holdingClear'].includes(message.type)) {
         if (this.busy) return;
         void (async () => {
           try {
             if (message.type === 'profileClear') await this.profile.clear();
-            else await this.profile.edit(message.value, this.target);
-            this.status = message.type === 'profileClear' ? '已清空用户画像' : '画像已保存，下次分析生效';
+            else if (message.type === 'holdingSave') {
+              if (message.symbol !== this.target) throw new Error('分析对象已变化，请重新打开持仓记录');
+              await this.profile.editHolding(message.value, this.target!);
+            } else if (message.type === 'holdingClear') {
+              if (message.symbol !== this.target) throw new Error('分析对象已变化，请重新打开持仓记录');
+              await this.profile.clearHolding(this.target!);
+            } else await this.profile.edit(message.value);
+            this.status =
+              message.type === 'profileClear'
+                ? '已清空全局画像，个股持仓独立保留'
+                : message.type.startsWith('holding')
+                  ? '本股持仓已更新，不影响全局画像'
+                  : '全局画像已保存，所有个股分析共用';
           } catch (e) {
             this.status = e.message;
           }
@@ -291,8 +302,13 @@ class AiAnalysisController {
       activeSessionId: this.sessionId,
       profileVisible: this.profileVisible,
       profileStatus: this.profileStatus,
-      profile: this.profile.forAnalysis(this.target || '')
+      profile: this.profile.forAnalysis(),
+      holding: this.profile.positionForAnalysis(this.target || '')
     });
+  }
+  async clearInterestProfile() {
+    await this.profile.noteInterests(null);
+    this.publish();
   }
   record(): AiConversation | null {
     if (!this.sessionId || !this.target || !this.messages.length) return null;
@@ -658,12 +674,19 @@ class AiAnalysisController {
       const focus =
         this.interests?.summary(this.target, this.stocks?.config.symbols || [], this.snapshot?.sectors?.industry) ||
         null;
+      const globalFocus =
+        this.interests?.globalSummary?.(
+          this.stocks?.config.symbols || [],
+          (symbol) => this.stocks?.quotes.get(symbol)?.name
+        ) || null;
       const preferences = vscode.workspace.getConfiguration('aShareTurnover');
       if (this.interests && preferences.get('ai.profileEnabled', true)) {
         this.status = '正在整理关注点与用户画像…';
         this.publish();
         try {
-          await this.profile.learn(question, focus, this.target, aiOptions, auxiliary('画像整理'));
+          await this.profile.noteInterests(globalFocus);
+          if (!active()) return;
+          await this.profile.learn(question, globalFocus, this.target, aiOptions, auxiliary('画像整理'));
         } catch {
           /* 画像服务失败不阻止分析，仍使用用户此前确认的记录。 */
         }
@@ -706,7 +729,7 @@ class AiAnalysisController {
       }
       const profile =
         preferences.get('ai.profileEnabled', true) && (this.interests || this.profile.read().initialized)
-          ? this.profile.forAnalysis(this.target)
+          ? this.profile.forAnalysis(preferences.get('ai.behaviorContext', true))
           : null;
       if (memoryNote || focus)
         this.snapshot = {
@@ -739,7 +762,12 @@ class AiAnalysisController {
                 role: 'user' as const,
                 content:
                   '用户关注与画像（仅辅助信息，当前明确问题优先；不作为实时行情）：\n' +
-                  JSON.stringify({ profile, focus, askHolding: !followup && this.target !== 'market' && !!profile })
+                  JSON.stringify({
+                    profile,
+                    focus,
+                    holding: profile ? this.profile.positionForAnalysis(this.target) : null,
+                    askHolding: !followup && this.target !== 'market' && !!profile
+                  })
               }
             ]
           : []),

@@ -1,6 +1,15 @@
 import type { Memento } from 'vscode';
 
 export type InterestAction = 'open' | 'period' | 'indicator';
+export interface GlobalInterests {
+  scope: 'user';
+  stocks: Array<{ symbol: string; name: string; industry: string; views: number }>;
+  sectors: Array<{ name: string; views: number; watched: number }>;
+  periods: Array<{ value: string; score: number }>;
+  indicators: Array<{ value: string; score: number }>;
+  watchedCount: number;
+  updatedAt: string;
+}
 interface Entry {
   day: string;
   symbol: string;
@@ -110,6 +119,52 @@ export class InterestStore {
     const value = { ...this.sectors };
     this.write = this.write.catch(() => {}).then(() => this.state.update('ai.interestSectors.v1', value));
     void this.write.catch(() => {});
+  }
+  /** 全局画像聚合所有标的，不随当前分析对象切换；只使用已获知的板块归属。 */
+  globalSummary(
+    watched: string[],
+    name: (symbol: string) => string | undefined = () => undefined
+  ): GlobalInterests | null {
+    if (!this.enabled()) return null;
+    const rows = this.entries.filter((e) => this.valid(e));
+    const score = (action: InterestAction) => {
+      const values = new Map<string, number>();
+      for (const row of rows.filter((e) => e.action === action)) {
+        const key = action === 'open' ? row.symbol : row.value;
+        values.set(key, (values.get(key) || 0) + row.count * Math.pow(0.5, (this.now() - row.at) / (7 * DAY)));
+      }
+      return [...values]
+        .sort((a, b) => b[1] - a[1])
+        .map(([value, score]) => ({ value, score: Math.round(score * 10) / 10 }));
+    };
+    const opens = score('open'),
+      counts = new Map(opens.map((s) => [s.value, s.score]));
+    const stocks = [...new Set([...opens.map((s) => s.value), ...watched])]
+      .slice(0, 100)
+      .map((symbol) => ({
+        symbol,
+        name: name(symbol) || symbol,
+        industry:
+          this.sectors[symbol] && this.now() - this.sectors[symbol].at < 30 * DAY ? this.sectors[symbol].name : '未知',
+        views: counts.get(symbol) || 0
+      }));
+    const sectors = new Map<string, { name: string; views: number; watched: number }>();
+    for (const stock of stocks)
+      if (stock.industry !== '未知') {
+        const item = sectors.get(stock.industry) || { name: stock.industry, views: 0, watched: 0 };
+        item.views = Math.round((item.views + stock.views) * 10) / 10;
+        item.watched += Number(watched.includes(stock.symbol));
+        sectors.set(item.name, item);
+      }
+    return {
+      scope: 'user',
+      stocks,
+      sectors: [...sectors.values()].sort((a, b) => b.views - a.views || b.watched - a.watched),
+      periods: score('period'),
+      indicators: score('indicator'),
+      watchedCount: watched.length,
+      updatedAt: new Date(this.now()).toISOString()
+    };
   }
   summary(symbol: string, watched: string[], industry?: string) {
     if (!this.enabled()) return null;

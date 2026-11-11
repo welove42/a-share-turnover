@@ -44,7 +44,7 @@ test('首次整理画像后带入分析，当前问题优先；追问不重复�
     requestTurn: async (args) => {
       calls.push(args);
       return {
-        content: args.messages[0].content.startsWith('为行情分析更新用户画像')
+        content: args.messages[0].content.startsWith('为行情分析更新全局用户画像')
           ? JSON.stringify({ observation: '近期查看月线，弱参考' })
           : '分析结果',
         calls: [],

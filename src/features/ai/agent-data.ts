@@ -153,6 +153,20 @@ export class AgentData implements QueryData {
     if (old && time >= old.at && time - old.at < 7 * 86400000)
       return {
         ...old.value,
+        ...(old.value.globalMarkets
+          ? {
+              globalMarkets: {
+                ...old.value.globalMarkets,
+                fetchFailed: true,
+                quotes: (old.value.globalMarkets.quotes || []).map((q) => ({ ...q, currentReference: false })),
+                futures: (old.value.globalMarkets.futures || []).map((q) => ({
+                  ...q,
+                  currentReference: false,
+                  fetchFailed: true
+                }))
+              }
+            }
+          : {}),
         cached: true,
         fetchFailed: true,
         error: `本次查询失败${reason}，以下为原时间数据，不能当作最新行情。`
@@ -194,11 +208,14 @@ export class AgentData implements QueryData {
     if (name === 'get_news' && args.query !== undefined && (typeof args.query !== 'string' || args.query.length > 80))
       throw new Error('新闻关键词过长');
     const session = stockSession(new Date(this.now()));
-    const ttl = ['get_quote', 'get_etf', 'get_market', 'get_technical'].includes(name)
-      ? session.polling
-        ? 20000
-        : 120000
-      : 120000;
+    const ttl =
+      name === 'get_environment' && scope === 'global'
+        ? 0
+        : ['get_quote', 'get_etf', 'get_market', 'get_technical'].includes(name)
+          ? session.polling
+            ? 20000
+            : 120000
+          : 120000;
     const key = JSON.stringify([
       name,
       code,
@@ -332,10 +349,12 @@ export class AgentData implements QueryData {
     if (!question || !previous) return this.source.collect(target, signal);
     if (explanationOnly(question) && !/分析|走势|是.*还是/.test(question)) return previous;
     const periods = requestedPeriods(question);
-    const [quote, market, minute, ...technical] = await Promise.all([
+    const [quote, market, minute, global, sector, ...technical] = await Promise.all([
       this.execute('get_quote', {}, target, signal),
       this.execute('get_market', {}, target, signal),
       this.execute('get_technical', { period: 'intraday' }, target, signal),
+      this.execute('get_environment', { scope: 'global' }, target, signal),
+      this.execute('get_environment', { scope: 'sector' }, target, signal),
       ...periods.map((period) =>
         this.execute('get_technical', { period, bars: period === 'daily' ? 10 : 6 }, target, signal)
       )
@@ -372,6 +391,35 @@ export class AgentData implements QueryData {
       capturedAt: new Date(this.now()).toISOString(),
       quote,
       market: market.market || { missing: true },
+      globalMarkets: global.globalMarkets
+        ? {
+            ...global.globalMarkets,
+            ...(global.fetchFailed
+              ? {
+                  fetchFailed: true,
+                  error: global.error,
+                  quotes: (global.globalMarkets.quotes || []).map((q) => ({ ...q, currentReference: false })),
+                  futures: (global.globalMarkets.futures || []).map((q) => ({
+                    ...q,
+                    currentReference: false,
+                    fetchFailed: true
+                  }))
+                }
+              : {})
+          }
+        : {
+            ...previous.globalMarkets,
+            fetchFailed: true,
+            error: global.error || '外围刷新失败',
+            quotes: (previous.globalMarkets?.quotes || []).map((q) => ({ ...q, currentReference: false })),
+            futures: (previous.globalMarkets?.futures || []).map((q) => ({
+              ...q,
+              currentReference: false,
+              fetchFailed: true
+            }))
+          },
+      commodities: global.commodities || previous.commodities,
+      sectors: sector.sectors || { ...previous.sectors, fetchFailed: true, error: sector.error },
       relativeStrength: undefined,
       daily: updatedPeriods.daily || previous.daily,
       timeframes: {
@@ -396,14 +444,14 @@ export class AgentData implements QueryData {
                 (resolved.has('monthly') && note.startsWith('月线缺失'))
               )
           ),
-          '追问已检查当前报价、大盘、分时及问题明确要求的周期；其他数据保留原时间。',
-          ...[quote, market, minute, ...technical].filter((v) => v.fetchFailed).map((v) => v.error)
+          '追问已检查报价、大盘、分时、所属板块及美日韩外围（含纳指100和日经期货参考）；各项按实际报价时间解读。',
+          ...[quote, market, minute, global, sector, ...technical].filter((v) => v.fetchFailed).map((v) => v.error)
         ])
       ].slice(-12),
       coverage: [
         {
           label: '本轮行情',
-          detail: `已检查报价 / 大盘 / 分时${periods.length ? ' / ' + periods.map((p, index) => `${{ daily: '日线', weekly: '周线', monthly: '月线' }[p]}${technical[index]?.fetchFailed ? (technical[index]?.summary || (previous.timeframes?.[p] && !previous.timeframes[p]?.missing) ? '（缓存）' : '缺失') : '已获取'}`).join(' / ') : ''}，详见数据时间`
+          detail: `已检查报价 / 大盘 / 分时 / 板块 / 美日韩外围${periods.length ? ' / ' + periods.map((p, index) => `${{ daily: '日线', weekly: '周线', monthly: '月线' }[p]}${technical[index]?.fetchFailed ? (technical[index]?.summary || (previous.timeframes?.[p] && !previous.timeframes[p]?.missing) ? '（缓存）' : '缺失') : '已获取'}`).join(' / ') : ''}，详见数据时间`
         }
       ]
     };

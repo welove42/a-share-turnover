@@ -56,6 +56,8 @@ Webview 只能使用浏览器 API，通过消息与主进程通信。esbuild 把
 - Agent：`ai/agent.ts` 管三次请求、六次查询、输出预算及超时，不设输入 token 硬上限；`agent-data.ts` 规划关键缺口并提供白名单查询、缓存和取消。自动补查与模型查询共用计数和去重，`get_market` 同时返回指数报价及市场广度。`agent-context.ts` 只去重复界面字段，保留完整证据；`protocol.ts` 处理 Responses 转换和能力降级。工具消息保留配对但仅存在本轮，完整用户对话仍存本机。
 - 对话记忆：`conversation-memory.ts` 在旧问答约16,000 tokens或临近保存条数上限时增量摘要，摘要游标通过 SHA-256 绑定原文，近期三轮保留原文；失败保留尚未摘要的完整问答。阈值仅触发整理，不拒绝输入。滚动保存只移除摘要已覆盖的上下文。可见历史仍保留最近120条。
 - 用户画像：`interests.ts` 聚合30天主动图表操作，去抖并按7天半衰期加权；`profile.ts` 保存明确偏好、逐股持仓和弱参考观察，提取须有用户原话，持仓等待确认。模型学习与摘要每轮各最多一次，不后台调用。`ai.profile.v1`、`ai.interests.v1`、`ai.interestSectors.v1` 和会话摘要均不注册云同步。
+- 全局画像使用 `ai.profile.v1` 的 `schemaVersion: 2`，不含持仓或当前分析对象；股票成本和仓位迁入独立 `ai.positions.v1`，写入成功后才移除旧画像内持仓，均只留本机。`globalSummary` 跨股票聚合自选、浏览和已知板块，`focus` 仍仅描述本次对象，不作为另一份画像保存。
+- 外围：`global-timing.ts` 标注纽约/东京/首尔常规时段和实际报价日期；`environment.ts` 每次外围查询更新全球指数、NQ/NK参考报价，失败保留原始时间。`AgentData.prepare` 的行情追问主动刷新全球与板块，解释术语不联网。现货和期货单列，来源更新时间不能冒充交易时间。
 - 异动：`watchlist/alerts.ts` 的实际提醒事件交给 `activity.ts`，仅为A股设置未读角标、定位和行内高亮；清理旧港美股标记，保留各市场弹窗。支持本机恢复、跨日清理和老板键隐藏，不改变每日提醒去重规则。
 - 多周期：`ai/technical-context.ts` 计算各周期摘要、已完成K线指标和同刻量比，`history-data.ts` 获取行业与全球指数历史。`prompt.ts` 只约束周期分工和输出；发送时去掉 UI 字段及重复日线，历史快照仍兼容旧版。
 - 设置：页面发送消息 → 主进程验证 → 写入配置并通知功能。API Key 单独使用 SecretStorage，不写入设置或对话记录。
