@@ -154,6 +154,14 @@
         "icon": "$(trash)"
       },
       {
+        "command": "welove42.aShareTurnover.stocks.clearActivity",
+        "title": "清除异动高亮"
+      },
+      {
+        "command": "welove42.aShareTurnover.stocks.clearAllActivity",
+        "title": "清除全部异动高亮"
+      },
+      {
         "command": "welove42.aShareTurnover.stocks.refresh",
         "title": "A股自选股：立即刷新",
         "icon": "$(refresh)"
@@ -1092,6 +1100,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "welove42.aShareTurnover.stocks.clearAllActivity",
+          "when": "!aShareTurnover.hidden && view == welove42.aShareTurnover.marketWatch",
+          "group": "activity@1"
+        },
+        {
           "command": "welove42.aShareTurnover.settings.open",
           "when": "!aShareTurnover.hidden && view == welove42.aShareTurnover.marketWatch",
           "group": "navigation@4"
@@ -1188,6 +1201,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "welove42.aShareTurnover.stocks.clearActivity",
+          "when": "!aShareTurnover.hidden && view == welove42.aShareTurnover.marketWatch && viewItem == aShareStock",
+          "group": "activity@1"
+        },
         {
           "command": "welove42.aShareTurnover.overseas.add",
           "when": "view == welove42.aShareTurnover.marketWatch && viewItem =~ /^aShare(OverseasGroup|UsGroup)$/",

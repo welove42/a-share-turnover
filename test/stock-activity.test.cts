@@ -84,6 +84,34 @@ test('打开侧栏定位最新异动并选中，其他未读保留；已读仍�
     s.c.dispose();
   }
 });
+test('清除单只和全部异动标记会同步角标并持久化，不重置弹窗去重', async () => {
+  const s = setup();
+  try {
+    const first = s.c.element('sh600105'),
+      second = s.c.element('sh600519');
+    s.alerts.check([quote()], 'a');
+    s.c.activity.record(quote('sh600519'), 'a', '跌幅超过7%');
+    assert.equal(s.c.tree.badge.value, 2);
+    s.c.activity.clear(first);
+    assert.equal(typeof s.c.getTreeItem(first).label, 'string');
+    assert.ok(s.c.getTreeItem(second).label.highlights.length);
+    assert.equal(s.c.tree.badge.value, 1);
+    s.alerts.check([quote()], 'a');
+    assert.equal(s.notices.length, 1);
+    assert.equal(typeof s.c.getTreeItem(first).label, 'string');
+    s.c.activity.clearAll();
+    assert.equal(s.c.tree.badge, undefined);
+    assert.equal(typeof s.c.getTreeItem(second).label, 'string');
+    await tick();
+    assert.deepEqual(s.h.store.get('stockActivityV1'), []);
+    s.advance(10000);
+    s.alerts.check([quote('sh600105', 10.99, 10)], 'a');
+    assert.match(s.c.getTreeItem(first).description, /涨停炸板/);
+  } finally {
+    s.alerts.dispose();
+    s.c.dispose();
+  }
+});
 test('老板键隐藏角标/标记且不定位；恢复保留未读，不主动抢焦点', async () => {
   const s = setup();
   try {

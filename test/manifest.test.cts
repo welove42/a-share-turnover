@@ -2,6 +2,19 @@
 const test = require('node:test'),
   assert = require('node:assert/strict');
 const manifest = require('../package.json');
+test('自选股右键和侧栏菜单提供清除异动入口', () => {
+  const menus = manifest.contributes.menus;
+  assert.ok(
+    menus['view/item/context'].some(
+      (m) => m.command === 'welove42.aShareTurnover.stocks.clearActivity' && m.when.includes('aShareStock')
+    )
+  );
+  assert.ok(
+    menus['view/title'].some(
+      (m) => m.command === 'welove42.aShareTurnover.stocks.clearAllActivity' && m.when.includes('marketWatch')
+    )
+  );
+});
 test('副图切换入口在页面内，编辑器右上角保留来源、刷新、浏览器和AI分析按钮', () => {
   const commands = manifest.contributes.menus['editor/title']
     .filter((item) => item.when.includes('stockChart'))
