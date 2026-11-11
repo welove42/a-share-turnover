@@ -93,7 +93,7 @@ export class SectorBoard implements vscode.Disposable {
     }
     const abort = (this.abort = new AbortController()), generation = ++this.generation;
     this.inflightKey = key;
-    this.send({ type: 'loading', message: query.search && query.view === 'table' ? '正在搜索板块…' : query.view === 'heatmap' ? '正在获取成交额前100个板块…' : `正在获取第 ${query.page} 页…` });
+    this.send({ type: 'loading', message: query.search && query.view === 'table' ? '正在搜索板块…' : query.view === 'heatmap' ? '正在获取成交额前50个板块…' : `正在获取第 ${query.page} 页…` });
     this.inflight = (async () => {
       try {
         const data = await this.provider.load(category, abort.signal, fetchQuery);

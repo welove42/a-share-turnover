@@ -121,7 +121,7 @@ export class SectorBoardProvider {
       return { category, rows, total: rows.length, fetchedAt: this.now(), source: '东方财富' };
     }
     const isMap = query.view === 'heatmap';
-    const params = new URLSearchParams({ pn: String(isMap ? 1 : query.page), pz: isMap ? '100' : '30', po: isMap || query.sort !== 'percent' || query.direction === 'gainers' ? '1' : '0', fid: isMap ? 'f6' : ({ percent: 'f3', amount: 'f6', volume: 'f5' })[query.sort], fs: CATEGORIES[category].fs, fields, fltt: '2' });
+    const params = new URLSearchParams({ pn: String(isMap ? 1 : query.page), pz: isMap ? '50' : '30', po: isMap || query.sort !== 'percent' || query.direction === 'gainers' ? '1' : '0', fid: isMap ? 'f6' : ({ percent: 'f3', amount: 'f6', volume: 'f5' })[query.sort], fs: CATEGORIES[category].fs, fields, fltt: '2' });
     const result = await read(`/api/qt/clist/get?${params}`);
     if (result.total && !result.rawCount && (isMap || query.page <= Math.ceil(result.total / 30))) throw new Error('板块列表为空');
     return { category, rows: result.rows, total: result.total, fetchedAt: this.now(), source: '东方财富' };

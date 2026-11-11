@@ -22,7 +22,7 @@ function page(total, rows) {
   return { rc: 0, data: { total, diff: rows } };
 }
 const query = (overrides = {}) => ({view:'table',page:1,sort:'percent',direction:'gainers',search:'',...overrides});
-test('列表仅请求当前30条，云图单独请求成交额前100条，失败切换节点', async () => {
+test('列表仅请求当前30条，云图单独请求成交额前50条，失败切换节点', async () => {
   const urls = [];
   const provider = new SectorBoardProvider(
     async (url) => {
@@ -45,7 +45,7 @@ test('列表仅请求当前30条，云图单独请求成交额前100条，失败
   assert.match(urls[1], /pz=30/);
   assert.match(urls[1], /pn=2/);
   await provider.load('industry', new AbortController().signal, query({view:'heatmap'}));
-  assert.match(urls[2], /pz=100/);
+  assert.match(urls[2], /pz=50/);
   assert.match(urls[2], /fid=f6/);
   const noFields = parseBoardPage(page(1, [{ ...entry(1), f6: '-', f5: '-', f124: '-', f128: '-' }]), 'concept', now)
     .rows[0];

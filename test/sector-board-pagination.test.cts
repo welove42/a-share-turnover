@@ -31,7 +31,7 @@ function ui() {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../dist/webviews/sector-board.js'), 'utf8'), {
     document, window: { addEventListener: (name, fn) => { listeners[name] = fn; } }, acquireVsCodeApi: () => ({ postMessage: (message) => messages.push(message) }), Date, Math, Number, String, Set, setTimeout, clearTimeout
   });
-  const state = (count, page = 1, sort = 'percent', search = '', category = 'industry', direction = 'gainers') => listeners.message({ data: { token: 'test', type: 'state', category, direction, query: { view:'table',page,sort,search }, data: { source: '测试', fetchedAt: 0, total: count, rows: Array.from({ length: Math.min(30, Math.max(0,count-(page-1)*30)) }, (_, i) => ({ code: `BK${1000 + i}`, name: `板块${i}`, percent: i, amount: 100 + i, volume: i, turnover: null, marketCap: null, up: 1, down: 0, leader: '', leaderPercent: null, timestamp: null })) } } });
+  const state = (count, page = 1, sort = 'percent', search = '', category = 'industry', direction = 'gainers', view = 'table') => listeners.message({ data: { token: 'test', type: 'state', category, direction, query: { view,page,sort,search }, data: { source: '测试', fetchedAt: 0, total: count, rows: Array.from({ length: view === 'heatmap' ? Math.min(50,count) : Math.min(30, Math.max(0,count-(page-1)*30)) }, (_, i) => ({ code: `BK${1000 + i}`, name: `板块${i}`, percent: i, amount: 100 + i, volume: i, turnover: null, marketCap: null, up: 1, down: 0, leader: '', leaderPercent: null, timestamp: null })) } } });
   return { get, controls, messages, state };
 }
 test('板块列表分页、筛选和排序向后端发送正确查询，排名保持连续', async () => {
@@ -69,4 +69,20 @@ test('板块列表分页、筛选和排序向后端发送正确查询，排名�
   assert.equal(h.controls['[data-page-info]'][0].textContent, '0 / 0 页');
   assert.equal(h.get('rows').children[0].children[0].textContent, '没有找到匹配的板块');
   assert.equal(h.messages.filter((m) => m.action === 'query').length, 6);
+});
+test('云图最多50个板块，方块保留名称和涨跌幅且面积反映成交额', () => {
+  const h = ui();
+  h.state(60);
+  h.controls['[data-view]'][1].fire('click');
+  assert.equal(h.messages.at(-1).value.view, 'heatmap');
+  h.state(50, 1, 'percent', '', 'industry', 'gainers', 'heatmap');
+  const tiles = h.get('heatmap').children;
+  assert.equal(tiles.length, 50);
+  assert.ok(tiles.every((t) => t.children[0].textContent && t.children[1].textContent));
+  const total = Array.from({length:50},(_,i)=>100+i).reduce((a,b)=>a+b,0);
+  tiles.forEach((tile) => {
+    const number = Number(tile.children[0].textContent.replace('板块',''));
+    const ratio = parseFloat(tile.style.width) * parseFloat(tile.style.height) / 10000;
+    assert.ok(Math.abs(ratio - (100 + number) / total) < 1e-8);
+  });
 });

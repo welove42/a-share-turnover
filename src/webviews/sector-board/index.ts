@@ -145,10 +145,10 @@ function render() {
   $('rows').replaceChildren(fragment);
   if (view === 'heatmap') renderMap(data.rows);
 }
-// 按成交额递归切分矩形，面积比例来自真实数据；不把缺失值填成零。
+// 按真实像素尺寸布局，尽量保持方块接近正方形，同时保留成交额面积比例。
 function renderMap(rows: Row[]) {
   const all = rows.filter((r) => r.amount !== null && r.amount > 0).sort((a, b) => b.amount! - a.amount!);
-  const list = all.slice(0, 100),
+  const list = all.slice(0, 50),
     map = $('heatmap');
   map.replaceChildren();
   $('coverage').textContent = `成交额前 ${list.length} / ${data?.total || all.length} 个板块`;
@@ -156,15 +156,21 @@ function renderMap(rows: Row[]) {
     map.textContent = '暂无可用于绘制云图的成交额数据';
     return;
   }
-  const draw = (items: Row[], x: number, y: number, w: number, h: number) => {
-    if (items.length === 1) {
-      const r = items[0],
-        b = document.createElement('button');
+  const width = map.clientWidth || 900, height = map.clientHeight || 760;
+  const total = list.reduce((sum, r) => sum + r.amount!, 0);
+  const remaining = list.map((row) => ({ row, area: row.amount! / total * width * height }));
+  const worst = (items: typeof remaining, side: number) => {
+    if (!items.length || side <= 0) return Infinity;
+    const sum = items.reduce((n, item) => n + item.area, 0), areas = items.map((item) => item.area), square = side * side;
+    return Math.max(square * Math.max(...areas) / (sum * sum), (sum * sum) / (square * Math.min(...areas)));
+  };
+  const tile = (r: Row, x: number, y: number, w: number, h: number) => {
+      const b = document.createElement('button');
       b.className = 'tile';
-      b.style.left = `${x}%`;
-      b.style.top = `${y}%`;
-      b.style.width = `${w}%`;
-      b.style.height = `${h}%`;
+      b.style.left = `${x / width * 100}%`;
+      b.style.top = `${y / height * 100}%`;
+      b.style.width = `${w / width * 100}%`;
+      b.style.height = `${h / height * 100}%`;
       b.style.backgroundColor = color(r.percent);
       b.title = line(r);
       b.setAttribute('aria-label', line(r));
@@ -175,27 +181,27 @@ function renderMap(rows: Row[]) {
       b.append(name, p);
       b.addEventListener('click', () => select(r));
       map.appendChild(b);
-      return;
-    }
-    const sum = items.reduce((a, r) => a + r.amount!, 0);
-    let part = 0,
-      split = 1;
-    while (split < items.length && part + items[split - 1].amount! < sum / 2) {
-      part += items[split - 1].amount!;
-      split++;
-    }
-    part = items.slice(0, split).reduce((a, r) => a + r.amount!, 0);
-    const ratio = part / sum;
-    if (w >= h) {
-      draw(items.slice(0, split), x, y, w * ratio, h);
-      draw(items.slice(split), x + w * ratio, y, w * (1 - ratio), h);
-    } else {
-      draw(items.slice(0, split), x, y, w, h * ratio);
-      draw(items.slice(split), x, y + h * ratio, w, h * (1 - ratio));
-    }
   };
-  draw(list, 0, 0, 100, 100);
+  let x = 0, y = 0, w = width, h = height;
+  while (remaining.length) {
+    const group = [remaining.shift()!];
+    while (remaining.length && worst([...group, remaining[0]], Math.min(w, h)) <= worst(group, Math.min(w, h)))
+      group.push(remaining.shift()!);
+    const area = group.reduce((sum, item) => sum + item.area, 0);
+    if (w >= h) {
+      const strip = area / h;
+      let position = y;
+      for (const item of group) { const size = item.area / strip; tile(item.row, x, position, strip, size); position += size; }
+      x += strip; w -= strip;
+    } else {
+      const strip = area / w;
+      let position = x;
+      for (const item of group) { const size = item.area / strip; tile(item.row, position, y, size, strip); position += size; }
+      y += strip; h -= strip;
+    }
+  }
 }
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { if (view === 'heatmap' && data) renderMap(data.rows); }).observe($('heatmap'));
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-category]'))
   b.addEventListener('click', () => {
     if (b.dataset.category !== category) post('category', b.dataset.category);
