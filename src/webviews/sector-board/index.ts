@@ -80,6 +80,7 @@ function updateButtons() {
     el.classList.toggle('active', el.dataset.mapSort === mapSort);
   $('table-view').hidden = view !== 'table';
   $('heatmap-view').hidden = view !== 'heatmap';
+  $('directions').hidden = view === 'heatmap';
 }
 function render() {
   updateButtons();
@@ -154,7 +155,7 @@ function renderMap(rows: Row[]) {
   const list = all.slice(0, 50),
     map = $('heatmap');
   map.replaceChildren();
-  const ranking = mapSort === 'amount' ? '成交额' : direction === 'losers' ? '跌幅' : '涨幅';
+  const ranking = mapSort === 'amount' ? '成交额' : mapSort === 'losers' ? '跌幅' : '涨幅';
   $('coverage').textContent = `${ranking}排行前 ${list.length} / ${data?.total || all.length} 个板块`;
   if (!list.length) {
     map.textContent = '暂无可用于绘制云图的成交额数据';

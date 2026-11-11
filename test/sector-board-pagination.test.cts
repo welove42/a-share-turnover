@@ -22,7 +22,7 @@ function ui() {
     '[data-category]': ['industry', 'concept'].map((value) => new Element({ category: value })),
     '[data-direction]': ['gainers', 'losers'].map((value) => new Element({ direction: value })),
     '[data-view]': ['table', 'heatmap'].map((value) => new Element({ view: value })),
-    '[data-map-sort]': ['amount', 'percent'].map((value) => new Element({ mapSort: value })),
+    '[data-map-sort]': ['amount', 'gainers', 'losers'].map((value) => new Element({ mapSort: value })),
     '[data-sort]': ['percent', 'amount', 'volume'].map((value) => new Element({ sort: value })),
     '[data-page]': ['previous', 'next', 'previous', 'next'].map((value) => new Element({ page: value })),
     '[data-page-info]': [new Element(), new Element()]
@@ -88,11 +88,14 @@ test('云图最多50个板块，方块保留名称和涨跌幅且面积反映成
   });
   assert.match(h.get('coverage').textContent, /成交额排行/);
   h.controls['[data-map-sort]'][1].fire('click');
-  assert.equal(h.messages.at(-1).value.mapSort, 'percent');
+  assert.equal(h.messages.at(-1).value.mapSort, 'gainers');
   h.state(50, 1, 'percent', '', 'industry', 'gainers', 'heatmap', 'amount');
   assert.equal(h.get('heatmap').children.length, 0, '旧的成交额响应不能覆盖正在加载的涨幅榜');
-  h.state(50, 1, 'percent', '', 'industry', 'gainers', 'heatmap', 'percent');
+  h.state(50, 1, 'percent', '', 'industry', 'gainers', 'heatmap', 'gainers');
   assert.match(h.get('coverage').textContent, /涨幅排行/);
-  h.state(50, 1, 'percent', '', 'industry', 'losers', 'heatmap', 'percent');
+  h.controls['[data-map-sort]'][2].fire('click');
+  assert.equal(h.messages.at(-1).value.mapSort, 'losers');
+  h.state(50, 1, 'percent', '', 'industry', 'gainers', 'heatmap', 'losers');
   assert.match(h.get('coverage').textContent, /跌幅排行/);
+  assert.equal(h.get('directions').hidden, true);
 });

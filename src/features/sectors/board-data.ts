@@ -69,7 +69,7 @@ export function parseBoardPage(payload: any, category: string, now = Date.now())
   }
   return { total, rows, rawCount: Object.values(payload.data.diff || {}).length };
 }
-export interface BoardQuery { view: 'table' | 'heatmap'; page: number; sort: 'percent' | 'amount' | 'volume'; direction: 'gainers' | 'losers'; search: string; mapSort?: 'amount' | 'percent' }
+export interface BoardQuery { view: 'table' | 'heatmap'; page: number; sort: 'percent' | 'amount' | 'volume'; direction: 'gainers' | 'losers'; search: string; mapSort?: 'amount' | 'gainers' | 'losers' }
 const fields = 'f3,f5,f6,f8,f12,f14,f20,f104,f105,f124,f128,f136';
 export class SectorBoardProvider {
   private cooldown = new Map<string, number>();
@@ -83,7 +83,7 @@ export class SectorBoardProvider {
     query: BoardQuery
   ): Promise<BoardSnapshot> {
     if (!Object.hasOwn(CATEGORIES, category)) throw new Error('板块类型无效');
-    if (!query || !['table', 'heatmap'].includes(query.view) || !['percent', 'amount', 'volume'].includes(query.sort) || !['gainers', 'losers'].includes(query.direction) || (query.mapSort !== undefined && !['amount', 'percent'].includes(query.mapSort)) || !Number.isInteger(query.page) || query.page < 1 || query.page > 100 || typeof query.search !== 'string' || query.search.length > 40) throw new Error('板块查询参数无效');
+    if (!query || !['table', 'heatmap'].includes(query.view) || !['percent', 'amount', 'volume'].includes(query.sort) || !['gainers', 'losers'].includes(query.direction) || (query.mapSort !== undefined && !['amount', 'gainers', 'losers'].includes(query.mapSort)) || !Number.isInteger(query.page) || query.page < 1 || query.page > 100 || typeof query.search !== 'string' || query.search.length > 40) throw new Error('板块查询参数无效');
     const hosts = ['push2.eastmoney.com', '82.push2.eastmoney.com', 'push2his.eastmoney.com'];
     const read = async (path: string) => {
       let last: unknown;
@@ -121,8 +121,9 @@ export class SectorBoardProvider {
       return { category, rows, total: rows.length, fetchedAt: this.now(), source: '东方财富' };
     }
     const isMap = query.view === 'heatmap';
-    const orderBy = isMap ? (query.mapSort || 'amount') : query.sort;
-    const params = new URLSearchParams({ pn: String(isMap ? 1 : query.page), pz: isMap ? '50' : '30', po: orderBy !== 'percent' || query.direction === 'gainers' ? '1' : '0', fid: ({ percent: 'f3', amount: 'f6', volume: 'f5' })[orderBy], fs: CATEGORIES[category].fs, fields, fltt: '2' });
+    const orderBy = isMap ? (query.mapSort === 'gainers' || query.mapSort === 'losers' ? 'percent' : 'amount') : query.sort;
+    const orderDirection = isMap && query.mapSort === 'losers' ? 'losers' : isMap ? 'gainers' : query.direction;
+    const params = new URLSearchParams({ pn: String(isMap ? 1 : query.page), pz: isMap ? '50' : '30', po: orderBy !== 'percent' || orderDirection === 'gainers' ? '1' : '0', fid: ({ percent: 'f3', amount: 'f6', volume: 'f5' })[orderBy], fs: CATEGORIES[category].fs, fields, fltt: '2' });
     const result = await read(`/api/qt/clist/get?${params}`);
     if (result.total && !result.rawCount && (isMap || query.page <= Math.ceil(result.total / 30))) throw new Error('板块列表为空');
     return { category, rows: result.rows, total: result.total, fetchedAt: this.now(), source: '东方财富' };

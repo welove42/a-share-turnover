@@ -61,7 +61,7 @@ export class SectorBoard implements vscode.Disposable {
     if (m.action === 'refresh') { this.update(true); return; }
     if (m.action === 'query') {
       const v = m.value;
-      if (!v || !['table', 'heatmap'].includes(v.view) || !['percent', 'amount', 'volume'].includes(v.sort) || (v.mapSort !== undefined && !['amount', 'percent'].includes(v.mapSort)) || !Number.isInteger(v.page) || v.page < 1 || v.page > 100 || typeof v.search !== 'string' || v.search.length > 40) return;
+      if (!v || !['table', 'heatmap'].includes(v.view) || !['percent', 'amount', 'volume'].includes(v.sort) || (v.mapSort !== undefined && !['amount', 'gainers', 'losers'].includes(v.mapSort)) || !Number.isInteger(v.page) || v.page < 1 || v.page > 100 || typeof v.search !== 'string' || v.search.length > 40) return;
       this.query = { view: v.view, page: v.page, sort: v.sort, search: v.search.trim(), direction: this.owner.direction, mapSort: v.mapSort || 'amount' };
       // 页面主动请求时必须回送状态，即便命中同一份缓存也要结束加载态。
       this.sent = '';
@@ -84,7 +84,7 @@ export class SectorBoard implements vscode.Disposable {
       this.lastCategory = this.owner.category;
       this.lastDirection = this.owner.direction;
     }
-    const category = this.owner.category, query = { ...this.query }, fetchQuery: BoardQuery = query.view === 'heatmap' ? { view: 'heatmap', page: 1, sort: 'amount', direction: query.mapSort === 'percent' ? query.direction : 'gainers', search: '', mapSort: query.mapSort || 'amount' } : query, key = JSON.stringify([category, fetchQuery.view, fetchQuery.page, fetchQuery.sort, fetchQuery.direction, fetchQuery.search, fetchQuery.view === 'heatmap' ? fetchQuery.mapSort : '']), now = this.owner.now().getTime(), cached = this.cache.get(key);
+    const category = this.owner.category, query = { ...this.query }, fetchQuery: BoardQuery = query.view === 'heatmap' ? { view: 'heatmap', page: 1, sort: 'amount', direction: 'gainers', search: '', mapSort: query.mapSort || 'amount' } : query, key = JSON.stringify([category, fetchQuery.view, fetchQuery.page, fetchQuery.sort, fetchQuery.direction, fetchQuery.search, fetchQuery.view === 'heatmap' ? fetchQuery.mapSort : '']), now = this.owner.now().getTime(), cached = this.cache.get(key);
     this.sendState(key, cached || null, !!cached && now - cached.fetchedAt >= 60000);
     if (this.inflight) { if (this.inflightKey !== key) this.cancel(); return; }
     if ((cached && now - cached.fetchedAt < 60000) || (this.failed.get(key) || 0) > now) {
@@ -93,7 +93,7 @@ export class SectorBoard implements vscode.Disposable {
     }
     const abort = (this.abort = new AbortController()), generation = ++this.generation;
     this.inflightKey = key;
-    this.send({ type: 'loading', message: query.search && query.view === 'table' ? '正在搜索板块…' : query.view === 'heatmap' ? `正在获取${query.mapSort === 'percent' ? (query.direction === 'losers' ? '跌幅' : '涨幅') : '成交额'}前50个板块…` : `正在获取第 ${query.page} 页…` });
+    this.send({ type: 'loading', message: query.search && query.view === 'table' ? '正在搜索板块…' : query.view === 'heatmap' ? `正在获取${query.mapSort === 'losers' ? '跌幅' : query.mapSort === 'gainers' ? '涨幅' : '成交额'}前50个板块…` : `正在获取第 ${query.page} 页…` });
     this.inflight = (async () => {
       try {
         const data = await this.provider.load(category, abort.signal, fetchQuery);
