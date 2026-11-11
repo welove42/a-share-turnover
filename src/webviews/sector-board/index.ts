@@ -28,12 +28,13 @@ let category = 'industry',
   direction = 'gainers',
   view = 'table',
   sort = 'percent',
+  mapSort = 'amount',
   page = 1,
   data: Snapshot | null = null,
   stale = false;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const post = (action: string, value?: unknown) => vscode.postMessage({ token, action, value });
-const query = () => ({ view, sort, page, search: ($('search') as HTMLInputElement).value.trim() });
+const query = () => ({ view, sort, mapSort, page, search: ($('search') as HTMLInputElement).value.trim() });
 function requestPage() {
   data = null;
   $('detail').hidden = true;
@@ -75,6 +76,8 @@ function updateButtons() {
     el.classList.toggle('active', el.dataset.direction === direction);
   for (const el of document.querySelectorAll<HTMLButtonElement>('[data-view]'))
     el.classList.toggle('active', el.dataset.view === view);
+  for (const el of document.querySelectorAll<HTMLButtonElement>('[data-map-sort]'))
+    el.classList.toggle('active', el.dataset.mapSort === mapSort);
   $('table-view').hidden = view !== 'table';
   $('heatmap-view').hidden = view !== 'heatmap';
 }
@@ -151,7 +154,8 @@ function renderMap(rows: Row[]) {
   const list = all.slice(0, 50),
     map = $('heatmap');
   map.replaceChildren();
-  $('coverage').textContent = `成交额前 ${list.length} / ${data?.total || all.length} 个板块`;
+  const ranking = mapSort === 'amount' ? '成交额' : direction === 'losers' ? '跌幅' : '涨幅';
+  $('coverage').textContent = `${ranking}排行前 ${list.length} / ${data?.total || all.length} 个板块`;
   if (!list.length) {
     map.textContent = '暂无可用于绘制云图的成交额数据';
     return;
@@ -219,6 +223,13 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('[data-view]'))
     page = 1;
     requestPage();
   });
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-map-sort]'))
+  b.addEventListener('click', () => {
+    if (b.dataset.mapSort !== mapSort) {
+      mapSort = b.dataset.mapSort!;
+      requestPage();
+    }
+  });
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-sort]'))
   b.addEventListener('click', () => {
     sort = b.dataset.sort!;
@@ -237,7 +248,7 @@ window.addEventListener('message', (event) => {
   const m = event.data;
   if (!m || m.token !== token) return;
   if (m.type === 'state') {
-    if (m.query && (m.query.view !== view || m.query.search !== query().search || (m.query.page !== page && m.category === category && m.direction === direction) || m.query.sort !== sort)) return;
+    if (m.query && (m.query.view !== view || m.query.search !== query().search || (m.query.page !== page && m.category === category && m.direction === direction) || m.query.sort !== sort || (m.query.mapSort && m.query.mapSort !== mapSort))) return;
     if (m.category !== category || m.direction !== direction) page = 1;
     category = m.category;
     direction = m.direction;

@@ -47,6 +47,13 @@ test('列表仅请求当前30条，云图单独请求成交额前50条，失败�
   await provider.load('industry', new AbortController().signal, query({view:'heatmap'}));
   assert.match(urls[2], /pz=50/);
   assert.match(urls[2], /fid=f6/);
+  await provider.load('industry', new AbortController().signal, query({view:'heatmap',mapSort:'percent'}));
+  assert.equal(new URL(urls[3]).searchParams.get('fid'), 'f3');
+  assert.equal(new URL(urls[3]).searchParams.get('po'), '1');
+  await provider.load('industry', new AbortController().signal, query({view:'heatmap',mapSort:'percent',direction:'losers'}));
+  assert.equal(new URL(urls[4]).searchParams.get('fid'), 'f3');
+  assert.equal(new URL(urls[4]).searchParams.get('po'), '0');
+  assert.equal(new URL(urls[4]).searchParams.get('pz'), '50');
   const noFields = parseBoardPage(page(1, [{ ...entry(1), f6: '-', f5: '-', f124: '-', f128: '-' }]), 'concept', now)
     .rows[0];
   assert.equal(noFields.amount, null);
@@ -107,10 +114,12 @@ test('状态栏打开复用页面，切换分类与方向，页面隐藏及老�
   const h = harness(),
     { SectorsController } = h.load('../dist/features/sectors/controller');
   let calls = 0;
+  const requests = [];
   const c = new SectorsController(h.context, { now: () => new Date(now), provider: { load: async () => Array.from({length:10},(_,i)=>({code:`BK${1000+i}`,name:`测试${i}`,percent:10-i,timestamp:Math.floor(now/1000)})) } });
   c.board.provider = {
-    load: async (category, signal) => {
+    load: async (category, signal, request) => {
       calls++;
+      requests.push(request);
       return {
         category,
         total: 1,
@@ -175,6 +184,18 @@ test('状态栏打开复用页面，切换分类与方向，页面隐藏及老�
     await c.board.receive({token,action:'direction',value:'gainers'});
     await tick();
     assert.equal(calls, 4, '云图只按成交额取数据，切换涨跌榜不重复获取');
+    await c.board.receive({token,action:'query',value:{view:'heatmap',page:1,sort:'percent',search:'',mapSort:'percent'}});
+    await c.board.inflight;
+    assert.equal(calls, 5);
+    assert.equal(requests.at(-1).mapSort, 'percent');
+    assert.equal(requests.at(-1).direction, 'gainers');
+    await c.board.receive({token,action:'direction',value:'losers'});
+    await tick();
+    await c.board.inflight;
+    assert.equal(calls, 6);
+    assert.equal(requests.at(-1).direction, 'losers');
+    await c.board.receive({token,action:'query',value:{view:'heatmap',page:1,sort:'percent',search:'',mapSort:'amount'}});
+    assert.equal(calls, 6, '切回成交额复用已有云图缓存');
     c.setHidden(true);
     assert.equal(p.disposed, true);
     assert.equal(c.board.panel, undefined);

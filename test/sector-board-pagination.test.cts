@@ -22,6 +22,7 @@ function ui() {
     '[data-category]': ['industry', 'concept'].map((value) => new Element({ category: value })),
     '[data-direction]': ['gainers', 'losers'].map((value) => new Element({ direction: value })),
     '[data-view]': ['table', 'heatmap'].map((value) => new Element({ view: value })),
+    '[data-map-sort]': ['amount', 'percent'].map((value) => new Element({ mapSort: value })),
     '[data-sort]': ['percent', 'amount', 'volume'].map((value) => new Element({ sort: value })),
     '[data-page]': ['previous', 'next', 'previous', 'next'].map((value) => new Element({ page: value })),
     '[data-page-info]': [new Element(), new Element()]
@@ -31,7 +32,7 @@ function ui() {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../dist/webviews/sector-board.js'), 'utf8'), {
     document, window: { addEventListener: (name, fn) => { listeners[name] = fn; } }, acquireVsCodeApi: () => ({ postMessage: (message) => messages.push(message) }), Date, Math, Number, String, Set, setTimeout, clearTimeout
   });
-  const state = (count, page = 1, sort = 'percent', search = '', category = 'industry', direction = 'gainers', view = 'table') => listeners.message({ data: { token: 'test', type: 'state', category, direction, query: { view,page,sort,search }, data: { source: '测试', fetchedAt: 0, total: count, rows: Array.from({ length: view === 'heatmap' ? Math.min(50,count) : Math.min(30, Math.max(0,count-(page-1)*30)) }, (_, i) => ({ code: `BK${1000 + i}`, name: `板块${i}`, percent: i, amount: 100 + i, volume: i, turnover: null, marketCap: null, up: 1, down: 0, leader: '', leaderPercent: null, timestamp: null })) } } });
+  const state = (count, page = 1, sort = 'percent', search = '', category = 'industry', direction = 'gainers', view = 'table', mapSort = 'amount') => listeners.message({ data: { token: 'test', type: 'state', category, direction, query: { view,page,sort,search,mapSort }, data: { source: '测试', fetchedAt: 0, total: count, rows: Array.from({ length: view === 'heatmap' ? Math.min(50,count) : Math.min(30, Math.max(0,count-(page-1)*30)) }, (_, i) => ({ code: `BK${1000 + i}`, name: `板块${i}`, percent: i, amount: 100 + i, volume: i, turnover: null, marketCap: null, up: 1, down: 0, leader: '', leaderPercent: null, timestamp: null })) } } });
   return { get, controls, messages, state };
 }
 test('板块列表分页、筛选和排序向后端发送正确查询，排名保持连续', async () => {
@@ -85,4 +86,13 @@ test('云图最多50个板块，方块保留名称和涨跌幅且面积反映成
     const ratio = parseFloat(tile.style.width) * parseFloat(tile.style.height) / 10000;
     assert.ok(Math.abs(ratio - (100 + number) / total) < 1e-8);
   });
+  assert.match(h.get('coverage').textContent, /成交额排行/);
+  h.controls['[data-map-sort]'][1].fire('click');
+  assert.equal(h.messages.at(-1).value.mapSort, 'percent');
+  h.state(50, 1, 'percent', '', 'industry', 'gainers', 'heatmap', 'amount');
+  assert.equal(h.get('heatmap').children.length, 0, '旧的成交额响应不能覆盖正在加载的涨幅榜');
+  h.state(50, 1, 'percent', '', 'industry', 'gainers', 'heatmap', 'percent');
+  assert.match(h.get('coverage').textContent, /涨幅排行/);
+  h.state(50, 1, 'percent', '', 'industry', 'losers', 'heatmap', 'percent');
+  assert.match(h.get('coverage').textContent, /跌幅排行/);
 });
