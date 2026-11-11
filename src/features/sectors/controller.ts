@@ -15,6 +15,7 @@ import {
 } from './data';
 import * as vscode from 'vscode';
 import * as privateUI from '../../core/ui/privacy';
+import { SectorBoard } from './board';
 import { stockSession, shanghaiClock, POLL_MS } from '../turnover/market';
 interface SectorPick extends vscode.QuickPickItem {
   action?: string;
@@ -43,6 +44,7 @@ class SectorsController {
   declare closedDates: any[] | undefined;
   declare timer: NodeJS.Timeout | undefined;
   declare hidden: any;
+  declare board: SectorBoard;
 
   constructor(context, { provider = new SectorProvider(), now = () => new Date() } = {}) {
     this.context = context;
@@ -61,7 +63,8 @@ class SectorsController {
     this.item.name = 'A股板块排行';
     this.readConfig();
     this.restore();
-    this.item.command = 'welove42.aShareTurnover.sectors.menu';
+    this.board = new SectorBoard(this);
+    this.item.command = 'welove42.aShareTurnover.sectors.open';
     this.listener = vscode.workspace.onDidChangeConfiguration((event) => {
       if (
         !event.affectsConfiguration('aShareTurnover.sectors') &&
@@ -85,6 +88,7 @@ class SectorsController {
         this.restore();
       }
       this.render();
+      this.board.update();
       if (this.enabled && (!enabled || changed)) void (this.inflight || Promise.resolve()).then(() => this.refresh());
     });
   }
@@ -263,7 +267,7 @@ class SectorsController {
         `\n按涨跌幅从${this.direction === 'losers' ? '低到高' : '高到低'}排列，${this.direction === 'losers' ? '下跌' : '上涨'}板块不足十个时包含其余板块。\n`
       );
     tip.appendText(
-      `\n交易期间每${this.category === 'concept' ? 60 : 10}秒更新；新浪备用榜最多每60秒获取一次。点击切换板块类型、涨跌榜或刷新。`
+      `\n交易期间每${this.category === 'concept' ? 60 : 10}秒更新；新浪备用榜最多每60秒获取一次。点击打开板块行情与热点云图。`
     );
     if (text !== this.rendered.text) this.item.text = text;
     if (tip.value !== this.rendered.tooltip) this.item.tooltip = tip;
@@ -275,6 +279,7 @@ class SectorsController {
   }
   setHidden(hidden) {
     this.hidden = hidden;
+    this.board.setHidden(hidden);
     if (hidden) {
       this.generation++;
       this.abort?.abort();
@@ -287,6 +292,7 @@ class SectorsController {
   }
   dispose() {
     this.disposed = true;
+    this.board.dispose();
     this.generation++;
     clearInterval(this.timer);
     this.abort?.abort();

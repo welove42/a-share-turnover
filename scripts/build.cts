@@ -28,7 +28,7 @@ async function main() {
   await build({
     absWorkingDir: root,
     entryPoints: Object.fromEntries(
-      ['ai-analysis', 'chart', 'settings', 'temperature-chart'].map((name) => [
+      ['ai-analysis', 'chart', 'settings', 'temperature-chart', 'sector-board'].map((name) => [
         name,
         'src/webviews/' + name + '/index.ts'
       ])

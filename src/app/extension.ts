@@ -137,6 +137,7 @@ async function activate(context) {
     bind('welove42.aShareTurnover.showTemperatureDetails', () => controller.showTemperatureDetails()),
     bind('welove42.aShareTurnover.temperature.refresh', () => controller.refresh(true)),
     bind('welove42.aShareTurnover.sectors.refresh', () => sectors.retry()),
+    bind('welove42.aShareTurnover.sectors.open', () => sectors.board.open()),
     bind('welove42.aShareTurnover.sectors.menu', () => sectors.showMenu()),
     bind('welove42.aShareTurnover.reminders.show', () => reminders.show()),
     stocks,

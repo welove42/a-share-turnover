@@ -326,6 +326,10 @@
         "title": "牛来盯盘：切换板块排行"
       },
       {
+        "command": "welove42.aShareTurnover.sectors.open",
+        "title": "牛来盯盘：打开板块行情"
+      },
+      {
         "command": "welove42.aShareTurnover.stockGroups.create",
         "title": "自选股：新建分组",
         "icon": "$(new-folder)",

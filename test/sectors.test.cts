@@ -515,7 +515,7 @@ test('午休首次失败后自动重试，概念类型成功后保存且可从�
     await c.retry();
     assert.equal(reset, 1);
     assert.equal(calls, 3);
-    assert.equal(c.item.command, 'welove42.aShareTurnover.sectors.menu');
+    assert.equal(c.item.command, 'welove42.aShareTurnover.sectors.open');
   } finally {
     c.dispose();
   }
