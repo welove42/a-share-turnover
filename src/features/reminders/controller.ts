@@ -1,14 +1,10 @@
 import type { CalendarEvent } from './calendar';
-interface CalendarPick extends vscode.QuickPickItem {
-  action?: string;
-  source?: string;
-}
 interface OnlineRecord {
   text: string;
   at: number;
 }
 import * as vscode from 'vscode';
-import * as privateUI from '../../core/ui/privacy';
+import { ReminderBoard } from './board';
 import * as data from './calendar-data';
 import { LABELS, DAY, beijing, staticEvents, snapshotEvent, parseBls, parseFed, CalendarProvider } from './calendar';
 import {
@@ -49,12 +45,14 @@ class ReminderController {
   declare lastTooltip: any;
   declare hidden: any;
   private attempts: Record<string, { next: number; at?: number; error?: string }> = {};
+  private board: ReminderBoard;
 
   constructor(
     context,
     { provider = new CalendarProvider(), online = new OnlineCalendar(), now = () => new Date() } = {}
   ) {
     this.context = context;
+    this.board = new ReminderBoard(this);
     this.provider = provider;
     this.online = online;
     this.now = now;
@@ -143,6 +141,7 @@ class ReminderController {
       const old = this.enabled;
       this.readConfig();
       this.render();
+      this.board.update();
       if (this.enabled && !old) void this.refresh();
     });
   }
@@ -333,6 +332,7 @@ class ReminderController {
       await this.refreshOnline(signal, force);
       if (!signal.aborted && !this.disposed) {
         this.render();
+        this.board.update();
         this.notifyDue();
       }
     })().finally(() => {
@@ -404,43 +404,11 @@ class ReminderController {
     }
   }
   async show() {
-    const now = this.now().getTime(),
-      entries = this.events().filter((e) => (e.end || e.when) >= now);
-    const items = [
-      {
-        label: '$(refresh) 刷新日历',
-        description: '财经事件及交易所休市安排每天自动更新，失败使用缓存或内置快照',
-        action: 'refresh'
-      },
-      {
-        label: '$(info) 数据来源与覆盖',
-        description: '美联储 / NYSE / BLS · Forex Factory（本周）· Markets Open',
-        detail:
-          '周日历仅覆盖本周，远期沿用官方日历或标注的缓存/快照。每天自动更新；网络失败冷却6小时，拒绝访问或年份未覆盖冷却7天。' +
-          [...new Set([...this.onlineErrors].map(([key, error]) => `${calendarSource(key)}：${error}`))]
-            .map((s) => ' ' + s + '。')
-            .join(''),
-        source: data.SOURCES.cnHoliday
-      },
-      ...entries.map((e) => ({
-        label: `$(calendar) ${e.name}`,
-        description: `${beijing(e.when)} 北京${e.allDay ? '（按当地09:30提醒）' : ''}`,
-        detail: `${e.detail} ${e.provenance}`,
-        source: e.source
-      }))
-    ];
-    const selected = await privateUI.showQuickPick<CalendarPick>(items, {
-      title: '财经大事日历',
-      placeHolder: '选择事件查看官方来源；时间均为北京时间'
-    });
-    if (selected?.action === 'refresh' && this.enabled) {
-      await this.refresh(true);
-      return this.show();
-    }
-    if (selected?.source) await vscode.env.openExternal(vscode.Uri.parse(selected.source));
+    this.board.open();
   }
   setHidden(hidden, since) {
     this.hidden = hidden;
+    this.board.setHidden(hidden);
     if (hidden) this.abort?.abort();
     else if (Number.isFinite(since)) {
       const now = this.now().getTime();
@@ -460,6 +428,7 @@ class ReminderController {
   }
   dispose() {
     this.disposed = true;
+    this.board.dispose();
     clearInterval(this.timer);
     this.abort?.abort();
     this.listener.dispose();

@@ -2,7 +2,41 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { zonedTime, beijing, staticEvents, parseFed, parseBls } = require('../dist/features/reminders/calendar.js');
+const { calendarViewEvent } = require('../dist/features/reminders/view-model.js');
 const { harness } = require('./vscode-mock.cts');
+
+test('日历按北京时间显示定时事件，按当地日期展开跨日休市', () => {
+  const timed = calendarViewEvent({ id: 'fed', type: 'fed', name: '议息', date: '2026-12-09', zone: 'America/New_York', when: zonedTime('2026-12-09', '14:00', 'America/New_York'), detail: '', source: '' });
+  assert.equal(timed.startDate, '2026-12-10');
+  assert.match(timed.time, /2026-12-10 03:00/);
+  const holiday = calendarViewEvent({ id: 'holiday', type: 'usHoliday', name: '休市', date: '2026-12-24', zone: 'America/New_York', when: zonedTime('2026-12-24', '09:30', 'America/New_York'), end: zonedTime('2026-12-26', '00:00', 'America/New_York'), allDay: true, detail: '', source: 'https://example.com' });
+  assert.equal(holiday.startDate, '2026-12-24');
+  assert.equal(holiday.endDate, '2026-12-25');
+  assert.equal(holiday.hasSource, true);
+});
+test('日历复用面板与现有事件，只允许打开已收录来源，老板键关闭页面', async () => {
+  const h = harness({ 'aShareTurnover.reminders.categories': ['nonfarm'] });
+  const { ReminderController } = h.load('../dist/features/reminders/controller.js');
+  const c = new ReminderController(h.context, { now: () => new Date('2026-11-06T01:00:00Z') });
+  await c.show();
+  await c.show();
+  assert.equal(h.panels.length, 1);
+  const p = h.panels[0], token = c.board.token;
+  assert.equal(p.revealCalls, 1);
+  p.webview.receive.fire({ token: 'wrong', action: 'ready' });
+  assert.equal(p.webview.messages.length, 0);
+  p.webview.receive.fire({ token, action: 'ready' });
+  const state = p.webview.messages.at(-1);
+  assert.equal(state.today, '2026-11-06');
+  assert.ok(state.events.some((e) => e.type === 'nonfarm'));
+  p.webview.receive.fire({ token, action: 'source', id: 'not-an-event' });
+  assert.equal(h.opened.length, 0);
+  c.setHidden(true);
+  assert.equal(p.disposed, true);
+  await c.show();
+  assert.equal(h.panels.length, 1);
+  c.dispose();
+});
 
 test('美国夏令时和冬令时转换为北京时间', () => {
   assert.equal(beijing(zonedTime('2026-10-30', '08:30', 'America/New_York')), '2026-10-30 20:30');

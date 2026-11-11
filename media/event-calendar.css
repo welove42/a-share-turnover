@@ -1,0 +1,42 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { padding: 0; margin: 0; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+main { max-width: 1120px; margin: 0 auto; padding: 28px 32px 48px; }
+header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+h1 { font-size: 21px; margin: 0 0 8px; }
+header p, .footnote { color: var(--vscode-descriptionForeground); margin: 0; line-height: 1.6; }
+button, select, input { font: inherit; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-contrastBorder, transparent); border-radius: 4px; padding: 7px 12px; }
+button, select { cursor: pointer; }
+button:hover, select:hover { background: var(--vscode-button-secondaryHoverBackground); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.toolbar { display: flex; align-items: center; gap: 10px; margin: 25px 0 14px; flex-wrap: wrap; }
+.toolbar label { color: var(--vscode-descriptionForeground); }
+.month-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.month-nav input { width: 142px; }
+.month-nav button { font-size: 20px; line-height: 1; padding: 4px 10px; }
+.calendar { border: 1px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; }
+.weekdays, .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.weekdays { background: var(--vscode-sideBar-background); color: var(--vscode-descriptionForeground); text-align: center; }
+.weekdays span { padding: 10px 0; }
+.day { position: relative; min-width: 0; min-height: 83px; border: 0; border-radius: 0; border-top: 1px solid var(--vscode-panel-border); border-right: 1px solid var(--vscode-panel-border); background: transparent; color: var(--vscode-foreground); padding: 8px; text-align: left; display: flex; flex-direction: column; gap: 4px; }
+.day:nth-child(7n) { border-right: 0; }
+.day:hover { background: var(--vscode-list-hoverBackground); }
+.day.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.day.outside { color: var(--vscode-disabledForeground); }
+.day-number { font-size: 16px; font-weight: 600; line-height: 1.1; }
+.day.today .day-number { color: var(--vscode-textLink-foreground); }
+.today-label { position: absolute; right: 6px; top: 8px; color: var(--vscode-textLink-foreground); font-size: 11px; }
+.event-label, .more { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.event-label { color: var(--vscode-textLink-foreground); }
+.day.selected .event-label, .day.selected .more { color: inherit; }
+.more { opacity: .75; }
+.details { margin-top: 25px; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+.event-card { border: 1px solid var(--vscode-panel-border); border-radius: 5px; padding: 12px 15px; margin-bottom: 10px; background: var(--vscode-sideBar-background); }
+.event-card h3 { margin: 0 0 6px; font-size: 14px; }
+.event-card p { margin: 5px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.event-time, .source, .empty { color: var(--vscode-descriptionForeground); }
+.source-link { padding: 0; border: 0; background: transparent; color: var(--vscode-textLink-foreground); }
+.source-link:hover { background: transparent; text-decoration: underline; }
+.footnote { margin-top: 12px; font-size: 12px; }
+@media (max-width: 600px) { main { padding: 18px 12px 32px; } .day { padding: 5px 3px; min-height: 66px; } .event-label, .more { font-size: 10px; } .today-label { display: none; } .month-nav { margin-left: 0; } }
