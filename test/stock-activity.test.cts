@@ -2,19 +2,23 @@ const test = require('node:test'),
   assert = require('node:assert/strict');
 const { harness } = require('./vscode-mock.cts');
 const tick = () => new Promise((r) => setImmediate(r));
-function setup(config = {}) {
+function setup(config = {}, start = '2026-11-10T10:30:00+08:00') {
   const h = harness({
     'aShareTurnover.stocks.symbols': ['sh600105', 'sh600519'],
     'aShareTurnover.stocks.hkSymbols': ['hk00700'],
+    'aShareTurnover.stocks.usSymbols': ['usNVDA'],
     ...config
   });
-  let now = new Date('2026-11-10T10:30:00+08:00');
-  h.api.window.showWarningMessage = async () => {};
+  let now = new Date(start);
+  const notices = [];
+  h.api.window.showWarningMessage = async (message) => {
+    notices.push(message);
+  };
   const { WatchlistController } = h.load('../dist/features/watchlist/controller.js');
   const c = new WatchlistController(h.context, { now: () => now });
   const { StockAlerts } = h.load('../dist/features/watchlist/alerts.js');
   const alerts = new StockAlerts(h.context, c, { now: () => now });
-  return { h, c, alerts, advance: (ms) => (now = new Date(+now + ms)), now: () => now };
+  return { h, c, alerts, notices, advance: (ms) => (now = new Date(+now + ms)), now: () => now };
 }
 function quote(symbol = 'sh600105', price = 11, seconds = 0) {
   return {
@@ -23,6 +27,7 @@ function quote(symbol = 'sh600105', price = 11, seconds = 0) {
     price,
     priceText: price.toFixed(2),
     percent: (price / 10 - 1) * 100,
+    delta: price - 10,
     previousClose: 10,
     limitUp: 11,
     limitDown: 9,
@@ -127,20 +132,71 @@ test('删除自选、交易日切换会清理角标；未读记录仅本机持�
     s.c.dispose();
   }
 });
-test('港股涨跌阈值共享角标并定位港股行，不触发A股限价事件', async () => {
+for (const [market, symbol, start] of [
+  ['hk', 'hk00700', '2026-11-10T10:30:00+08:00'],
+  ['us', 'usNVDA', '2026-11-10T10:30:00-05:00']
+])
+  test(`${market}保留涨跌弹窗及行情行，不高亮、不计角标、不自动定位`, async () => {
+    const s = setup({}, start);
+    try {
+      const q = quote(symbol, 11),
+        element = s.c.overseas.element(symbol);
+      s.c.overseas.quotes.set(symbol, q);
+      const before = s.c.getTreeItem(element);
+      s.alerts.check([q], market);
+      assert.equal(s.notices.length, 1);
+      assert.match(s.notices[0], /上涨/);
+      assert.doesNotMatch(s.notices[0], /涨停/);
+      const item = s.c.getTreeItem(element);
+      assert.equal(typeof item.label, 'string');
+      assert.deepEqual(item, before);
+      assert.doesNotMatch(item.description || '', /涨幅超过7%|未读异动/);
+      s.c.tree.visible = true;
+      s.c.tree.visibility.fire({ visible: true });
+      await tick();
+      assert.equal(s.c.tree.reveals.length, 0);
+      assert.equal(s.c.tree.badge, undefined);
+      s.alerts.check([q], market);
+      assert.equal(s.notices.length, 1);
+    } finally {
+      s.alerts.dispose();
+      s.c.dispose();
+    }
+  });
+
+test('升级清除旧港美股已读和未读标记，保留A股高亮、计数和定位', async () => {
   const s = setup();
+  let restored;
   try {
-    s.alerts.check([quote('hk00700', 11)], 'hk');
+    s.c.activity.dispose();
+    s.h.store.set('stockActivityV1', [
+      { ...quote(), market: 'a', label: '涨停', unread: true, observedAt: 1 },
+      { ...quote('hk00700'), market: 'hk', label: '涨幅超过7%', unread: true, observedAt: 2 },
+      { ...quote('usNVDA'), market: 'us', label: '跌幅超过7%', unread: false, observedAt: 3 }
+    ]);
+    const { StockActivity } = s.h.load('../dist/features/watchlist/activity.js');
+    restored = new StockActivity(s.c);
     assert.equal(s.c.tree.badge.value, 1);
-    const item = s.c.getTreeItem(s.c.overseas.element('hk00700'));
-    assert.match(item.description, /涨幅超过7%/);
-    assert.doesNotMatch(item.description, /涨停/);
+    for (const symbol of ['hk00700', 'usNVDA']) {
+      const element = s.c.overseas.element(symbol),
+        item = s.c.overseas.getTreeItem(element);
+      const before = structuredClone({ label: item.label, description: item.description });
+      restored.decorate(item, element);
+      assert.deepEqual({ label: item.label, description: item.description }, before);
+    }
+    assert.ok(
+      restored.decorate(s.c.getTreeItem(s.c.element('sh600105')), s.c.element('sh600105')).label.highlights.length
+    );
     s.c.tree.visible = true;
-    s.c.tree.visibility.fire({ visible: true });
+    await restored.revealLatest();
+    assert.equal(s.c.tree.reveals[0].element.symbol, 'sh600105');
     await tick();
-    assert.equal(s.c.tree.reveals[0].element.kind, 'overseasStock');
-    assert.equal(s.c.tree.badge, undefined);
+    assert.deepEqual(
+      s.h.store.get('stockActivityV1').map((e) => e.symbol),
+      ['sh600105']
+    );
   } finally {
+    restored?.dispose();
     s.alerts.dispose();
     s.c.dispose();
   }

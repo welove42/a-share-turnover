@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import type { WatchlistController } from './controller';
-import { localClock } from './overseas/controller';
 
 const KEY = 'stockActivityV1';
 interface StockActivityEntry {
@@ -13,7 +12,7 @@ interface StockActivityEntry {
   observedAt: number;
 }
 
-/** 与弹窗共用实际触发事件；计数按个股去重，不因每次报价刷新反复增加。 */
+/** 仅展示A股异动；港美股仍可弹窗，但不产生高亮、角标或自动定位。 */
 export class StockActivity implements vscode.Disposable {
   private entries = new Map<string, StockActivityEntry>();
   private listeners: vscode.Disposable[];
@@ -75,9 +74,8 @@ export class StockActivity implements vscode.Disposable {
     if (this.disposed) return;
     let changed = false;
     for (const [symbol, item] of this.entries) {
-      const symbols = item.market === 'a' ? this.owner.config.symbols : this.owner.overseas.symbols[item.market];
-      const date = item.market === 'a' ? this.owner.clock().date : localClock(this.owner.now(), item.market).date;
-      if (!symbols.includes(symbol) || item.date !== date) {
+      // 同时清理旧版保存的港美股标记，避免重启后恢复已经停用的高亮。
+      if (item.market !== 'a' || !this.owner.config.symbols.includes(symbol) || item.date !== this.owner.clock().date) {
         this.entries.delete(symbol);
         changed = true;
       }
@@ -86,11 +84,11 @@ export class StockActivity implements vscode.Disposable {
     const count = this.visible() ? [...this.entries.values()].filter((e) => e.unread).length : 0;
     if ((this.owner.tree.badge?.value || 0) !== count)
       this.owner.tree.badge = count
-        ? { value: count, tooltip: `${count} 只自选有未读异动；打开后定位最近一只` }
+        ? { value: count, tooltip: `${count} 只A股自选有未读异动；打开后定位最近一只` }
         : undefined;
   }
   record(q: { symbol: string; date: string; timestamp: string }, market: 'a' | 'hk' | 'us', label: string) {
-    if (this.disposed) return;
+    if (this.disposed || market !== 'a') return;
     this.entries.set(q.symbol, {
       symbol: q.symbol,
       date: q.date,
@@ -119,8 +117,7 @@ export class StockActivity implements vscode.Disposable {
     const latest = [...this.entries.values()].filter((e) => e.unread).sort((a, b) => b.observedAt - a.observedAt)[0];
     if (!latest) return;
     const revision = this.revision;
-    const element =
-      latest.market === 'a' ? this.owner.element(latest.symbol) : this.owner.overseas.element(latest.symbol);
+    const element = this.owner.element(latest.symbol);
     try {
       // reveal 自动展开祖先分组；不打开图表，也不主动从编辑器抢焦点。
       await this.owner.tree.reveal(element, { select: true, focus: false, expand: true });
@@ -137,7 +134,7 @@ export class StockActivity implements vscode.Disposable {
       const label = typeof item.label === 'string' ? item.label : item.label?.label || element.symbol;
       item.label = { label, highlights: [[0, label.length]] };
       item.description = `${entry.unread ? '● ' : ''}${time} ${entry.label}${item.description ? ' · ' + item.description : ''}`;
-      const note = `\n最近异动：${entry.date} ${time} ${entry.label}（${entry.market === 'us' ? '美东' : '北京'}行情时间）。${entry.unread ? '未读' : '已查看'}，这是触发记录，不代表仍处于该状态。`;
+      const note = `\n最近异动：${entry.date} ${time} ${entry.label}（北京行情时间）。${entry.unread ? '未读' : '已查看'}，这是触发记录，不代表仍处于该状态。`;
       if (item.tooltip instanceof vscode.MarkdownString) item.tooltip.appendText(note);
       else item.tooltip = String(item.tooltip || '') + note;
       item.accessibilityInformation = { label: `${item.accessibilityInformation?.label || label}，${note.trim()}` };
