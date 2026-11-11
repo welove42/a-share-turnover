@@ -80,7 +80,7 @@ const GROUPS = [
   },
   {
     id: 'ai',
-    title: 'AI 分析',
+    title: 'AI 分析（实验性）',
     keys: ['ai.baseUrl', 'ai.model', 'ai.semanticMemory', 'ai.behaviorContext', 'ai.profileEnabled'],
     actions: ['ai.save', 'ai.test', 'ai.clearInterests']
   }
@@ -365,7 +365,10 @@ class SettingsController {
   model() {
     const groups: { id: string; fields: SettingField[]; [key: string]: unknown }[] = GROUPS.map((group) => ({
       ...group,
-      info: group.id === 'ai' ? '填写后保存即可使用。测试连接会先保存本页配置，并产生少量 API 用量。' : '',
+      info:
+        group.id === 'ai'
+          ? '实验性功能，仍在完善，分析结果请自行核对。填写后保存即可使用；测试连接会先保存配置并产生少量 API 用量。'
+          : '',
       actions: (group.actions || []).map((id) => ({ id, label: ACTIONS[id] })),
       fields: group.keys
         .filter((key) => !GROUP_KEYS.has(key))
