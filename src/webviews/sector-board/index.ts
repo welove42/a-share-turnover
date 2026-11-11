@@ -28,9 +28,19 @@ let category = 'industry',
   direction = 'gainers',
   view = 'table',
   sort = 'percent',
+  page = 1,
   data: Snapshot | null = null,
   stale = false;
-const post = (action: string, value?: string) => vscode.postMessage({ token, action, value });
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+const post = (action: string, value?: unknown) => vscode.postMessage({ token, action, value });
+const query = () => ({ view, sort, page, search: ($('search') as HTMLInputElement).value.trim() });
+function requestPage() {
+  data = null;
+  $('detail').hidden = true;
+  render();
+  $('status').textContent = '正在获取板块数据…';
+  post('query', query());
+}
 const n = (x: number | null) => (x == null ? '—' : x.toFixed(2));
 const pct = (x: number | null) => (x == null ? '—' : `${x > 0 ? '+' : ''}${x.toFixed(2)}%`);
 const scale = (x: number | null, unit: string) =>
@@ -74,24 +84,26 @@ function render() {
     $('rows').replaceChildren();
     $('heatmap').replaceChildren();
     $('summary').textContent = '';
+    $('count').textContent = '';
+    for (const el of document.querySelectorAll<HTMLElement>('[data-page-info]')) el.textContent = '0 / 0 页';
+    for (const b of document.querySelectorAll<HTMLButtonElement>('[data-page]')) b.disabled = true;
     return;
   }
   const quoteTimes = data.rows.map((r) => r.timestamp).filter((x): x is number => x !== null);
   $('status').textContent =
     `${data.source} · 获取时间 ${time(data.fetchedAt)}（北京）${quoteTimes.length ? ` · 最早行情 ${time(Math.min(...quoteTimes) * 1000)}` : ' · 未提供行情时间'}${stale ? ' · 上次数据' : ''}`;
-  $('summary').textContent =
-    `${category === 'industry' ? '行业' : '概念'}板块 ${data.rows.length} 个${data.rows.length < data.total ? `（接口共 ${data.total} 个，部分数据缺失或重复）` : ''} · 上涨 ${data.rows.filter((r) => r.percent > 0).length} · 下跌 ${data.rows.filter((r) => r.percent < 0).length}`;
-  const query = ($('search') as HTMLInputElement).value.trim().toLowerCase();
-  const list = data.rows
-    .filter((r) => !query || r.name.toLowerCase().includes(query) || r.code.toLowerCase().includes(query))
-    .sort((a, b) => {
-      const av = a[sort as 'percent' | 'amount' | 'volume'],
-        bv = b[sort as 'percent' | 'amount' | 'volume'];
-      if (av === null) return bv === null ? 0 : 1;
-      if (bv === null) return -1;
-      return (sort === 'percent' && direction === 'losers' ? 1 : -1) * (av - bv) || a.code.localeCompare(b.code);
-    });
-  $('count').textContent = `${list.length} 个板块`;
+  const search = ($('search') as HTMLInputElement).value.trim();
+  $('summary').textContent = search && view === 'table' ? '搜索全部板块：从最多100个候选中显示最多30个板块，可能不完整。' : `${category === 'industry' ? '行业' : '概念'}板块共 ${data.total} 个 · 数据按当前排序获取`;
+  const list = data.rows;
+  const pageSize = 30, pages = Math.ceil(data.total / pageSize);
+  if (view === 'table' && pages && page > pages) { page = pages; requestPage(); return; }
+  page = Math.max(1, Math.min(page, pages || 1));
+  const start = (page - 1) * pageSize;
+  $('count').textContent = search ? `本次找到 ${data.total} 个板块` : `共 ${data.total} 个板块`;
+  for (const el of document.querySelectorAll<HTMLElement>('[data-page-info]'))
+    el.textContent = `${pages ? page : 0} / ${pages} 页`;
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-page]'))
+    b.disabled = b.dataset.page === 'previous' ? page <= 1 : page >= pages;
   const fragment = document.createDocumentFragment();
   list.forEach((row, i) => {
     const tr = document.createElement('tr');
@@ -105,7 +117,7 @@ function render() {
       }
     });
     const cells = [
-      String(i + 1),
+      String(start + i + 1),
       row.name,
       pct(row.percent),
       scale(row.amount, '元'),
@@ -122,16 +134,24 @@ function render() {
     });
     fragment.appendChild(tr);
   });
+  if (!list.length) {
+    const tr = document.createElement('tr'), td = document.createElement('td');
+    td.colSpan = 8;
+    td.className = 'empty';
+    td.textContent = '没有找到匹配的板块';
+    tr.appendChild(td);
+    fragment.appendChild(tr);
+  }
   $('rows').replaceChildren(fragment);
   if (view === 'heatmap') renderMap(data.rows);
 }
 // 按成交额递归切分矩形，面积比例来自真实数据；不把缺失值填成零。
 function renderMap(rows: Row[]) {
   const all = rows.filter((r) => r.amount !== null && r.amount > 0).sort((a, b) => b.amount! - a.amount!);
-  const list = all.slice(0, 40),
+  const list = all.slice(0, 100),
     map = $('heatmap');
   map.replaceChildren();
-  $('coverage').textContent = `成交额前 ${list.length} / ${all.length} 个板块`;
+  $('coverage').textContent = `成交额前 ${list.length} / ${data?.total || all.length} 个板块`;
   if (!list.length) {
     map.textContent = '暂无可用于绘制云图的成交额数据';
     return;
@@ -183,24 +203,36 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('[data-category]'))
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-direction]'))
   b.addEventListener('click', () => {
     sort = 'percent';
+    page = 1;
     if (b.dataset.direction !== direction) post('direction', b.dataset.direction);
+    else requestPage();
   });
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-view]'))
   b.addEventListener('click', () => {
     view = b.dataset.view!;
-    render();
+    page = 1;
+    requestPage();
   });
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-sort]'))
   b.addEventListener('click', () => {
     sort = b.dataset.sort!;
-    render();
+    page = 1;
+    requestPage();
+  });
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-page]'))
+  b.addEventListener('click', () => {
+    page += b.dataset.page === 'previous' ? -1 : 1;
+    $('detail').hidden = true;
+    requestPage();
   });
 $('refresh').addEventListener('click', () => post('refresh'));
-$('search').addEventListener('input', render);
+$('search').addEventListener('input', () => { page = 1; clearTimeout(searchTimer); searchTimer = setTimeout(requestPage, 400); });
 window.addEventListener('message', (event) => {
   const m = event.data;
   if (!m || m.token !== token) return;
   if (m.type === 'state') {
+    if (m.query && (m.query.view !== view || m.query.search !== query().search || (m.query.page !== page && m.category === category && m.direction === direction) || m.query.sort !== sort)) return;
+    if (m.category !== category || m.direction !== direction) page = 1;
     category = m.category;
     direction = m.direction;
     data = m.data;
