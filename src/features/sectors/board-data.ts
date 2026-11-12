@@ -1,5 +1,8 @@
 import { requestJson } from '../../core/network/http';
 import { CATEGORIES } from './data';
+import { withSectorDeadline } from './request';
+import { SinaBoardProvider } from './sina-board';
+import { selectSectorHeatmapRows, type SectorHeatmapMode } from '../../shared/sector-heatmap';
 
 export interface BoardRow {
   code: string;
@@ -21,6 +24,9 @@ export interface BoardSnapshot {
   total: number;
   fetchedAt: number;
   source: string;
+  sourceId?: 'eastmoney' | 'sina';
+  notice?: string;
+  stale?: boolean;
 }
 const val = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const nonnegative = (v: unknown) => {
@@ -69,14 +75,30 @@ export function parseBoardPage(payload: any, category: string, now = Date.now())
   }
   return { total, rows, rawCount: Object.values(payload.data.diff || {}).length };
 }
-export interface BoardQuery { view: 'table' | 'heatmap'; page: number; sort: 'percent' | 'amount' | 'volume'; direction: 'gainers' | 'losers'; search: string; mapSort?: 'amount' | 'gainers' | 'losers' }
+export interface BoardQuery { view: 'table' | 'heatmap'; page: number; sort: 'percent' | 'amount' | 'volume'; direction: 'gainers' | 'losers'; search: string; mapSort?: SectorHeatmapMode }
 const fields = 'f3,f5,f6,f8,f12,f14,f20,f104,f105,f124,f128,f136';
 export class SectorBoardProvider {
   private cooldown = new Map<string, number>();
+  private preferredHost = '';
+  private primaryRetryAt = 0;
+  private primaryTimeoutMs = 8000;
   constructor(
     private request = requestJson,
-    private now = () => Date.now()
+    private now = () => Date.now(),
+    private requestTimeoutMs = 3500,
+    private backup = new SinaBoardProvider(undefined, now, requestTimeoutMs)
   ) {}
+  attach(storage: Parameters<SinaBoardProvider['attach']>[0]) {
+    this.backup.attach?.(storage);
+  }
+  private read(url: string, signal: AbortSignal) {
+    return withSectorDeadline(
+      signal,
+      this.requestTimeoutMs,
+      (requestSignal) => this.request(url, requestSignal, { Referer: 'https://quote.eastmoney.com/' }),
+      '板块数据源响应超时'
+    );
+  }
   async load(
     category: string,
     signal: AbortSignal,
@@ -84,17 +106,43 @@ export class SectorBoardProvider {
   ): Promise<BoardSnapshot> {
     if (!Object.hasOwn(CATEGORIES, category)) throw new Error('板块类型无效');
     if (!query || !['table', 'heatmap'].includes(query.view) || !['percent', 'amount', 'volume'].includes(query.sort) || !['gainers', 'losers'].includes(query.direction) || (query.mapSort !== undefined && !['amount', 'gainers', 'losers'].includes(query.mapSort)) || !Number.isInteger(query.page) || query.page < 1 || query.page > 100 || typeof query.search !== 'string' || query.search.length > 40) throw new Error('板块查询参数无效');
+    if (signal.aborted) throw new Error('请求已取消');
+    let primaryError: unknown = new Error('东方财富来源冷却中');
+    if (this.primaryRetryAt <= this.now()) {
+      try {
+        const data = await withSectorDeadline(
+          signal, this.primaryTimeoutMs,
+          (requestSignal) => this.loadEastmoney(category, requestSignal, query),
+          '东方财富板块请求超时'
+        );
+        this.primaryRetryAt = 0;
+        return data;
+      } catch (error) {
+        if (signal.aborted) throw error;
+        primaryError = error;
+        this.primaryRetryAt = this.now() + 60000;
+      }
+    }
+    try {
+      return await this.backup.load(category, signal, query);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      throw new Error(`东方财富和新浪板块均不可用：${primaryError instanceof Error ? primaryError.message : '主源获取失败'}；${error.message}`);
+    }
+  }
+  private async loadEastmoney(category: string, signal: AbortSignal, query: BoardQuery): Promise<BoardSnapshot> {
     const hosts = ['push2.eastmoney.com', '82.push2.eastmoney.com', 'push2his.eastmoney.com'];
+    if (this.preferredHost) hosts.sort((left, right) => Number(right === this.preferredHost) - Number(left === this.preferredHost));
     const read = async (path: string) => {
       let last: unknown;
       for (const host of hosts) {
         if ((this.cooldown.get(host) || 0) > this.now()) continue;
         try {
-          const data = await this.request(`https://${host}${path}`, signal, {
-              Referer: 'https://quote.eastmoney.com/'
-            });
+          const data = await this.read(`https://${host}${path}`, signal);
+          const result = parseBoardPage(data, category, this.now());
           this.cooldown.delete(host);
-          return parseBoardPage(data, category, this.now());
+          this.preferredHost = host;
+          return result;
         } catch (e) {
           if (signal.aborted) throw e;
           last = e;
@@ -106,12 +154,13 @@ export class SectorBoardProvider {
     if (signal.aborted) throw new Error('请求已取消');
     if (query.view === 'table' && query.search.trim()) {
       const params = new URLSearchParams({ input: query.search.trim(), type: '14', count: '100' });
-      const suggestions = await this.request(`https://searchapi.eastmoney.com/api/suggest/get?${params}`, signal, { Referer: 'https://quote.eastmoney.com/' });
+      const suggestions = await this.read(`https://searchapi.eastmoney.com/api/suggest/get?${params}`, signal);
       const table = suggestions?.QuotationCodeTable;
       if (table?.Status !== 0 || (table.Data != null && !Array.isArray(table.Data))) throw new Error('板块搜索暂不可用');
       const codes = [...new Set<string>((table.Data || []).filter((r: any) => r.Classify === 'BK' && /^BK\d{4,8}$/.test(r.Code || '')).map((r: any) => r.Code))].slice(0, 30);
       if (!codes.length) return { category, rows: [], total: 0, fetchedAt: this.now(), source: '东方财富' };
       const data = await read(`/api/qt/ulist.np/get?${new URLSearchParams({ secids: codes.map((c) => `90.${c}`).join(','), fields, fltt: '2' })}`);
+      if (!data.rows.length) throw new Error('板块搜索未返回有效行情');
       const rows = data.rows.sort((a, b) => {
         const key = query.sort, av = a[key], bv = b[key];
         if (av === null) return bv === null ? 0 : 1;
@@ -125,7 +174,9 @@ export class SectorBoardProvider {
     const orderDirection = isMap && query.mapSort === 'losers' ? 'losers' : isMap ? 'gainers' : query.direction;
     const params = new URLSearchParams({ pn: String(isMap ? 1 : query.page), pz: isMap ? '50' : '30', po: orderBy !== 'percent' || orderDirection === 'gainers' ? '1' : '0', fid: ({ percent: 'f3', amount: 'f6', volume: 'f5' })[orderBy], fs: CATEGORIES[category].fs, fields, fltt: '2' });
     const result = await read(`/api/qt/clist/get?${params}`);
-    if (result.total && !result.rawCount && (isMap || query.page <= Math.ceil(result.total / 30))) throw new Error('板块列表为空');
-    return { category, rows: result.rows, total: result.total, fetchedAt: this.now(), source: '东方财富' };
+    if (!result.total) throw new Error('板块列表暂未返回数据');
+    if (result.total && !result.rows.length && (isMap || query.page <= Math.ceil(result.total / 30))) throw new Error('板块列表为空');
+    const rows = isMap ? selectSectorHeatmapRows(result.rows, query.mapSort || 'amount') : result.rows;
+    return { category, rows, total: result.total, fetchedAt: this.now(), source: '东方财富' };
   }
 }

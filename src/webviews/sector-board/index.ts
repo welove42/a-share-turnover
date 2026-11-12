@@ -1,4 +1,4 @@
-export {};
+import { sectorHeatmapWeight, selectSectorHeatmapRows, type SectorHeatmapMode } from '../../shared/sector-heatmap';
 interface Row {
   code: string;
   name: string;
@@ -19,6 +19,8 @@ interface Snapshot {
   total: number;
   fetchedAt: number;
   source: string;
+  sourceId?: 'eastmoney' | 'sina';
+  notice?: string;
 }
 declare function acquireVsCodeApi(): { postMessage(value: unknown): void };
 const vscode = acquireVsCodeApi(),
@@ -28,7 +30,7 @@ let category = 'industry',
   direction = 'gainers',
   view = 'table',
   sort = 'percent',
-  mapSort = 'amount',
+  mapSort: SectorHeatmapMode = 'amount',
   page = 1,
   data: Snapshot | null = null,
   stale = false;
@@ -81,14 +83,25 @@ function updateButtons() {
   $('table-view').hidden = view !== 'table';
   $('heatmap-view').hidden = view !== 'heatmap';
   $('directions').hidden = view === 'heatmap';
+  $('map-hint').textContent = mapSort === 'amount'
+    ? '面积代表板块成交额，颜色代表涨跌幅；点击方块可查看详情。'
+    : mapSort === 'gainers'
+      ? '仅显示上涨板块，面积越大涨幅越高；点击方块可查看详情。'
+      : '仅显示下跌板块，面积越大跌幅越深；点击方块可查看详情。';
+  $('map-note').textContent = (mapSort === 'amount'
+    ? '红涨绿跌，颜色越鲜明涨跌幅越大；缺少成交额的板块不绘制。'
+    : '最多显示50个板块，不足50个时按实际数量展示，不包含平盘或相反方向的板块。')
+    + '窗口较窄时可左右滚动。';
 }
 function render() {
   updateButtons();
+  $('source-note').textContent = data?.notice || '';
   if (!data) {
     $('rows').replaceChildren();
     $('heatmap').replaceChildren();
     $('summary').textContent = '';
     $('count').textContent = '';
+    $('coverage').textContent = '';
     for (const el of document.querySelectorAll<HTMLElement>('[data-page-info]')) el.textContent = '0 / 0 页';
     for (const b of document.querySelectorAll<HTMLButtonElement>('[data-page]')) b.disabled = true;
     return;
@@ -97,7 +110,9 @@ function render() {
   $('status').textContent =
     `${data.source} · 获取时间 ${time(data.fetchedAt)}（北京）${quoteTimes.length ? ` · 最早行情 ${time(Math.min(...quoteTimes) * 1000)}` : ' · 未提供行情时间'}${stale ? ' · 上次数据' : ''}`;
   const search = ($('search') as HTMLInputElement).value.trim();
-  $('summary').textContent = search && view === 'table' ? '搜索全部板块：从最多100个候选中显示最多30个板块，可能不完整。' : `${category === 'industry' ? '行业' : '概念'}板块共 ${data.total} 个 · 数据按当前排序获取`;
+  $('summary').textContent = search && view === 'table'
+    ? data.sourceId === 'sina' ? `在新浪板块中找到 ${data.total} 个结果，按页显示。` : '搜索全部板块：从最多100个候选中显示最多30个板块，可能不完整。'
+    : `${category === 'industry' ? '行业' : '概念'}板块共 ${data.total} 个 · 数据按当前排序获取`;
   const list = data.rows;
   const pageSize = 30, pages = Math.ceil(data.total / pageSize);
   if (view === 'table' && pages && page > pages) { page = pages; requestPage(); return; }
@@ -149,21 +164,22 @@ function render() {
   $('rows').replaceChildren(fragment);
   if (view === 'heatmap') renderMap(data.rows);
 }
-// 按真实像素尺寸布局，尽量保持方块接近正方形，同时保留成交额面积比例。
+// 按当前显示依据分配面积，保持方块接近正方形。
 function renderMap(rows: Row[]) {
-  const all = rows.filter((r) => r.amount !== null && r.amount > 0).sort((a, b) => b.amount! - a.amount!);
-  const list = all.slice(0, 50),
+  const list = selectSectorHeatmapRows(rows, mapSort),
     map = $('heatmap');
   map.replaceChildren();
   const ranking = mapSort === 'amount' ? '成交额' : mapSort === 'losers' ? '跌幅' : '涨幅';
-  $('coverage').textContent = `${ranking}排行前 ${list.length} / ${data?.total || all.length} 个板块`;
+  $('coverage').textContent = `${ranking}排行 · 显示 ${list.length} 个 / 全部 ${data?.total ?? rows.length} 个板块`;
   if (!list.length) {
-    map.textContent = '暂无可用于绘制云图的成交额数据';
+    map.textContent = mapSort === 'amount'
+      ? '暂无可用于绘制云图的成交额数据'
+      : mapSort === 'gainers' ? '暂无可展示的上涨板块' : '暂无可展示的下跌板块';
     return;
   }
   const width = map.clientWidth || 900, height = map.clientHeight || 760;
-  const total = list.reduce((sum, r) => sum + r.amount!, 0);
-  const remaining = list.map((row) => ({ row, area: row.amount! / total * width * height }));
+  const total = list.reduce((sum, r) => sum + sectorHeatmapWeight(r, mapSort), 0);
+  const remaining = list.map((row) => ({ row, area: sectorHeatmapWeight(row, mapSort) / total * width * height }));
   const worst = (items: typeof remaining, side: number) => {
     if (!items.length || side <= 0) return Infinity;
     const sum = items.reduce((n, item) => n + item.area, 0), areas = items.map((item) => item.area), square = side * side;
@@ -227,7 +243,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('[data-view]'))
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-map-sort]'))
   b.addEventListener('click', () => {
     if (b.dataset.mapSort !== mapSort) {
-      mapSort = b.dataset.mapSort!;
+      mapSort = b.dataset.mapSort as SectorHeatmapMode;
       requestPage();
     }
   });

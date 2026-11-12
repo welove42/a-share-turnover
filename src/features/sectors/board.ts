@@ -4,6 +4,7 @@ import { stockSession } from '../turnover/market';
 import { CATEGORIES, DIRECTIONS } from './data';
 import { SectorBoardProvider, type BoardSnapshot, type BoardQuery } from './board-data';
 import { boardHtml } from './board-view';
+import { withSectorDeadline } from './request';
 
 /** 只获取当前列表页或云图所需行情，按查询条件分开缓存。 */
 export class SectorBoard implements vscode.Disposable {
@@ -14,7 +15,8 @@ export class SectorBoard implements vscode.Disposable {
   private inflight?: Promise<void>;
   private inflightKey = '';
   private cache = new Map<string, BoardSnapshot>();
-  private failed = new Map<string, number>();
+  private failed = new Map<string, { until: number; message: string }>();
+  private requestTimeoutMs = 15000;
   private listeners: vscode.Disposable[] = [];
   private timer?: ReturnType<typeof setInterval>;
   private disposed = false;
@@ -23,7 +25,9 @@ export class SectorBoard implements vscode.Disposable {
   private lastCategory = '';
   private lastDirection = '';
   private query: BoardQuery = { view: 'table', page: 1, sort: 'percent', direction: 'gainers', search: '', mapSort: 'amount' };
-  constructor(private owner: any, private provider = new SectorBoardProvider()) {}
+  constructor(private owner: any, private provider = new SectorBoardProvider()) {
+    this.provider.attach?.(owner.context.globalState);
+  }
   open() {
     if (this.disposed || this.owner.hidden || !this.owner.enabled) return;
     if (this.panel) { this.panel.reveal(); this.update(); return; }
@@ -50,7 +54,7 @@ export class SectorBoard implements vscode.Disposable {
     if (this.panel && this.ready && this.panel.visible) void Promise.resolve(this.panel.webview.postMessage({ ...message, token: this.token })).catch(() => {});
   }
   private sendState(key: string, data: BoardSnapshot | null, stale: boolean) {
-    const signature = `${key}:${this.owner.direction}:${JSON.stringify(this.query)}:${data?.fetchedAt || 0}:${stale}`;
+    const signature = `${key}:${this.owner.direction}:${JSON.stringify(this.query)}:${data?.source || ''}:${data?.fetchedAt || 0}:${stale}`;
     if (this.sent === signature) return;
     this.sent = signature;
     this.send({ type: 'state', category: this.owner.category, direction: this.owner.direction, query: { ...this.query }, data, stale });
@@ -85,9 +89,21 @@ export class SectorBoard implements vscode.Disposable {
       this.lastDirection = this.owner.direction;
     }
     const category = this.owner.category, query = { ...this.query }, fetchQuery: BoardQuery = query.view === 'heatmap' ? { view: 'heatmap', page: 1, sort: 'amount', direction: 'gainers', search: '', mapSort: query.mapSort || 'amount' } : query, key = JSON.stringify([category, fetchQuery.view, fetchQuery.page, fetchQuery.sort, fetchQuery.direction, fetchQuery.search, fetchQuery.view === 'heatmap' ? fetchQuery.mapSort : '']), now = this.owner.now().getTime(), cached = this.cache.get(key);
-    this.sendState(key, cached || null, !!cached && now - cached.fetchedAt >= 60000);
-    if (this.inflight) { if (this.inflightKey !== key) this.cancel(); return; }
-    if ((cached && now - cached.fetchedAt < 60000) || (this.failed.get(key) || 0) > now) {
+    this.sendState(key, cached || null, !!cached && (Boolean(cached.stale) || now - cached.fetchedAt >= 60000));
+    if (this.inflight) {
+      if (this.inflightKey !== key) this.cancel();
+      else this.send({ type: 'loading', message: '正在获取板块数据，请稍候…' });
+      return;
+    }
+    const failure = this.failed.get(key);
+    if (failure && failure.until > now) {
+      this.send({
+        type: 'error',
+        message: `获取失败：${failure.message}。${cached ? '保留上次数据。' : ''}${Math.ceil((failure.until - now) / 1000)} 秒后可重试。`
+      });
+      return;
+    }
+    if (cached && now - cached.fetchedAt < 60000) {
       if (force) this.send({ type: 'message', message: cached ? '已使用最近数据，请稍后再刷新。' : '数据源暂不可用，请稍后再试。' });
       return;
     }
@@ -96,15 +112,20 @@ export class SectorBoard implements vscode.Disposable {
     this.send({ type: 'loading', message: query.search && query.view === 'table' ? '正在搜索板块…' : query.view === 'heatmap' ? `正在获取${query.mapSort === 'losers' ? '跌幅' : query.mapSort === 'gainers' ? '涨幅' : '成交额'}前50个板块…` : `正在获取第 ${query.page} 页…` });
     this.inflight = (async () => {
       try {
-        const data = await this.provider.load(category, abort.signal, fetchQuery);
+        const data = await withSectorDeadline(
+          abort.signal,
+          this.requestTimeoutMs,
+          (requestSignal) => this.provider.load(category, requestSignal, fetchQuery),
+          '板块请求超时，请稍后刷新'
+        );
         if (abort.signal.aborted || this.disposed || generation !== this.generation || this.owner.category !== category) return;
         this.cache.set(key, data);
         while (this.cache.size > 40) this.cache.delete(this.cache.keys().next().value!);
         this.failed.delete(key);
-        this.sendState(key, data, false);
+        this.sendState(key, data, Boolean(data.stale));
       } catch (e) {
         if (!abort.signal.aborted && !this.disposed && generation === this.generation) {
-          this.failed.set(key, this.owner.now().getTime() + 60000);
+          this.failed.set(key, { until: this.owner.now().getTime() + 60000, message: e.message || '数据源暂不可用' });
           while (this.failed.size > 40) this.failed.delete(this.failed.keys().next().value!);
           this.send({ type: 'error', message: `获取失败：${e.message}。${cached ? '保留上次数据。' : '请稍后刷新。'}` });
         }

@@ -2,6 +2,7 @@ const test = require('node:test'),
   assert = require('node:assert/strict');
 const { harness } = require('./vscode-mock.cts');
 const { parseBoardPage, SectorBoardProvider } = require('../dist/features/sectors/board-data');
+const { SinaBoardProvider } = require('../dist/features/sectors/sina-board');
 const tick = () => new Promise((r) => setImmediate(r));
 const now = Date.parse('2026-11-10T02:30:00Z');
 const entry = (i) => ({
@@ -65,13 +66,43 @@ test('异常空分页和取消不能作为成功结果', async () => {
   const p = new SectorBoardProvider(
     async () => page(101, []),
     () => now,
-    0
+    0,
+    new SinaBoardProvider(async () => { throw new Error('备用源为空'); }, () => now)
   );
   await assert.rejects(p.load('concept', new AbortController().signal, query()), /为空/);
   await assert.rejects(p.load('industry', AbortSignal.abort(), query()), /取消/);
   const x = parseBoardPage(page(2, [entry(1), { ...entry(2), f3: '-' }]), 'industry', now);
   assert.equal(x.total, 2);
   assert.equal(x.rows.length, 1);
+});
+test('主源云图按涨跌方向筛选且仅请求50条，方向为空时不误判接口失败', async () => {
+  const urls = [];
+  let backupCalls = 0;
+  const provider = new SectorBoardProvider(async (url) => {
+    urls.push(new URL(url));
+    return page(49, [-3, 0, 2, 5].map((percent, i) => ({ ...entry(i), f3: percent, f6: i === 3 ? '-' : 100 - i })));
+  }, () => now, 3500, {
+    load: async () => { backupCalls++; throw new Error('不应请求备用'); }
+  });
+  const load = (mapSort) => provider.load('industry', new AbortController().signal, query({ view: 'heatmap', mapSort }));
+  const gainers = await load('gainers');
+  assert.deepEqual(gainers.rows.map((row) => row.percent), [5, 2]);
+  assert.equal(gainers.rows[0].amount, null, '涨跌云图不依赖成交额');
+  assert.equal(gainers.total, 49);
+  const losers = await load('losers');
+  assert.deepEqual(losers.rows.map((row) => row.percent), [-3]);
+  const amounts = await load('amount');
+  assert.deepEqual(amounts.rows.map((row) => row.amount), [100, 99, 98]);
+  assert.deepEqual(urls.map((url) => [url.searchParams.get('fid'), url.searchParams.get('po'), url.searchParams.get('pz')]), [
+    ['f3', '1', '50'], ['f3', '0', '50'], ['f6', '1', '50']
+  ]);
+  const emptyProvider = new SectorBoardProvider(async () => page(49, [entry(0)]), () => now, 3500, {
+    load: async () => { backupCalls++; throw new Error('不应请求备用'); }
+  });
+  const empty = await emptyProvider.load('industry', new AbortController().signal, query({ view: 'heatmap', mapSort: 'gainers' }));
+  assert.equal(empty.rows.length, 0);
+  assert.equal(empty.total, 49);
+  assert.equal(backupCalls, 0);
 });
 test('搜索只获取候选板块的有限行情，空结果不查询行情', async () => {
   const urls = [];
