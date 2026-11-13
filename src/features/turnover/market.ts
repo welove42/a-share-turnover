@@ -62,6 +62,12 @@ const PHASE_LABELS = {
   opening: '待开盘'
 };
 
+// 成交额从09:25开盘撮合后开始刷新；分时与温度的交易时段仍从09:30计算。
+function turnoverSession(now = new Date(), extra: string[] = []) {
+  const clock = session(now, extra);
+  return clock.phase === 'before' && clock.minute >= 565 ? { ...clock, phase: 'opening', polling: true } : clock;
+}
+
 // Stock quotes update during the opening auction; turnover minute charts start at 09:30.
 function stockSession(now = new Date(), extra: string[] = []) {
   const clock = session(now, extra);
@@ -149,13 +155,11 @@ function parseBreadth(values: unknown): MarketBreadth | null {
   return advancing + unchanged + declining > 0 ? { advancing, unchanged, declining } : null;
 }
 
-function parseMinute(payload: any, symbol: string): MarketQuote {
-  const data = payloadData(payload, symbol);
-  const quote = data.qt?.[symbol];
-  if (!Array.isArray(quote) || !/^\d{14}$/.test(quote[30] || '')) throw new Error(`${symbol}实时行情字段异常`);
+/** 最新累计成交额独立于分钟曲线，避免盘前曲线尚未换日时丢掉有效实时报价。 */
+function parseMarketQuote(quote: unknown, symbol: string): MarketQuote {
+  if (!Array.isArray(quote) || quote[2] !== symbol.slice(2) || !/^\d{14}$/.test(quote[30] || ''))
+    throw new Error(`${symbol}实时行情字段异常`);
   const date = normalizeDate(quote[30].slice(0, 8));
-  const dateOfPoints = normalizeDate(data.data?.date);
-  if (date !== dateOfPoints) throw new Error(`${symbol}实时行情和分时日期不一致`);
   timeToMinute(quote[30].slice(8, 12));
   if (Number(quote[30].slice(12, 14)) > 59) throw new Error('行情秒数无效');
   // Tencent's index quote[35] = price / volume(hands) / amount(yuan).
@@ -167,8 +171,8 @@ function parseMinute(payload: any, symbol: string): MarketQuote {
     date,
     timestamp: quote[30],
     amount: numeric(detail[2], '实时成交额'),
-    points: parsePoints(data.data?.data),
-    breadth: parseBreadth(data.qt?.zhishu),
+    points: [],
+    breadth: null,
     percent:
       Number(quote[3]) > 0 &&
       Number(quote[4]) > 0 &&
@@ -177,6 +181,14 @@ function parseMinute(payload: any, symbol: string): MarketQuote {
         ? (Number(quote[3]) / Number(quote[4]) - 1) * 100
         : null
   };
+}
+
+function parseMinute(payload: any, symbol: string): MarketQuote {
+  const data = payloadData(payload, symbol);
+  const quote = parseMarketQuote(data.qt?.[symbol], symbol);
+  const dateOfPoints = normalizeDate(data.data?.date);
+  if (quote.date !== dateOfPoints) throw new Error(`${symbol}实时行情和分时日期不一致`);
+  return { ...quote, points: parsePoints(data.data?.data), breadth: parseBreadth(data.qt?.zhishu) };
 }
 
 function parseHistory(payload: any, symbol: string): HistoryDay[] {
@@ -293,6 +305,7 @@ export {
   PHASE_LABELS,
   shanghaiClock,
   session,
+  turnoverSession,
   numeric,
   validDate,
   normalizeDate,
@@ -302,6 +315,7 @@ export {
   stockTradingMinute,
   parsePoints,
   parseMinute,
+  parseMarketQuote,
   parseHistory,
   change,
   minuteLabel,

@@ -1,5 +1,6 @@
-import { requestJson } from '../../core/network/http';
-import { parseMinute, parseHistory, buildSnapshot } from './market';
+import { requestJson, requestQuoteText } from '../../core/network/http';
+import { parseMinute, parseMarketQuote, parseHistory, buildSnapshot, turnoverSession, timeToMinute } from './market';
+import type { MarketQuote } from '../../shared/types';
 import { MinuteFeed } from './minute-feed';
 const SYMBOLS = ['sh000002', 'sz399107'];
 const ROOT = 'https://web.ifzq.gtimg.cn/appstock/app';
@@ -17,21 +18,30 @@ class MarketProvider {
   declare log: (message: string) => void;
   declare now: () => Date;
   declare minuteFeed: MinuteFeed;
+  declare quoteRequest: typeof requestQuoteText;
   declare histories: never[][];
   declare historyDate: string;
   declare historyAttempt: number;
 
-  constructor({ request = requestJson, log = (_message: string) => {}, now = () => new Date() } = {}) {
+  constructor({
+    request = requestJson,
+    quoteRequest = requestQuoteText,
+    log = (_message: string) => {},
+    now = () => new Date()
+  } = {}) {
     this.request = request;
     this.log = log;
     this.now = now;
     this.minuteFeed = new MinuteFeed(request, () => this.now().getTime());
+    this.quoteRequest = quoteRequest;
     this.histories = [[], []];
     this.historyDate = '';
     this.historyAttempt = 0;
   }
 
   async load(signal, forceHistory = false) {
+    const clock = turnoverSession(this.now());
+    if (clock.phase === 'opening') return this.loadOpening(signal, clock);
     const markets = await pair(async (symbol) =>
       parseMinute((await this.minuteFeed.load(symbol, signal)).payload, symbol)
     );
@@ -58,6 +68,43 @@ class MarketProvider {
     // Old-day cache is never used as a new day's previous-trading-day baseline.
     const histories = this.historyDate === date ? this.histories : [[], []];
     return buildSnapshot(markets, histories, this.now());
+  }
+
+  private async loadOpening(signal: AbortSignal | undefined, clock: ReturnType<typeof turnoverSession>) {
+    if (signal?.aborted) throw new Error('行情请求已取消');
+    const validate = (markets: MarketQuote[]) => {
+      if (
+        markets.some((market) => {
+          const minute = timeToMinute(market.timestamp.slice(8, 12));
+          return market.date !== clock.date || minute < 565 || minute > clock.minute;
+        })
+      )
+        throw new Error('等待两市更新今日09:25后的开盘成交额');
+      return markets;
+    };
+    let markets: MarketQuote[];
+    try {
+      // 盘前只发一次批量实时报价请求，不反复获取尚未就绪的分钟曲线和历史基准。
+      const text = await this.quoteRequest(`https://qt.gtimg.cn/q=${SYMBOLS.join(',')}`, signal);
+      const quotes = new Map<string, string[]>();
+      for (const match of text.matchAll(/v_((?:sh|sz)\d{6})="([^"\r\n]*)"\s*;?/g))
+        if (SYMBOLS.includes(match[1])) quotes.set(match[1], match[2].split('~'));
+      markets = validate(SYMBOLS.map((symbol) => parseMarketQuote(quotes.get(symbol), symbol)));
+    } catch (error) {
+      if (signal?.aborted) throw new Error('行情请求已取消');
+      this.log(`开盘实时报价暂不可用，尝试分时接口中的实时报价：${error.message}`);
+      markets = validate(
+        await pair(async (symbol) => {
+          const payload = (await this.minuteFeed.load(symbol, signal)).payload;
+          if (payload.code !== 0) throw new Error(`${symbol}行情接口返回异常`);
+          return parseMarketQuote(payload.data?.[symbol]?.qt?.[symbol], symbol);
+        })
+      );
+    }
+    if (signal?.aborted) throw new Error('行情请求已取消');
+    const snapshot = buildSnapshot(markets, [[], []], this.now());
+    snapshot.warning = '已更新今日开盘撮合后的累计成交额；09:30前分钟基准尚未就绪，暂不计算昨日同刻缩放量';
+    return snapshot;
   }
 }
 

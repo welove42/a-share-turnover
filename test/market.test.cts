@@ -45,7 +45,7 @@ test('周末、交易所节假日及自定义休市；调休周六不交易', ()
   assert.equal(at('2026-10-08T10:00:00').phase, 'trading');
   assert.equal(market.session(now, ['2026-10-26']).phase, 'closed');
 });
-test('个股09:15至09:30持续轮询，成交额时段仍从09:30开始', () => {
+test('个股09:15至09:30持续轮询，常规分时时段仍从09:30开始', () => {
   for (const [time, phase, polling] of [
     ['09:14:59', 'before', false],
     ['09:15:00', 'auction', true],

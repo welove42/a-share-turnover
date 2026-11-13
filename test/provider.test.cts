@@ -52,6 +52,7 @@ test('历史服务故障时保留实时报价，60秒后重试基准', async () 
 test('单市请求失败不显示另一市的部分总额，且等待全部请求结束', async () => {
   let settled = false;
   const provider = new MarketProvider({
+    now: () => NOW,
     request: async (url) => {
       const symbol = new URL(url).searchParams.get('code');
       if (symbol === 'sh000002') throw new Error('沪市故障');
@@ -83,6 +84,9 @@ test('跨交易日不复用旧的昨日基准', async () => {
 test('取消请求后不返回快照', async () => {
   const controller = new AbortController();
   controller.abort();
-  const provider = new MarketProvider({ request: async (url) => minutePayload(new URL(url).searchParams.get('code')) });
+  const provider = new MarketProvider({
+    now: () => NOW,
+    request: async (url) => minutePayload(new URL(url).searchParams.get('code'))
+  });
   await assert.rejects(provider.load(controller.signal), /已取消/);
 });

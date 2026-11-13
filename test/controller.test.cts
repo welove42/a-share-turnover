@@ -154,6 +154,54 @@ test('午休请求一次边界值后停止，13点恢复', async () => {
   }
 });
 
+test('成交额09:25开始每10秒刷新，09:30继续刷新，不在盘前无效等待', async () => {
+  let calls = 0;
+  const { controller: c, setNow } = setup(async () => {
+    calls++;
+    const value = snapshot();
+    value.sameTime = null;
+    value.previousDay = null;
+    value.comparisonTime = null;
+    value.amount = calls * 1e8;
+    value.markets.forEach((market) => {
+      market.timestamp = '20261026092500';
+    });
+    return value;
+  });
+  try {
+    c.lastPhase = 'before';
+    setNow('2026-10-26T09:24:59+08:00');
+    await c.tick();
+    assert.equal(calls, 0);
+    setNow('2026-10-26T09:25:00+08:00');
+    await c.tick();
+    assert.equal(calls, 1);
+    assert.match(c.item.text, /成交量 1.00亿/);
+    setNow('2026-10-26T09:25:09+08:00');
+    await c.tick();
+    assert.equal(calls, 1);
+    setNow('2026-10-26T09:25:10+08:00');
+    await c.tick();
+    assert.equal(calls, 2);
+    assert.match(c.item.text, /成交量 2.00亿/);
+    setNow('2026-10-26T09:29:59+08:00');
+    await c.tick();
+    assert.equal(calls, 3);
+    setNow('2026-10-26T09:30:00+08:00');
+    await c.tick();
+    assert.equal(calls, 3, '阶段衔接仍遵守10秒间隔');
+    setNow('2026-10-26T09:30:09+08:00');
+    await c.tick();
+    assert.equal(calls, 4);
+    c.state.paused = true;
+    setNow('2026-10-26T09:30:19+08:00');
+    await c.tick();
+    assert.equal(calls, 4);
+  } finally {
+    c.dispose();
+  }
+});
+
 test('进行中的请求合并；暂停和释放会取消请求', async () => {
   let resolve,
     signal,

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as privateUI from '../../core/ui/privacy';
 import { MarketProvider } from './provider';
-import { POLL_MS, session, isSnapshot, PHASE_LABELS } from './market';
+import { POLL_MS, session, turnoverSession, isSnapshot, PHASE_LABELS } from './market';
 import { view } from './view';
 import { marketRisk } from './risk';
 import { marketTemperature, temperatureView } from '../temperature/service';
@@ -185,7 +185,7 @@ class TurnoverController {
   }
 
   start() {
-    const clock = session(this.now(), this.config.additionalClosedDates);
+    const clock = turnoverSession(this.now(), this.config.additionalClosedDates);
     this.lastPhase = clock.phase;
     this.lastDate = clock.date;
     this.render();
@@ -196,7 +196,7 @@ class TurnoverController {
 
   tick() {
     if (this.disposed || this.hidden) return;
-    const clock = session(this.now(), this.config.additionalClosedDates);
+    const clock = turnoverSession(this.now(), this.config.additionalClosedDates);
     const phaseChanged = clock.phase !== this.lastPhase;
     const dateChanged = clock.date !== this.lastDate;
     const wasTrading = this.lastPhase === 'trading';
