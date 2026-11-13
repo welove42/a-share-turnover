@@ -12,6 +12,21 @@ const snapshot = () =>
     SYMBOLS.map((s) => parseHistory(historyPayload(s), s)),
     NOW
   );
+function openingSnapshot(at = '2026-10-26T09:25:00+08:00') {
+  const value = snapshot();
+  value.date = at.slice(0, 10);
+  value.fetchedAt = new Date(at).toISOString();
+  value.sameTime = null;
+  value.previousDay = null;
+  value.previousDate = null;
+  value.comparisonTime = null;
+  value.amount = 1e8;
+  value.markets.forEach((market) => {
+    market.amount = 0.5e8;
+    market.timestamp = value.date.replaceAll('-', '') + '092500';
+  });
+  return value;
+}
 let configurationListener;
 const configValues = {};
 const turnoverNotifications = [];
@@ -154,19 +169,11 @@ test('午休请求一次边界值后停止，13点恢复', async () => {
   }
 });
 
-test('成交额09:25开始每10秒刷新，09:30继续刷新，不在盘前无效等待', async () => {
+test('09:25取得一次有效成交额后停止请求，09:30恢复每10秒刷新', async () => {
   let calls = 0;
   const { controller: c, setNow } = setup(async () => {
     calls++;
-    const value = snapshot();
-    value.sameTime = null;
-    value.previousDay = null;
-    value.comparisonTime = null;
-    value.amount = calls * 1e8;
-    value.markets.forEach((market) => {
-      market.timestamp = '20261026092500';
-    });
-    return value;
+    return openingSnapshot();
   });
   try {
     c.lastPhase = 'before';
@@ -177,28 +184,94 @@ test('成交额09:25开始每10秒刷新，09:30继续刷新，不在盘前无�
     await c.tick();
     assert.equal(calls, 1);
     assert.match(c.item.text, /成交量 1.00亿/);
-    setNow('2026-10-26T09:25:09+08:00');
-    await c.tick();
-    assert.equal(calls, 1);
-    setNow('2026-10-26T09:25:10+08:00');
-    await c.tick();
-    assert.equal(calls, 2);
-    assert.match(c.item.text, /成交量 2.00亿/);
-    setNow('2026-10-26T09:29:59+08:00');
-    await c.tick();
-    assert.equal(calls, 3);
+    for (const time of ['09:25:09', '09:25:10', '09:26:00', '09:28:00', '09:29:59']) {
+      setNow(`2026-10-26T${time}+08:00`);
+      await c.tick();
+      assert.equal(calls, 1, time);
+      assert.match(c.item.text, /成交量 1.00亿/);
+      assert.doesNotMatch(c.item.text, /行情未更新/);
+    }
     setNow('2026-10-26T09:30:00+08:00');
     await c.tick();
-    assert.equal(calls, 3, '阶段衔接仍遵守10秒间隔');
+    assert.equal(calls, 2);
     setNow('2026-10-26T09:30:09+08:00');
     await c.tick();
-    assert.equal(calls, 4);
-    c.state.paused = true;
-    setNow('2026-10-26T09:30:19+08:00');
+    assert.equal(calls, 2);
+    setNow('2026-10-26T09:30:10+08:00');
     await c.tick();
-    assert.equal(calls, 4);
+    assert.equal(calls, 3);
+    c.state.paused = true;
+    setNow('2026-10-26T09:30:20+08:00');
+    await c.tick();
+    assert.equal(calls, 3);
   } finally {
     c.dispose();
+  }
+});
+
+test('09:25请求失败按10秒重试，取得当日有效数据后立即停止重试', async () => {
+  let calls = 0;
+  const { controller: c, setNow } = setup(async () => {
+    calls++;
+    if (calls < 3) throw new Error('开盘数据未就绪');
+    return openingSnapshot('2026-10-26T09:25:20+08:00');
+  });
+  try {
+    c.lastPhase = 'before';
+    for (const [time, count] of [
+      ['09:25:00', 1],
+      ['09:25:09', 1],
+      ['09:25:10', 2],
+      ['09:25:19', 2],
+      ['09:25:20', 3],
+      ['09:25:30', 3],
+      ['09:29:59', 3]
+    ]) {
+      setNow(`2026-10-26T${time}+08:00`);
+      await c.tick();
+      assert.equal(calls, count, time);
+    }
+    assert.equal(c.state.error, '');
+    assert.match(c.item.text, /成交量 1.00亿/);
+  } finally {
+    c.dispose();
+  }
+});
+
+test('当日开盘快照重载后不重复自动请求，手动可重取，次日重新采集', async () => {
+  let calls = 0,
+    at = '2026-10-26T09:25:00+08:00';
+  const load = async () => {
+    calls++;
+    return openingSnapshot(at);
+  };
+  const { controller: c, setNow } = setup(load);
+  let restored;
+  try {
+    c.lastPhase = 'before';
+    setNow(at);
+    await c.tick();
+    await c.refresh();
+    assert.equal(calls, 1);
+    await c.refresh(true);
+    assert.equal(calls, 2, '主动手动刷新仍可重取');
+    at = '2026-10-26T09:25:40+08:00';
+    restored = new TurnoverController(c.context, { load }, () => new Date(at));
+    restored.start();
+    await restored.inflight;
+    assert.equal(calls, 2, '重载复用已持久化的当日有效快照');
+    assert.equal(restored.state.cached, false);
+    assert.doesNotMatch(restored.item.text, /行情未更新/);
+    at = '2026-10-27T09:25:00+08:00';
+    await restored.tick();
+    assert.equal(calls, 3, '昨日快照不能跳过今日请求');
+    assert.equal(restored.snapshot.date, '2026-10-27');
+    at = '2026-10-27T09:25:10+08:00';
+    await restored.tick();
+    assert.equal(calls, 3);
+  } finally {
+    c.dispose();
+    restored?.dispose();
   }
 });
 

@@ -194,20 +194,39 @@ class TurnoverController {
     if (this.config.enabled && !this.state.paused) void this.refresh();
   }
 
+  /** 当日开盘撮合结果只自动获取一次；重载时也可复用已经保存的有效快照。 */
+  private hasOpeningSnapshot(clock = turnoverSession(this.now(), this.config.additionalClosedDates)) {
+    if (clock.phase !== 'opening' || !isSnapshot(this.snapshot) || this.snapshot.date !== clock.date) return false;
+    const fetched = Date.parse(this.snapshot.fetchedAt);
+    return (
+      fetched >= Date.parse(`${clock.date}T09:25:00+08:00`) &&
+      fetched <= this.now().getTime() &&
+      this.snapshot.markets.every(
+        (market) =>
+          market.timestamp.slice(0, 8) === clock.date.replaceAll('-', '') &&
+          market.timestamp.slice(8, 12) >= '0925' &&
+          market.timestamp.slice(8, 12) < '0930'
+      )
+    );
+  }
+
   tick() {
     if (this.disposed || this.hidden) return;
     const clock = turnoverSession(this.now(), this.config.additionalClosedDates);
     const phaseChanged = clock.phase !== this.lastPhase;
     const dateChanged = clock.date !== this.lastDate;
     const wasTrading = this.lastPhase === 'trading';
+    const finishedOpening = this.lastPhase === 'opening' && clock.phase === 'trading';
     this.lastPhase = clock.phase;
     this.lastDate = clock.date;
     // Re-render locally so data staleness is visible even during a failed request.
     this.render();
     if (!this.config.enabled || this.state.paused || this.inflight) return;
+    if (this.hasOpeningSnapshot(clock)) return;
     const elapsed = this.now().getTime() - this.lastAttempt;
     if (
       (clock.polling && elapsed >= POLL_MS) ||
+      finishedOpening ||
       (phaseChanged && wasTrading) ||
       (dateChanged && this.lastAttempt !== -Infinity)
     )
@@ -217,6 +236,13 @@ class TurnoverController {
   refresh(manual = false) {
     if (this.disposed || this.hidden || !this.config.enabled) return Promise.resolve();
     if (this.inflight) return this.inflight;
+    if (!manual && this.hasOpeningSnapshot()) {
+      if (this.state.cached) {
+        this.state.cached = false;
+        this.render();
+      }
+      return Promise.resolve();
+    }
     this.lastAttempt = this.now().getTime();
     this.requestController = new AbortController();
     this.state.busy = true;
