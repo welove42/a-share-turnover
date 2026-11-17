@@ -173,7 +173,7 @@ function context(options = {}) {
     })
   };
 }
-test('完整采集各周期、更新较旧五日分时，基准请求去重，加入行业/全球历史且主进程不泄露私有字段', async () => {
+test('完整采集各周期、更新较旧五日分时，基准请求去重，仅加入行业历史且主进程不泄露私有字段', async () => {
   const { c, calls } = context();
   const data = await c.collect('sh000001');
   assert.equal(calls.filter((v) => v === 'sh000001:daily').length, 1);
@@ -184,7 +184,7 @@ test('完整采集各周期、更新较旧五日分时，基准请求去重，�
   assert.equal(data.timeframes.weekly.sample.used, 120);
   assert.equal(data.market.history.length, 4);
   assert.equal(data.sectors.history.returns.length, 3);
-  assert.equal(data.globalMarkets.history[0].returns[0].to, '2026-11-06');
+  assert.equal(data.globalMarkets, undefined);
   assert.ok(JSON.stringify(analysisPayload(data)).length < 24000);
   const market = await c.collect('market');
   assert.ok(market.market.history.every((h) => h.timeframes.daily && h.timeframes.weekly && h.timeframes.monthly));

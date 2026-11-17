@@ -12,6 +12,7 @@ import type { GlobalIndexProvider } from '../global-indices/data';
 import type { CommodityProvider } from '../commodities/data';
 import type { NewsProvider } from '../news/data';
 import type { AiSectorProvider } from './sector-data';
+import type { FuturesSearch } from '../futures/search';
 import type { complete } from './client';
 import type { listModels } from './models';
 import type { AiHistoryProvider } from './history-data';
@@ -42,6 +43,7 @@ export interface EnvironmentDependencies extends ContextSources {
   commodityProvider?: CommodityProvider;
   newsProvider?: NewsProvider;
   sectorProvider?: AiSectorProvider;
+  futuresSearch?: Pick<FuturesSearch, 'local' | 'search'>;
   timeoutMs?: number;
 }
 export interface AnalysisDependencies extends ContextSources {

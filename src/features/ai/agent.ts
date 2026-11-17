@@ -88,6 +88,10 @@ export class AnalysisAgent {
         result = '{"missing":true,"reason":"查询次数已用完，请根据已有数据回答。"}';
       } else {
         report.queries++;
+        if (call.function.name === 'get_commodity' && typeof args?.query === 'string')
+          onStatus(
+            `正在按需查询：${args.query.slice(0, 40)}${typeof args.reason === 'string' ? `（${args.reason.slice(0, 120)}）` : ''}…`
+          );
         const pending = (async () => {
           let value: any;
           try {

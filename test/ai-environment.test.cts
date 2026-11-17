@@ -102,7 +102,7 @@ function fixture(overrides = {}) {
     };
   return { env: new AnalysisEnvironment(config), calls };
 }
-test('个股分析自动收集大盘、真实所属板块、全球基准、商品和快讯，不依赖展开的自选栏目', async () => {
+test('首次分析只收集个股、大盘与真实所属板块，不因展开自选而附带全球、商品和快讯', async () => {
   const selectedIds = ['100.NDX'],
     stocks = { quotes: new Map(), config: { symbols: ['sh600519'] } };
   const { env, calls } = fixture({ globals: { selectedIds } });
@@ -143,14 +143,15 @@ test('个股分析自动收集大盘、真实所属板块、全球基准、商�
   assert.equal(result.market.benchmarks.length, 4);
   assert.ok(Number.isFinite(result.market.temperature.score));
   assert.equal(result.sectors.industry, '白酒Ⅱ');
-  assert.equal(result.globalMarkets.quotes.length, 10);
-  assert.equal(result.commodities.quotes.length, 4);
-  assert.equal(result.news.items.length, 2);
-  assert.deepEqual(calls.find(Array.isArray), WORLD_IDS);
+  assert.equal(result.globalMarkets, undefined);
+  assert.equal(result.commodities, undefined);
+  assert.equal(result.news, undefined);
+  assert.equal(calls.find(Array.isArray), undefined);
   assert.deepEqual(selectedIds, ['100.NDX']);
   assert.deepEqual(requested, ['sh600519', ...BENCHMARKS]);
   assert.equal(result.relativeStrength.comparisons.find((r) => r.name === '白酒Ⅱ').difference, 1.5);
-  assert.equal(result.coverage.length, 7);
+  assert.equal(result.coverage.length, 5);
+  assert.match(result.coverage.at(-1).detail, /按问题获取/);
   assert.doesNotMatch(JSON.stringify(result), /private/);
   assert.match(SYSTEM, /触|条件/);
   assert.match(SYSTEM, /全球市场/);
@@ -168,10 +169,10 @@ test('接口失败保留缓存的原时间，不把抓取时间当报价时间�
       }
     }
   });
-  const first = await env.load('sh600519');
+  const first = await env.load('sh600519', undefined, undefined, ['global']);
   failing = true;
   now += 70000;
-  const second = await env.load('sh600519');
+  const second = await env.load('sh600519', undefined, undefined, ['global']);
   assert.equal(first.globalMarkets.quotes.length, 1);
   assert.equal(second.globalMarkets.missing.length, 9);
   const q = second.globalMarkets.quotes[0];
@@ -191,7 +192,7 @@ test('单个全球接口超时也保留超时前成功的报价，所有背景�
       }
     }
   });
-  const data = await env.load('sh600519');
+  const data = await env.load('sh600519', undefined, undefined, ['market', 'sectors', 'global']);
   assert.equal(data.globalMarkets.quotes.length, 1);
   assert.equal(data.globalMarkets.quotes[0].cached, false);
   assert.equal(data.sectors.rows.length, 2);
@@ -213,7 +214,7 @@ test('老板键取消时所有背景请求停止，迟到的接口结果不能�
     newsProvider: slow
   });
   const abort = new AbortController(),
-    pending = env.load('sh600519', abort.signal);
+    pending = env.load('sh600519', abort.signal, undefined, ['market', 'sectors', 'global', 'commodities', 'news']);
   await new Promise((r) => setImmediate(r));
   abort.abort();
   await assert.rejects(pending, { name: 'AbortError' });

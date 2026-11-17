@@ -88,6 +88,8 @@ test('大快照保留全部周期、行情时间及末尾所属行业，不因 t
 test('缺口计划仅查缺失项，行业有归属但无报价仍补查；ETF不套用个股板块', () => {
   const s = snapshot();
   assert.deepEqual(planner.missingQueries(s, 'sz002475', '分析走势'), []);
+  delete s.globalMarkets;
+  assert.deepEqual(planner.missingQueries(s, 'sz002475', '分析走势'), []);
   s.sectors.rows = [];
   assert.deepEqual(
     planner.missingQueries(s, 'sz002475', '分析走势').map((q) => q.name),
@@ -182,7 +184,7 @@ test('数据源失败后带原因作答，自动补查仍受六次上限限制�
     }
   });
   assert.equal(queries.length, 6);
-  assert.equal(result.report.limited, true);
+  assert.equal(result.report.limited, false); // 恰好补齐6项；不再把未查询外围算作第7个必补缺口。
   const abort = new AbortController();
   let called = false;
   await assert.rejects(

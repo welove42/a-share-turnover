@@ -88,7 +88,7 @@ test('每次外围查询更新期货，保留现货原时间；失败缓存不�
   assert.equal(three.globalMarkets.futures[0].timestamp, two.globalMarkets.futures[0].timestamp);
 });
 
-test('行情追问刷新美日韩外围，术语解释不刷新，失败标记不会把旧期货当新报价', async () => {
+test('普通追问不刷新或重发外围，显式工具查询才取新报价，失败缓存不伪装实时', async () => {
   let now = NOW,
     fail = false,
     count = 0;
@@ -125,16 +125,19 @@ test('行情追问刷新美日韩外围，术语解释不刷新，失败标记�
     timeframes: {},
     globalMarkets: { quotes: [], futures: [] }
   };
-  const one = await data.prepare('sh600519', previous, '现在外围怎么样', signal);
+  const prepared = await data.prepare('sh600519', previous, '现在外围怎么样', signal);
+  assert.equal(prepared.globalMarkets, undefined);
+  assert.equal(count, 0); // 此时交给模型选择区域与工具，而非宿主固定打包所有外围。
+  const one = await data.execute('get_environment', { scope: 'global', region: 'us' }, 'sh600519', signal);
   now += 1000;
-  const two = await data.prepare('sh600519', one, '目前风险呢', signal);
+  const two = await data.execute('get_environment', { scope: 'global', region: 'us' }, 'sh600519', signal);
   assert.equal(count, 2);
   assert.equal(two.globalMarkets.futures[0].price, 102);
-  await data.prepare('sh600519', two, '解释一下MACD是什么意思', signal);
+  await data.prepare('sh600519', { ...previous, ...two }, '解释一下MACD是什么意思', signal);
   assert.equal(count, 2);
   fail = true;
   now += 1000;
-  const three = await data.prepare('sh600519', two, '现在呢', signal);
+  const three = await data.execute('get_environment', { scope: 'global', region: 'us' }, 'sh600519', signal);
   assert.equal(three.globalMarkets.fetchFailed, true);
   assert.equal(three.globalMarkets.futures[0].currentReference, false);
   assert.equal(three.globalMarkets.futures[0].timestamp, two.globalMarkets.futures[0].timestamp);

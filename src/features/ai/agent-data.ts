@@ -11,30 +11,65 @@ const names = {
   get_technical: '分时或日周月技术数据',
   get_market: '大盘与同刻量能',
   get_environment: '所属板块或全球环境',
+  get_commodity:
+    '按名称/代码查询与问题相关的单个商品或期货（如生猪、玉米、豆粕、铜）；须说明产业链关联，不查无关品种，不提供现货或公司利润',
   get_etf: 'ETF折溢价',
   get_news: '相关公开快讯'
 };
 export type QueryName = keyof typeof names;
-const schema = (properties: Record<string, unknown>) => ({ type: 'object', properties, additionalProperties: false });
+const schema = (properties: Record<string, unknown>, required: string[] = []) => ({
+  type: 'object',
+  properties,
+  ...(required.length ? { required } : {}),
+  additionalProperties: false
+});
 const symbol = { type: 'string', description: 'sh/sz/bj加六位代码；省略用当前标的' };
 export const TOOLS: ToolDefinition[] = Object.entries(names).map(([name, description]) => ({
   type: 'function',
   function: {
     name,
     description,
-    parameters: schema({
-      symbol,
-      ...(name === 'get_technical'
-        ? {
-            period: { type: 'string', enum: ['intraday', 'intraday5', 'daily', 'weekly', 'monthly'] },
-            bars: { type: 'integer', minimum: 0, maximum: 30, description: '需要原始K线时填1至30，默认仅指标摘要' }
-          }
-        : {}),
-      ...(name === 'get_environment' ? { scope: { type: 'string', enum: ['sector', 'global'] } } : {}),
-      ...(name === 'get_news'
-        ? { query: { type: 'string', maxLength: 80, description: '可选关键词，检索已接入快讯，非全网搜索' } }
-        : {})
-    })
+    parameters: schema(
+      {
+        symbol,
+        ...(name === 'get_technical'
+          ? {
+              period: { type: 'string', enum: ['intraday', 'intraday5', 'daily', 'weekly', 'monthly'] },
+              bars: { type: 'integer', minimum: 0, maximum: 30, description: '需要原始K线时填1至30，默认仅指标摘要' }
+            }
+          : {}),
+        ...(name === 'get_environment'
+          ? {
+              scope: { type: 'string', enum: ['sector', 'global'] },
+              region: {
+                type: 'string',
+                enum: ['all', 'us', 'jp', 'kr', 'hk', 'europe'],
+                description: '仅global使用；按问题选择地区，all仅用于整体外围分析'
+              }
+            }
+          : {}),
+        ...(name === 'get_commodity'
+          ? {
+              query: {
+                type: 'string',
+                minLength: 1,
+                maxLength: 40,
+                description: '具体品种中文名称或期货代码；有歧义时按返回候选的代码重查'
+              },
+              reason: {
+                type: 'string',
+                minLength: 1,
+                maxLength: 120,
+                description: '与当前问题/公司主营业务的关联；不得因用户自选了该品种就认为相关'
+              }
+            }
+          : {}),
+        ...(name === 'get_news'
+          ? { query: { type: 'string', maxLength: 80, description: '可选关键词，检索已接入快讯，非全网搜索' } }
+          : {})
+      },
+      name === 'get_commodity' ? ['query', 'reason'] : []
+    )
   }
 }));
 
@@ -122,8 +157,6 @@ export class AgentData implements QueryData {
           label
         });
     }
-    if (!snapshot.globalMarkets?.quotes?.length)
-      queries.push({ name: 'get_environment', args: { scope: 'global' }, label: '全球市场' });
     return queries;
   }
 
@@ -138,7 +171,13 @@ export class AgentData implements QueryData {
       const value = { ...result.value, fetchedAt: new Date(time).toISOString() };
       if (this.cache.size >= 60) this.cache.delete(this.cache.keys().next().value!);
       // “请求成功但数据缺失”不能作为有效行情缓存，后续主动分析仍可补查。
-      if (!value.missing && !value.fetchFailed && !value.market?.missing && !value.sectors?.missing)
+      if (
+        !value.missing &&
+        !value.fetchFailed &&
+        !value.market?.missing &&
+        !value.sectors?.missing &&
+        !value.commodities?.missing
+      )
         this.cache.set(key, { at: time, value });
       return value;
     }
@@ -167,6 +206,21 @@ export class AgentData implements QueryData {
               }
             }
           : {}),
+        ...(old.value.commodities
+          ? {
+              commodities: {
+                ...old.value.commodities,
+                fetchFailed: true,
+                quotes: (old.value.commodities.quotes || []).map((q) => ({
+                  ...q,
+                  currentReference: false,
+                  fetchFailed: true,
+                  cached: true,
+                  usage: '本次获取失败，缓存报价仅作背景'
+                }))
+              }
+            }
+          : {}),
         cached: true,
         fetchFailed: true,
         error: `本次查询失败${reason}，以下为原时间数据，不能当作最新行情。`
@@ -186,8 +240,9 @@ export class AgentData implements QueryData {
     const allowed = new Set([
       'symbol',
       ...(name === 'get_technical' ? ['period', 'bars'] : []),
-      ...(name === 'get_environment' ? ['scope'] : []),
-      ...(name === 'get_news' ? ['query'] : [])
+      ...(name === 'get_environment' ? ['scope', 'region'] : []),
+      ...(name === 'get_news' ? ['query'] : []),
+      ...(name === 'get_commodity' ? ['query', 'reason'] : [])
     ]);
     if (Object.keys(args).some((k) => !allowed.has(k))) throw new Error('存在不支持的查询参数');
     const code = args.symbol ?? (target === 'market' ? 'sh000001' : target);
@@ -204,12 +259,29 @@ export class AgentData implements QueryData {
         bars > 30)
     )
       throw new Error('图表周期或K线数量无效');
-    if (name === 'get_environment' && !['sector', 'global'].includes(scope)) throw new Error('环境查询范围无效');
+    if (
+      name === 'get_environment' &&
+      (!['sector', 'global'].includes(scope) ||
+        (args.region !== undefined &&
+          (scope !== 'global' || !['all', 'us', 'jp', 'kr', 'hk', 'europe'].includes(args.region))))
+    )
+      throw new Error('环境查询范围无效');
+    if (
+      name === 'get_commodity' &&
+      (typeof args.query !== 'string' ||
+        !args.query.trim() ||
+        args.query.length > 40 ||
+        !/^[\p{L}\p{N}\s_.-]+$/u.test(args.query) ||
+        typeof args.reason !== 'string' ||
+        !args.reason.trim() ||
+        args.reason.length > 120)
+    )
+      throw new Error('商品查询须填写具体名称/代码及关联原因');
     if (name === 'get_news' && args.query !== undefined && (typeof args.query !== 'string' || args.query.length > 80))
       throw new Error('新闻关键词过长');
     const session = stockSession(new Date(this.now()));
     const ttl =
-      name === 'get_environment' && scope === 'global'
+      (name === 'get_environment' && scope === 'global') || name === 'get_commodity'
         ? 0
         : ['get_quote', 'get_etf', 'get_market', 'get_technical'].includes(name)
           ? session.polling
@@ -222,12 +294,23 @@ export class AgentData implements QueryData {
       period,
       bars,
       scope,
+      args.region || '',
       args.query || '',
+      name === 'get_commodity' ? args.reason : '',
       session.phase,
       dayOf(new Date(this.now()))
     ]);
     return this.cached(key, ttl, signal, async (querySignal) => {
       const now = new Date(this.now());
+      if (name === 'get_commodity') {
+        // 品种自身按20秒复用，不随A股休市延长；失败回退的原时间由数据源保留。
+        const commodities = await this.source.environment.relatedQuote(
+          args.query.trim(),
+          args.reason.trim(),
+          querySignal
+        );
+        return { commodities, fetchFailed: commodities.fetchFailed };
+      }
       if (name === 'get_quote' || name === 'get_etf') {
         if (name === 'get_etf' && !isEtfCandidate(code))
           return { applicable: false, reason: '当前代码不是支持的场内ETF' };
@@ -288,14 +371,15 @@ export class AgentData implements QueryData {
           : name === 'get_news'
             ? ['news']
             : scope === 'global'
-              ? ['global', 'commodities']
+              ? ['global']
               : ['sectors'];
       const [env, benchmarks] = await Promise.all([
         this.source.environment.load(
           code,
           querySignal,
           args.query || this.source.stocks?.quotes.get(code)?.name,
-          sections
+          sections,
+          { region: args.region || 'all' }
         ),
         name === 'get_market'
           ? attempt(
@@ -339,9 +423,7 @@ export class AgentData implements QueryData {
           }
         };
       }
-      return scope === 'global'
-        ? { globalMarkets: env.globalMarkets, commodities: env.commodities }
-        : { sectors: env.sectors };
+      return scope === 'global' ? { globalMarkets: env.globalMarkets } : { sectors: env.sectors };
     });
   }
 
@@ -349,11 +431,10 @@ export class AgentData implements QueryData {
     if (!question || !previous) return this.source.collect(target, signal);
     if (explanationOnly(question) && !/分析|走势|是.*还是/.test(question)) return previous;
     const periods = requestedPeriods(question);
-    const [quote, market, minute, global, sector, ...technical] = await Promise.all([
+    const [quote, market, minute, sector, ...technical] = await Promise.all([
       this.execute('get_quote', {}, target, signal),
       this.execute('get_market', {}, target, signal),
       this.execute('get_technical', { period: 'intraday' }, target, signal),
-      this.execute('get_environment', { scope: 'global' }, target, signal),
       this.execute('get_environment', { scope: 'sector' }, target, signal),
       ...periods.map((period) =>
         this.execute('get_technical', { period, bars: period === 'daily' ? 10 : 6 }, target, signal)
@@ -386,39 +467,13 @@ export class AgentData implements QueryData {
     );
     const resolved = new Set(periods.filter((_, index) => technical[index]?.summary && !technical[index]?.fetchFailed));
     // 各区块保留自己的时间；更新报价不能让旧日/周/月线看起来也刚更新。
+    // 上轮按需取得的外围/商品留在对话证据中，不自动重发或刷新成“本轮相关数据”。
+    const { globalMarkets: _global, commodities: _commodities, news: _news, ...core } = previous;
     return {
-      ...previous,
+      ...core,
       capturedAt: new Date(this.now()).toISOString(),
       quote,
       market: market.market || { missing: true },
-      globalMarkets: global.globalMarkets
-        ? {
-            ...global.globalMarkets,
-            ...(global.fetchFailed
-              ? {
-                  fetchFailed: true,
-                  error: global.error,
-                  quotes: (global.globalMarkets.quotes || []).map((q) => ({ ...q, currentReference: false })),
-                  futures: (global.globalMarkets.futures || []).map((q) => ({
-                    ...q,
-                    currentReference: false,
-                    fetchFailed: true
-                  }))
-                }
-              : {})
-          }
-        : {
-            ...previous.globalMarkets,
-            fetchFailed: true,
-            error: global.error || '外围刷新失败',
-            quotes: (previous.globalMarkets?.quotes || []).map((q) => ({ ...q, currentReference: false })),
-            futures: (previous.globalMarkets?.futures || []).map((q) => ({
-              ...q,
-              currentReference: false,
-              fetchFailed: true
-            }))
-          },
-      commodities: global.commodities || previous.commodities,
       sectors: sector.sectors || { ...previous.sectors, fetchFailed: true, error: sector.error },
       relativeStrength: undefined,
       daily: updatedPeriods.daily || previous.daily,
@@ -444,14 +499,14 @@ export class AgentData implements QueryData {
                 (resolved.has('monthly') && note.startsWith('月线缺失'))
               )
           ),
-          '追问已检查报价、大盘、分时、所属板块及美日韩外围（含纳指100和日经期货参考）；各项按实际报价时间解读。',
-          ...[quote, market, minute, global, sector, ...technical].filter((v) => v.fetchFailed).map((v) => v.error)
+          '追问已检查报价、大盘、分时和所属板块；外围、商品、期货和快讯按当前问题调用工具，旧回答中的报价不代表现在。',
+          ...[quote, market, minute, sector, ...technical].filter((v) => v.fetchFailed).map((v) => v.error)
         ])
       ].slice(-12),
       coverage: [
         {
           label: '本轮行情',
-          detail: `已检查报价 / 大盘 / 分时 / 板块 / 美日韩外围${periods.length ? ' / ' + periods.map((p, index) => `${{ daily: '日线', weekly: '周线', monthly: '月线' }[p]}${technical[index]?.fetchFailed ? (technical[index]?.summary || (previous.timeframes?.[p] && !previous.timeframes[p]?.missing) ? '（缓存）' : '缺失') : '已获取'}`).join(' / ') : ''}，详见数据时间`
+          detail: `已检查报价 / 大盘 / 分时 / 板块${periods.length ? ' / ' + periods.map((p, index) => `${{ daily: '日线', weekly: '周线', monthly: '月线' }[p]}${technical[index]?.fetchFailed ? (technical[index]?.summary || (previous.timeframes?.[p] && !previous.timeframes[p]?.missing) ? '（缓存）' : '缺失') : '已获取'}`).join(' / ') : ''}，其他数据按需查询`
         }
       ]
     };

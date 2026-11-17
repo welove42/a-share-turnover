@@ -118,11 +118,20 @@ class AnalysisContext {
     );
     const backgroundTask = (async () => {
       const base = await attempt(
-        (s) => this.environment.load(symbol, s, this.stocks?.quotes.get(symbol)?.name),
+        (s) => this.environment.load(symbol, s, this.stocks?.quotes.get(symbol)?.name, ['market', 'sectors']),
         signal,
         20000
       );
-      return base.ok ? { ok: true as const, value: await this.enrichHistory(base.value, signal, now) } : base;
+      return base.ok
+        ? {
+            ok: true as const,
+            value: await this.enrichHistory(
+              { market: base.value.market, sectors: base.value.sectors, notes: base.value.notes },
+              signal,
+              now
+            )
+          }
+        : base;
     })();
     const [quoteResult, timeframes, intraday, histories, background] = await Promise.all([
       attempt((s) => this.quoteProvider.load([...new Set([symbol, ...BENCHMARKS])], s), signal, 18000),
@@ -165,10 +174,9 @@ class AnalysisContext {
       };
     if (background.ok) {
       const env = background.value;
-      for (const key of ['market', 'sectors', 'globalMarkets', 'commodities', 'news'])
-        if (env[key]) data[key] = env[key];
+      for (const key of ['market', 'sectors']) if (env[key]) data[key] = env[key];
       data.notes.push(...(env.notes || []));
-    } else data.notes.push('外围上下文获取失败，无法完整评估大盘、板块及全球环境。');
+    } else data.notes.push('大盘与所属板块获取失败，可调用工具补查；不能猜测缺失行情。');
     const benchmarks: PublicMarketSection[] = BENCHMARKS.map((id) => {
       const fresh = quoteResult.ok && quoteResult.value.quotes.get(id),
         q = fresh || this.stocks?.quotes.get(id);
@@ -276,12 +284,7 @@ class AnalysisContext {
             ? 'ETF / 指数不适用'
             : `${data.sectors?.rows?.length || 0} 个${data.sectors?.quoteFailure ? '（行情不完整）' : ''}${data.sectors?.cached ? '（缓存）' : ''}`
       },
-      {
-        label: '全球',
-        detail: `${data.globalMarkets?.quotes?.length || 0}/${data.globalMarkets?.requested || 10} 指数 · ${data.globalMarkets?.futures?.length || 0}/2 期货参考`
-      },
-      { label: '商品', detail: `${data.commodities?.quotes?.length || 0}/4` },
-      { label: '快讯', detail: `${data.news?.items?.length || 0} 条` }
+      { label: '按需查询', detail: '相关商品 / 期货、外围及快讯由 Agent 按问题获取' }
     ];
     data.notes.push('以上为各项标注时间的行情；获取时间不代表报价时间，旧报价和未完成周期不能当作当前已确认走势。');
     return data;
