@@ -40,6 +40,41 @@ function temperatureHtml(webview, context, token) {
             </div>
             <div id="current"></div>
           </div>
+          <section class="breadth-section" aria-labelledby="breadth-title">
+            <div class="breadth-heading">
+              <h2 id="breadth-title">沪深涨跌家数</h2>
+              <div class="display-mode" role="group" aria-label="状态栏显示内容">
+                <span>状态栏显示</span>
+                <div class="mode-buttons">
+                  <button type="button" id="mode-temperature" aria-pressed="true">温度</button>
+                  <button type="button" id="mode-breadth" aria-pressed="false">涨跌家数</button>
+                </div>
+              </div>
+            </div>
+            <p id="mode-feedback" role="status" hidden></p>
+            <dl class="breadth-cards">
+              <div class="advancing">
+                <dt>上涨</dt>
+                <dd><strong id="breadth-up">—</strong><span>家</span></dd>
+              </div>
+              <div class="declining">
+                <dt>下跌</dt>
+                <dd><strong id="breadth-down">—</strong><span>家</span></dd>
+              </div>
+              <div>
+                <dt>平盘</dt>
+                <dd><strong id="breadth-flat">—</strong><span>家</span></dd>
+              </div>
+            </dl>
+            <div id="breadth-bar" class="breadth-bar" aria-hidden="true" hidden>
+              <span id="breadth-up-bar"></span><span id="breadth-flat-bar"></span><span id="breadth-down-bar"></span>
+            </div>
+            <div class="breadth-caption">
+              <span id="breadth-ratio">等待涨跌家数</span>
+              <span id="breadth-meta"></span>
+            </div>
+            <p class="note">统计沪深 A 股，不含北交所、B 股；切换仅改变底部显示，点击状态栏仍可打开本页。</p>
+          </section>
           <div class="summary" id="summary"></div>
           <div id="temperature-plot" tabindex="0" role="group" aria-label="市场温度当日走势图，左右方向键选择采集点">
             <svg id="temperature-svg" aria-hidden="true"></svg>

@@ -71,7 +71,11 @@ function page() {
     nodes,
     messages,
     receive: (data, token = 'test') =>
-      receivers.forEach((fn) => fn({ data: { type: 'temperature-data', token, data } }))
+      receivers.forEach((fn) => fn({ data: { type: 'temperature-data', token, data } })),
+    result: (ok, token = 'test') =>
+      receivers.forEach((fn) =>
+        fn({ data: { type: 'temperature-mode-result', token, ok, error: '保存失败，请重试。' } })
+      )
   };
 }
 const descendants = (node) => [node, ...node.children.flatMap(descendants)];
@@ -172,4 +176,72 @@ test('单点0分可见，不把无记录当作冰点；错误令牌和无效分�
   assert.equal(p.nodes.get('temperature-detail').textContent, old);
   p.nodes.get('temperature-plot').dispatch('keydown', { key: 'ArrowLeft' });
   assert.match(p.nodes.get('temperature-tooltip').textContent, /0 \/ 100 · 冰点/);
+});
+
+test('详情展示涨跌平家数和占比，切换有保存反馈，外部设置同步且不移动悬停点', () => {
+  const p = page();
+  const d = {
+    ...data(),
+    statusBarMode: 'temperature',
+    breadth: {
+      counts: { advancing: 1100, declining: 700, unchanged: 200 },
+      total: 2000,
+      date: '2026-10-28',
+      time: '13:00:00',
+      label: '沪深 A 股涨跌家数',
+      status: 'live'
+    }
+  };
+  p.receive(d);
+  assert.equal(p.nodes.get('breadth-up').textContent, '1,100');
+  assert.equal(p.nodes.get('breadth-down').textContent, '700');
+  assert.equal(p.nodes.get('breadth-flat').textContent, '200');
+  assert.match(p.nodes.get('breadth-ratio').textContent, /55.0%.*2,000/);
+  assert.equal(p.nodes.get('breadth-up-bar').style.flexGrow, '1100');
+  assert.equal(p.nodes.get('breadth-bar').hidden, false);
+  assert.match(p.nodes.get('breadth-meta').textContent, /2026-10-28 13:00:00.*腾讯/);
+  const plot = p.nodes.get('temperature-plot');
+  plot.dispatch('pointermove', { clientX: 48 + (3600 / 19800) * 928, clientY: 100 });
+  p.nodes.get('mode-breadth').dispatch('click');
+  assert.equal(p.messages.at(-1).action, 'set-display-mode');
+  assert.equal(p.messages.at(-1).mode, 'breadth');
+  assert.equal(p.nodes.get('mode-breadth').disabled, true);
+  p.result(false, 'wrong');
+  assert.equal(p.nodes.get('mode-breadth').disabled, true);
+  p.receive({ ...d, statusBarMode: 'breadth' });
+  p.result(true);
+  assert.equal(p.nodes.get('mode-breadth').getAttribute('aria-pressed'), 'true');
+  assert.equal(p.nodes.get('mode-breadth').disabled, false);
+  assert.equal(p.nodes.get('mode-feedback').hidden, true);
+  assert.match(p.nodes.get('temperature-tooltip').textContent, /10:30:00/);
+  p.nodes.get('mode-temperature').dispatch('click');
+  p.result(false);
+  assert.equal(p.nodes.get('mode-feedback').hidden, false);
+  assert.match(p.nodes.get('mode-feedback').textContent, /保存失败/);
+  assert.equal(p.nodes.get('mode-temperature').disabled, false);
+  assert.equal(p.nodes.get('mode-breadth').getAttribute('aria-pressed'), 'true');
+});
+
+test('缺失家数显示占位符，缓存显示原时间；0家为真实有效数值', () => {
+  const p = page();
+  p.receive(data());
+  assert.equal(p.nodes.get('breadth-up').textContent, '—');
+  assert.equal(p.nodes.get('breadth-bar').hidden, true);
+  p.receive({
+    ...data(),
+    breadth: {
+      counts: { advancing: 0, declining: 2000, unchanged: 0 },
+      total: 2000,
+      date: '2026-10-27',
+      time: '15:00:00',
+      label: '历史 / 缓存行情',
+      status: 'cached'
+    }
+  });
+  assert.equal(p.nodes.get('breadth-up').textContent, '0');
+  assert.equal(p.nodes.get('breadth-bar').hidden, false);
+  assert.match(p.nodes.get('breadth-meta').textContent, /缓存.*2026-10-27 15:00:00/);
+  p.receive({ ...data(), breadth: { counts: { advancing: NaN, declining: 1, unchanged: 2 }, total: 3 } });
+  assert.equal(p.nodes.get('breadth-up').textContent, '—');
+  assert.equal(p.nodes.get('breadth-bar').hidden, true);
 });

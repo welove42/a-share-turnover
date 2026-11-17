@@ -1,9 +1,12 @@
 import type { TemperaturePoint } from '../../shared/types';
+import type { BreadthData, TemperatureDisplayMode } from '../../features/temperature/breadth';
 interface TemperatureData {
   date: string;
   points: (TemperaturePoint & { phase?: string })[];
   phase: string;
   current: { score: number | null; label: string; reason?: string };
+  breadth?: BreadthData;
+  statusBarMode?: TemperatureDisplayMode;
 }
 interface TemperaturePlot {
   x: (point: { time: string }) => number;
@@ -22,6 +25,18 @@ interface PageElements {
   status: HTMLElement;
   current: HTMLElement;
   summary: HTMLElement;
+  'mode-temperature': HTMLButtonElement;
+  'mode-breadth': HTMLButtonElement;
+  'mode-feedback': HTMLElement;
+  'breadth-up': HTMLElement;
+  'breadth-down': HTMLElement;
+  'breadth-flat': HTMLElement;
+  'breadth-bar': HTMLElement;
+  'breadth-up-bar': HTMLElement;
+  'breadth-down-bar': HTMLElement;
+  'breadth-flat-bar': HTMLElement;
+  'breadth-ratio': HTMLElement;
+  'breadth-meta': HTMLElement;
   'temperature-plot': HTMLElement;
   'temperature-svg': SVGSVGElement;
   'temperature-tooltip': HTMLElement;
@@ -40,6 +55,49 @@ import * as temperatureModel from '../../shared/temperature-model';
     plot: TemperaturePlot | null = null,
     selectedBucket: number | null = null,
     side = 'right';
+  let savingMode = false;
+  function renderBreadth() {
+    if (!data) return;
+    const breadth = data.breadth,
+      counts = breadth?.counts;
+    // 部分市场缺失时不展示部分合计，也不以0补齐。
+    const valid =
+      counts &&
+      [counts.advancing, counts.declining, counts.unchanged].every(
+        (n) => Number.isSafeInteger(n) && n >= 0 && n <= 200000
+      ) &&
+      breadth.total === counts.advancing + counts.declining + counts.unchanged &&
+      breadth.total > 0;
+    const fields = [
+      ['up', 'advancing'],
+      ['down', 'declining'],
+      ['flat', 'unchanged']
+    ] as const;
+    for (const [id, field] of fields) {
+      $(`breadth-${id}`).textContent = valid ? counts[field].toLocaleString('zh-CN') : '—';
+      $(`breadth-${id}-bar`).style.flexGrow = valid ? String(counts[field]) : '0';
+    }
+    $('breadth-bar').hidden = !valid;
+    $('breadth-ratio').textContent = valid
+      ? `上涨占比 ${((counts.advancing / breadth.total!) * 100).toFixed(1)}% · 合计 ${breadth.total!.toLocaleString('zh-CN')} 家`
+      : breadth?.label || '等待沪深涨跌家数';
+    $('breadth-meta').textContent = valid
+      ? `${breadth.label} · ${breadth.date} ${breadth.time}（北京） · 腾讯行情`
+      : '';
+    for (const mode of ['temperature', 'breadth'] as const) {
+      $(`mode-${mode}`).setAttribute('aria-pressed', String(mode === (data.statusBarMode || 'temperature')));
+      $(`mode-${mode}`).disabled = savingMode;
+    }
+  }
+  for (const mode of ['temperature', 'breadth'] as const) {
+    $(`mode-${mode}`).addEventListener('click', () => {
+      if (!data || savingMode || mode === (data.statusBarMode || 'temperature')) return;
+      savingMode = true;
+      $('mode-feedback').hidden = true;
+      renderBreadth();
+      vscode.postMessage({ action: 'set-display-mode', mode, token });
+    });
+  }
   const phase = (point) => (point.phase === '午休' ? '午休快照' : point.phase === '已收盘' ? '收盘快照' : point.phase);
   const level = (score) =>
     score < 20 ? 'coldest' : score < 40 ? 'cold' : score < 60 ? '' : score < 80 ? 'warm' : 'hot';
@@ -187,8 +245,15 @@ import * as temperatureModel from '../../shared/temperature-model';
   });
   window.addEventListener('message', (event) => {
     const message = event.data;
+    if (message?.token !== token) return;
+    if (message.type === 'temperature-mode-result') {
+      savingMode = false;
+      $('mode-feedback').hidden = message.ok === true;
+      $('mode-feedback').textContent = message.ok === true ? '' : message.error || '保存失败，请重试。';
+      renderBreadth();
+      return;
+    }
     if (
-      message?.token !== token ||
       message.type !== 'temperature-data' ||
       !message.data ||
       !Array.isArray(message.data.points) ||
@@ -211,6 +276,7 @@ import * as temperatureModel from '../../shared/temperature-model';
       return;
     if (data?.date !== next.date) selectedBucket = null;
     data = next as TemperatureData;
+    renderBreadth();
     $('date').textContent = data.date;
     $('current').textContent =
       data.current.score === null ? data.current.label : `${data.current.score} ${data.current.label}`;

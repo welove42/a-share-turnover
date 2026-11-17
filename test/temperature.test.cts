@@ -2,6 +2,7 @@
 const test = require('node:test'),
   assert = require('node:assert/strict');
 const { marketTemperature, temperatureView } = require('../dist/features/temperature/service.js');
+const { marketBreadth } = require('../dist/features/temperature/breadth.js');
 const {
   session,
   parseBreadth,
@@ -185,6 +186,123 @@ test('状态栏短文本、分项解释与数据日期完整，不输出NaN或�
   const invalid = temperatureView(assess(null));
   assert.equal(invalid.text, '温度 · 待更新');
   assert.doesNotMatch(invalid.markdown, /NaN|Infinity|50\/100/);
+});
+
+test('家数独立于温度分级和同刻基准，缺失市场不显示残缺合计或伪造零家', () => {
+  const s = snapshot();
+  s.sameTime = null;
+  assert.equal(assess(s).score, null);
+  const breadth = marketBreadth(s, {}, session(NOW), NOW);
+  assert.deepEqual(breadth.counts, { advancing: 1100, declining: 700, unchanged: 200 });
+  assert.equal(breadth.total, 2000);
+  assert.equal(breadth.time, '10:30:30');
+  assert.equal(breadth.status, 'live');
+  const display = temperatureView(assess(s), { statusBarMode: 'breadth', breadth });
+  assert.equal(display.text, '涨1100 跌700');
+  assert.match(display.markdown, /上涨 \*\*1100\*\*.*下跌 \*\*700\*\*.*平盘 \*\*200\*\*/);
+  assert.equal(display.color, undefined);
+  for (const mutate of [
+    (value) => value.markets.pop(),
+    (value) => (value.markets[0].breadth = null),
+    (value) => (value.markets[0].breadth.advancing = -1),
+    (value) => (value.markets[1].breadth.declining = NaN),
+    (value) => (value.markets[1].timestamp = '20261025103030')
+  ]) {
+    const invalid = snapshot();
+    mutate(invalid);
+    const missing = marketBreadth(invalid, {}, session(NOW), NOW);
+    assert.equal(missing.counts, null);
+    assert.equal(
+      temperatureView(assess(invalid), { statusBarMode: 'breadth', breadth: missing }).text,
+      '涨跌家数 · 待更新'
+    );
+  }
+});
+
+test('家数暂停、缓存、行情落后及跨日保留来源时间，恢复实时后清除缓存标记', () => {
+  const s = snapshot();
+  for (const state of [{ cached: true }, { error: '断网' }]) {
+    const breadth = marketBreadth(s, state, session(NOW), NOW);
+    assert.equal(breadth.status, 'cached');
+    assert.equal(breadth.date, '2026-10-26');
+    assert.equal(temperatureView(assess(s, state), { statusBarMode: 'breadth', breadth }).text, '涨1100 跌700 · 缓存');
+  }
+  assert.equal(marketBreadth(s, { paused: true }, session(NOW), NOW).status, 'paused');
+  for (const later of ['2026-10-26T10:35:30+08:00', '2026-10-27T09:00:00+08:00']) {
+    const now = new Date(later);
+    const breadth = marketBreadth(s, {}, session(now), now);
+    assert.equal(breadth.status, 'cached');
+    assert.equal(breadth.time, '10:30:30');
+  }
+  assert.equal(marketBreadth(s, {}, session(NOW), NOW).status, 'live');
+  const zero = snapshot();
+  zero.markets.forEach((m) => (m.breadth = { advancing: 0, declining: 1000, unchanged: 0 }));
+  assert.equal(marketBreadth(zero, {}, session(NOW), NOW).counts.advancing, 0);
+});
+
+test('详情页切换状态栏实时生效且持久保存，不发行情请求、不影响温度曲线和老板键', async () => {
+  const h = harness(),
+    { TurnoverController } = h.load('../dist/app/extension.js');
+  let calls = 0;
+  const c = new TurnoverController(
+    h.context,
+    {
+      load: async () => {
+        calls++;
+        return snapshot();
+      }
+    },
+    () => NOW
+  );
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  try {
+    await c.refresh();
+    c.showTemperature();
+    const state = c.temperatureChart.state,
+      panel = state.panel,
+      send = (mode, token = state.token) => panel.webview.receive.fire({ action: 'set-display-mode', mode, token });
+    send('breadth');
+    assert.equal(c.config.temperature.statusBarMode, 'temperature');
+    panel.webview.receive.fire({ action: 'ready', token: state.token });
+    const history = structuredClone(c.temperatureHistory.points);
+    send('breadth', 'wrong');
+    send('invalid');
+    await settle();
+    assert.equal(c.temperatureItem.text, '温度 65 偏热');
+    send('breadth');
+    await settle();
+    assert.equal(c.temperatureItem.text, '涨1100 跌700');
+    assert.equal(h.values.get('aShareTurnover.temperature.statusBarMode'), 'breadth');
+    assert.equal(panel.webview.messages.findLast((m) => m.type === 'temperature-data').data.statusBarMode, 'breadth');
+    assert.equal(panel.webview.messages.at(-1).ok, true);
+    assert.equal(calls, 1);
+    assert.deepEqual(c.temperatureHistory.points, history);
+    c.showTemperature();
+    assert.equal(h.panels.length, 1);
+    send('temperature');
+    await settle();
+    assert.equal(c.temperatureItem.text, '温度 65 偏热');
+    await h.api.workspace.getConfiguration('aShareTurnover').update('temperature.statusBarMode', 'breadth');
+    assert.equal(c.temperatureItem.text, '涨1100 跌700');
+    const writes = { ...c.temperatureItem.writes };
+    c.render();
+    c.render();
+    assert.deepEqual(c.temperatureItem.writes, writes);
+    c.setHidden(true);
+    assert.equal(c.temperatureItem.visible, false);
+    c.setHidden(false);
+    assert.equal(c.temperatureItem.visible, true);
+    assert.equal(calls, 1);
+    const restarted = new TurnoverController(h.context, { load: async () => snapshot() }, () => NOW);
+    try {
+      assert.equal(restarted.config.temperature.statusBarMode, 'breadth');
+      assert.equal(restarted.temperatureChartData().breadth.status, 'cached');
+    } finally {
+      restarted.dispose();
+    }
+  } finally {
+    c.dispose();
+  }
 });
 
 test('温度状态栏不增加行情请求，重复刷新和每秒检查不重建hover，支持独立隐藏和点击明细', async () => {

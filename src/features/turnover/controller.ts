@@ -8,6 +8,7 @@ import { marketTemperature, temperatureView } from '../temperature/service';
 import { TemperatureHistory } from '../temperature/history';
 import { TemperatureChartController } from '../temperature/chart';
 import { TurnoverAlerts } from './alerts';
+import { marketBreadth, type TemperatureDisplayMode } from '../temperature/breadth';
 
 /** 管理成交额轮询、缓存与状态栏；入口只负责创建和销毁实例。 */
 class TurnoverController {
@@ -49,6 +50,7 @@ class TurnoverController {
     temperature: {
       enabled: boolean;
       colorize: boolean;
+      statusBarMode: TemperatureDisplayMode;
     };
     risk: {
       enabled: boolean;
@@ -127,13 +129,22 @@ class TurnoverController {
       vscode.StatusBarAlignment.Right,
       99
     );
-    this.temperatureItem.name = '沪深A股市场温度';
+    this.temperatureItem.name = '沪深A股市场温度 / 涨跌家数';
     this.temperatureItem.command = 'welove42.aShareTurnover.showTemperature';
     this.temperatureOutput = vscode.window.createOutputChannel('A股市场温度');
     this.temperatureHistory = new TemperatureHistory(context.globalState, session(this.now()).date, (message) =>
       this.log(message)
     );
-    this.temperatureChart = new TemperatureChartController(context, () => this.temperatureChartData());
+    this.temperatureChart = new TemperatureChartController(
+      context,
+      () => this.temperatureChartData(),
+      async (mode) => {
+        if (this.disposed || this.hidden) return;
+        await vscode.workspace
+          .getConfiguration('aShareTurnover')
+          .update('temperature.statusBarMode', mode, vscode.ConfigurationTarget.Global);
+      }
+    );
     this.provider = provider || new MarketProvider({ log: (message) => this.log(message), now });
     this.config = this.readConfig();
     this.requestController = null;
@@ -155,7 +166,7 @@ class TurnoverController {
     ];
   }
 
-  readConfig() {
+  readConfig(): TurnoverController['config'] {
     const config = vscode.workspace.getConfiguration('aShareTurnover');
     return {
       enabled: config.get('enabled', true),
@@ -170,7 +181,9 @@ class TurnoverController {
       additionalClosedDates: config.get('additionalClosedDates', []),
       temperature: {
         enabled: config.get('temperature.enabled', true),
-        colorize: config.get('temperature.colorize', true)
+        colorize: config.get('temperature.colorize', true),
+        statusBarMode:
+          config.get<string>('temperature.statusBarMode', 'temperature') === 'breadth' ? 'breadth' : 'temperature'
       },
       risk: {
         enabled: config.get('risk.enabled', true),
@@ -351,7 +364,10 @@ class TurnoverController {
       return;
     }
     this.temperatureResult = marketTemperature(this.snapshot, this.state, clock, now);
-    const result = temperatureView(this.temperatureResult, this.config.temperature),
+    const result = temperatureView(this.temperatureResult, {
+        ...this.config.temperature,
+        breadth: marketBreadth(this.snapshot, this.state, clock, now)
+      }),
       previous = this.temperatureRendered;
     if (!previous || previous.text !== result.text) this.temperatureItem.text = result.text;
     if (!previous || previous.markdown !== result.markdown) {
@@ -381,6 +397,8 @@ class TurnoverController {
     return {
       ...this.temperatureHistory.data(),
       current: { score: result.score, label: result.label, reason: result.reason },
+      breadth: marketBreadth(this.snapshot, this.state, clock, now),
+      statusBarMode: this.config.temperature.statusBarMode,
       phase: PHASE_LABELS[clock.phase]
     };
   }
@@ -396,7 +414,12 @@ class TurnoverController {
       clock = session(now, this.config.additionalClosedDates);
     const result = marketTemperature(this.snapshot, this.state, clock, now);
     this.temperatureOutput.clear();
-    this.temperatureOutput.appendLine(temperatureView(result, this.config.temperature).detail);
+    this.temperatureOutput.appendLine(
+      temperatureView(result, {
+        ...this.config.temperature,
+        breadth: marketBreadth(this.snapshot, this.state, clock, now)
+      }).detail
+    );
     this.temperatureOutput.show();
   }
 

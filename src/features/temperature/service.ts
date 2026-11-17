@@ -1,5 +1,6 @@
 import { normalizeDate, timeToMinute, tradingMinute, PHASE_LABELS } from '../turnover/market';
 import { label as temperatureLabel } from '../../shared/temperature-model';
+import type { BreadthData, TemperatureDisplayMode } from './breadth';
 
 const clamp = (value) => Math.max(0, Math.min(100, value));
 const missing = (label, reason) => ({ score: null, label, reason });
@@ -93,15 +94,33 @@ function marketTemperature(snapshot, state, clock, now) {
   };
 }
 
-function temperatureView(result, options: { colorize?: boolean } = {}) {
+function temperatureView(
+  result,
+  options: { colorize?: boolean; statusBarMode?: TemperatureDisplayMode; breadth?: BreadthData } = {}
+) {
   const scored = result.score !== null;
-  const text = scored ? `温度 ${result.score} ${result.label}` : `温度 · ${result.label}`;
+  const breadthMode = options.statusBarMode === 'breadth',
+    breadth = options.breadth,
+    counts = breadth?.counts;
+  const text = breadthMode
+    ? counts
+      ? `涨${counts.advancing} 跌${counts.declining}${breadth.status === 'cached' ? ' · 缓存' : breadth.status === 'paused' ? ' · 暂停' : ''}`
+      : '涨跌家数 · 待更新'
+    : scored
+      ? `温度 ${result.score} ${result.label}`
+      : `温度 · ${result.label}`;
   const lines = [
     '**沪深A股市场温度（自定义）**',
     '',
     scored ? `**${result.score}/100 · ${result.label}**` : result.reason,
     ''
   ];
+  if (counts && !scored)
+    lines.push(
+      `上涨 **${counts.advancing}** 家 / 下跌 **${counts.declining}** 家 / 平盘 **${counts.unchanged}** 家；合计 ${breadth.total} 家。`,
+      `${breadth.label}；行情时间：${breadth.date} ${breadth.time}（北京）。`,
+      ''
+    );
   if (scored) {
     lines.push(
       `行情日期：${result.date}；${result.phase}。沪深报价：${result.markets.map((m) => m.timestamp.slice(8).replace(/(..)(..)(..)/, '$1:$2:$3')).join(' / ')}（北京）。`,
@@ -129,10 +148,10 @@ function temperatureView(result, options: { colorize?: boolean } = {}) {
     '',
     '此指标描述参与度与活跃度，不预测未来涨跌；放量可能出现在上涨或下跌中，须结合现有风险提示。状态栏随成交额更新，走势图每分钟记录一次，可在设置中隐藏。',
     '',
-    '点击查看当天温度走势图；图表右上角可查看计算明细。'
+    '点击查看当天温度走势图及涨跌家数；页面可切换状态栏显示温度或涨跌家数，右上角可查看计算明细。'
   );
   const color =
-    options.colorize !== false && scored
+    !breadthMode && options.colorize !== false && scored
       ? result.score >= 60
         ? 'charts.red'
         : result.score < 40
@@ -144,7 +163,11 @@ function temperatureView(result, options: { colorize?: boolean } = {}) {
     markdown: lines.join('\n'),
     detail: lines.join('\n').replaceAll('**', ''),
     color,
-    accessibility: `沪深A股市场${text}。${scored ? `范围0至100，行情日期${result.date}。` : result.reason}`
+    accessibility: breadthMode
+      ? counts
+        ? `沪深A股上涨${counts.advancing}家，下跌${counts.declining}家，平盘${counts.unchanged}家。${breadth.label}，行情时间${breadth.date} ${breadth.time}。`
+        : '沪深A股涨跌家数待更新。'
+      : `沪深A股市场${text}。${scored ? `范围0至100，行情日期${result.date}。` : result.reason}`
   };
 }
 export { marketTemperature, temperatureView };

@@ -19,6 +19,7 @@ const GROUPS = [
       'sectors.category',
       'sectors.direction',
       'temperature.enabled',
+      'temperature.statusBarMode',
       'temperature.colorize'
     ]
   },
@@ -107,7 +108,8 @@ const LABELS = {
   'sectors.enabled': '显示板块排行',
   'sectors.category': '板块类型',
   'sectors.direction': '涨跌榜',
-  'temperature.enabled': '显示市场温度',
+  'temperature.enabled': '显示市场温度 / 涨跌家数',
+  'temperature.statusBarMode': '底部显示内容',
   'temperature.colorize': '温度使用颜色区分',
   'stocks.enabled': '启用自选行情',
   'stocks.symbols': 'A 股自选',
@@ -164,6 +166,7 @@ const HELP = {
   'sectors.category': '选择行业或概念板块排行。',
   'sectors.direction': '涨幅榜从高到低，跌幅榜从低到高。切换后立即更新并记住选择。',
   'temperature.enabled': '查看市场冷热和当天走势，需要开启成交额。',
+  'temperature.statusBarMode': '选择显示温度或沪深涨跌家数；也可在市场温度详情页直接切换，自动记住选择。',
   'temperature.colorize': '偏热用红色，偏冷用蓝色。',
   'stocks.enabled': '启用侧栏自选和底部股票行情。',
   'stocks.statusBarSymbol': '可选择上证指数或已添加的 A 股自选。',

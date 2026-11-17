@@ -1,6 +1,7 @@
 import { escape, temperatureHtml } from './view';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
+import type { TemperatureDisplayMode } from './breadth';
 class TemperatureChartController {
   declare context: any;
   declare data: any;
@@ -12,12 +13,14 @@ class TemperatureChartController {
     listeners?: vscode.Disposable[];
   } | null;
   declare disposed: boolean;
+  declare setDisplayMode: (mode: TemperatureDisplayMode) => Promise<void>;
 
-  constructor(context, data) {
+  constructor(context, data, setDisplayMode: (mode: TemperatureDisplayMode) => Promise<void> = async () => {}) {
     this.context = context;
     this.data = data;
     this.state = null;
     this.disposed = false;
+    this.setDisplayMode = setDisplayMode;
   }
   open() {
     if (this.disposed) return;
@@ -47,9 +50,32 @@ class TemperatureChartController {
     });
     state.listeners = [
       panel.webview.onDidReceiveMessage((message) => {
-        if (this.state !== state || message?.token !== state.token || message.action !== 'ready') return;
-        state.ready = true;
-        this.update(true);
+        if (this.state !== state || message?.token !== state.token) return;
+        if (message.action === 'ready') {
+          state.ready = true;
+          this.update(true);
+        } else if (
+          state.ready &&
+          message.action === 'set-display-mode' &&
+          ['temperature', 'breadth'].includes(message.mode)
+        ) {
+          void this.setDisplayMode(message.mode).then(
+            () => {
+              if (this.state !== state) return;
+              this.update(true);
+              void panel.webview.postMessage({ type: 'temperature-mode-result', token: state.token, ok: true });
+            },
+            () => {
+              if (this.state !== state) return;
+              void panel.webview.postMessage({
+                type: 'temperature-mode-result',
+                token: state.token,
+                ok: false,
+                error: '保存失败，请重试或在插件设置中修改。'
+              });
+            }
+          );
+        }
       }),
       panel.onDidChangeViewState(() => {
         if (panel.visible) this.update();

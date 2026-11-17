@@ -775,13 +775,21 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "底部显示沪深A股市场温度（0–100）：涨跌家数60%、两市A股指数平均涨跌幅25%、昨日同刻成交额变化15%。复用成交额行情每10秒更新；属于自定义情绪指标，依赖成交额模块。"
+          "description": "底部显示市场温度或沪深A股涨跌家数，点击查看详情并切换显示内容。温度（0–100）由涨跌家数60%、指数走势25%、同刻成交额变化15%组成，属于自定义情绪指标。复用成交额行情，依赖成交额模块。"
         },
         "aShareTurnover.temperature.colorize": {
           "type": "boolean",
           "default": true,
           "scope": "application",
           "description": "市场温度使用主题颜色：偏热/过热为红色，偏冷/冰点为蓝色，中性及无有效评分时使用默认颜色。"
+        },
+        "aShareTurnover.temperature.statusBarMode": {
+          "type": "string",
+          "enum": ["temperature", "breadth"],
+          "enumDescriptions": ["市场温度", "上涨 / 下跌家数"],
+          "default": "temperature",
+          "scope": "application",
+          "description": "选择底部显示市场温度或沪深A股上涨/下跌家数。也可点击状态栏，在详情页直接切换；复用现有行情，不增加请求。"
         },
         "aShareTurnover.risk.enabled": {
           "type": "boolean",

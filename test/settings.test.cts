@@ -78,6 +78,35 @@ test('设置页覆盖常用配置，复用标签，真实保存并响应外部�
   }
 });
 
+test('市场设置可切换状态栏温度或涨跌家数，默认温度，拒绝无效选项', async () => {
+  const { h, c, panel, send } = setup();
+  try {
+    const field = c
+      .model()
+      .find((g) => g.id === 'market')
+      .fields.find((f) => f.key === 'temperature.statusBarMode');
+    assert.equal(field.value, 'temperature');
+    assert.deepEqual(
+      field.options.map((o) => o.value),
+      ['temperature', 'breadth']
+    );
+    await send({ type: 'save', key: field.key, value: 'breadth' });
+    assert.equal(h.values.get('aShareTurnover.temperature.statusBarMode'), 'breadth');
+    await send({ type: 'save', key: field.key, value: 'invalid' });
+    assert.equal(panel.webview.messages.at(-1).ok, false);
+    await send({ type: 'reset', key: field.key });
+    assert.equal(
+      c
+        .model()
+        .find((g) => g.id === 'market')
+        .fields.find((f) => f.key === field.key).value,
+      'temperature'
+    );
+  } finally {
+    c.dispose();
+  }
+});
+
 test('配色设置支持三种模式与 HEX 校验，恢复默认并提供条件颜色控件', async () => {
   const { h, c, panel, send } = setup();
   try {
