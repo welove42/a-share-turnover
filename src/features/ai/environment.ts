@@ -14,6 +14,7 @@ import { session } from '../turnover/market';
 import { pick, attempt, abortError, quoteTime } from './data';
 import { cashTiming, futureTiming, regionalSessions } from './global-timing';
 import { FuturesSearch } from '../futures/search';
+import { trustworthyJapanCashQuote } from '../global-indices/japan-calendar';
 export type EnvironmentRegion = 'all' | 'us' | 'jp' | 'kr' | 'hk' | 'europe';
 const REGION_IDS: Record<Exclude<EnvironmentRegion, 'all'>, string[]> = {
   us: ['100.NDX', '100.SPX', '100.DJIA'],
@@ -221,12 +222,17 @@ class AnalysisEnvironment {
       missing: string[] = [];
     for (const id of wants('global') ? ids : []) {
       const partial = receivedWorld.get(id),
-        fresh = partial || (world.ok && world.value.quotes?.get(id));
-      if (fresh && isGlobalQuote(fresh))
-        this.worldCache.set(id, { q: fresh, fetchedAt: partial ? ms : world.fetchedAt! });
+        candidate = partial || (world.ok && world.value.quotes?.get(id)),
+        fresh = isGlobalQuote(candidate) && trustworthyJapanCashQuote(candidate) ? candidate : undefined;
+      if (fresh) this.worldCache.set(id, { q: fresh, fetchedAt: partial ? ms : world.fetchedAt! });
       const stored = this.worldCache.get(id),
         q = stored?.q || this.globals?.quotes?.get(id);
-      if (!isGlobalQuote(q) || q.timestamp * 1000 > ms + 300000 || ms - q.timestamp * 1000 > MAX_AGE) {
+      if (
+        !isGlobalQuote(q) ||
+        !trustworthyJapanCashQuote(q) ||
+        q.timestamp * 1000 > ms + 300000 ||
+        ms - q.timestamp * 1000 > MAX_AGE
+      ) {
         missing.push(BUILTIN_INDICES.find((e) => e.id === id)?.name || id);
         continue;
       }

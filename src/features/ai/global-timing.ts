@@ -1,4 +1,5 @@
 import { usClock } from '../watchlist/overseas/extended-session';
+import { japanCashDay } from '../global-indices/japan-calendar';
 
 const MARKETS = {
   us: { name: '美国', zone: 'America/New_York', ids: ['100.NDX', '100.NDX100', '100.SPX', '100.DJIA'] },
@@ -32,10 +33,11 @@ export function regionalSessions(now: Date) {
   return Object.entries(MARKETS).map(([id, market]) => {
     const clock = local(now, market.zone);
     // JPX 09:00–11:30 / 12:30–15:30；KRX 09:00–15:30（特殊日期以交易所安排为准）。
+    const japanDay = id === 'jp' ? japanCashDay(now) : undefined;
     const phase =
       id === 'us'
         ? usClock(now).phase
-        : !clock.weekday
+        : !clock.weekday || japanDay?.closed
           ? 'closed'
           : clock.minute < 540
             ? 'pre'
@@ -52,7 +54,11 @@ export function regionalSessions(now: Date) {
       time: clock.time,
       phase,
       label: { pre: '盘前', regular: '常规交易时段', post: '盘后', break: '午休', closed: '常规时段外' }[phase],
-      basis: '按当地常规时段估算，未据此确认节假日或临时休市；以报价时间为准'
+      basis: japanDay?.closed
+        ? `日本现货休市：${japanDay.reason}；以交易所公告为准`
+        : japanDay && !japanDay.covered
+          ? '日本节假日快照未覆盖本年，仅按常规时段估算；休市以交易所公告为准'
+          : '按当地常规时段估算，临时休市以交易所公告为准；以报价时间为准'
     };
   });
 }

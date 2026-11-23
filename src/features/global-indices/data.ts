@@ -1,6 +1,7 @@
 import type { GlobalIndexEntry, GlobalQuote } from '../../shared/types';
 import { requestJson, requestBuffer } from '../../core/network/http';
 import { validDate } from '../turnover/market';
+import { trustworthyJapanCashQuote } from './japan-calendar';
 
 const REGIONS = [
   {
@@ -296,7 +297,7 @@ class GlobalIndexProvider {
       if (signal?.aborted) throw new Error('请求已取消');
     };
     const accept = (q) => {
-      if (!isGlobalQuote(q) || q.timestamp * 1000 > this.now() + 300000) return false;
+      if (!isGlobalQuote(q) || !trustworthyJapanCashQuote(q) || q.timestamp * 1000 > this.now() + 300000) return false;
       result.quotes.set(q.id, q);
       result.entries.set(q.id, indexEntry(q.code, q.name));
       result.errors.delete(q.id);

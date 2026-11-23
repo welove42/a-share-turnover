@@ -15,6 +15,7 @@ import {
 } from './data';
 import { StockSettings } from '../watchlist/settings';
 import { trendIcon } from '../watchlist/trend-icon';
+import { japanCashDay, trustworthyJapanCashQuote } from './japan-calendar';
 
 function quoteTime(q) {
   if (!q) return '尚未获取';
@@ -101,7 +102,7 @@ class GlobalIndicesController {
     const cache = context.globalState.get('globalIndexQuotes', []);
     if (Array.isArray(cache))
       for (const q of cache)
-        if (isGlobalQuote(q)) {
+        if (isGlobalQuote(q) && trustworthyJapanCashQuote(q)) {
           this.quotes.set(q.id, q);
           this.catalog.set(q.id, { id: q.id, code: q.code, name: q.name, region: q.region });
         }
@@ -190,7 +191,8 @@ class GlobalIndicesController {
     );
     item.id = `global-index:${entry.id}`;
     item.contextValue = 'aShareGlobalIndex';
-    item.description = `${error ? '获取失败 · ' : this.cached && q ? '缓存 · ' : q?.source === 'sina' ? '备用 · ' : ''}${q ? quoteTime(q).slice(5, 16) : '待获取'}`;
+    const japanDay = entry.id === '100.N225' ? japanCashDay(this.now()) : undefined;
+    item.description = `${japanDay?.closed ? '日本休市 · ' : ''}${error ? '获取失败 · ' : this.cached && q ? '缓存 · ' : q?.source === 'sina' ? '备用 · ' : ''}${q ? quoteTime(q).slice(5, 16) : '待获取'}`;
     item.iconPath = error ? new vscode.ThemeIcon('warning') : trendIcon(this.context.extensionUri, q?.percent);
     item.command = {
       command: 'welove42.aShareTurnover.globalIndices.open',
@@ -205,6 +207,10 @@ class GlobalIndicesController {
     );
     if (q?.timestampKind === 'updated')
       tip.appendText('\n备用源时间表示该源的报价更新时间，不代表交易所逐笔成交时间。');
+    if (japanDay?.closed)
+      tip.appendText(`\n日本现货市场休市（${japanDay.reason}）；所示为可核实的最近行情，并非今日涨跌。`);
+    else if (japanDay && !japanDay.covered)
+      tip.appendText('\n日本现货节假日快照未覆盖本年，休市情况以交易所公告为准。');
     if (this.paused) tip.appendText('\n自动刷新已暂停。');
     if (this.cached && q) tip.appendText('\n当前展示上次保存的缓存行情。');
     if (error) tip.appendText(`\n${error}`);
@@ -254,7 +260,8 @@ class GlobalIndicesController {
         this.quotes.get(entry.id),
         this.errors.get(entry.id),
         this.cached,
-        this.paused
+        this.paused,
+        entry.id === '100.N225' ? japanCashDay(this.now()) : null
       ]);
       if (signature !== this.signatures.get(entry.id)) {
         changed.push(entry.id);
@@ -303,6 +310,7 @@ class GlobalIndicesController {
           if (
             !result.errors.has(id) &&
             isGlobalQuote(q) &&
+            trustworthyJapanCashQuote(q) &&
             q.id === id &&
             q.timestamp * 1000 <= this.now().getTime() + 300000 &&
             q.timestamp >= floor &&
