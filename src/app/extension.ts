@@ -213,6 +213,7 @@ async function activate(context) {
     bind('welove42.aShareTurnover.overseas.selectSession', () => stocks.overseas.chooseUsSession()),
     bind('welove42.aShareTurnover.stocks.selectStatus', (element) => stocks.selectStatus(element)),
     bind('welove42.aShareTurnover.stocks.sort', () => stocks.sort()),
+    bind('welove42.aShareTurnover.stocks.clearAllActivity', () => stocks.activity.clearAll()),
     bind('welove42.aShareTurnover.stocks.togglePause', () => stocks.togglePause()),
     bind('welove42.aShareTurnover.news.refresh', () => news.refresh()),
     bind('welove42.aShareTurnover.news.show', () => news.show()),

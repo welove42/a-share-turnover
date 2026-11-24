@@ -2,13 +2,17 @@
 const test = require('node:test'),
   assert = require('node:assert/strict');
 const manifest = require('../package.json');
-test('异动高亮通过详情自动清除，不增加清除菜单', () => {
+test('异动高亮保留详情自动清除，并在自选股标题栏提供一键清空入口', () => {
   const menus = manifest.contributes.menus;
-  assert.ok(
-    !Object.values(menus)
-      .flat()
-      .some((m) => /stocks\.clear(All)?Activity$/.test(m.command))
-  );
+  const command = 'welove42.aShareTurnover.stocks.clearAllActivity';
+  const definition = manifest.contributes.commands.find((item) => item.command === command);
+  assert.match(definition.title, /清空所有异动高亮/);
+  assert.equal(definition.icon, '$(clear-all)');
+  const titleEntry = menus['view/title'].find((item) => item.command === command);
+  assert.match(titleEntry.when, /view == welove42\.aShareTurnover\.marketWatch/);
+  assert.match(titleEntry.when, /!aShareTurnover\.hidden/);
+  assert.match(titleEntry.group, /^navigation@/);
+  assert.ok(!menus['view/item/context'].some((item) => item.command === command));
 });
 test('副图切换入口在页面内，编辑器右上角保留来源、刷新、浏览器和AI分析按钮', () => {
   const commands = manifest.contributes.menus['editor/title']

@@ -121,6 +121,16 @@ export class StockActivity implements vscode.Disposable {
     this.refresh();
     this.owner.emitter.fire(undefined);
   }
+  clearAll() {
+    const hidden = this.owner.hidden ?? this.owner.context.globalState.get('bossKeyHidden', false);
+    if (this.disposed || hidden || !this.entries.size) return;
+    this.entries.clear();
+    // 使正在进行的定位失效；不改动提醒去重，新事件仍可再次产生标记。
+    this.revision++;
+    this.save();
+    this.refresh();
+    this.owner.emitter.fire(undefined);
+  }
   async revealLatest() {
     this.refresh();
     if (!this.visible()) return;

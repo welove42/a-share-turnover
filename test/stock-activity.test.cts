@@ -119,6 +119,45 @@ test('打开详情自动清除该股高亮并持久化，不影响其他股票�
     s.c.dispose();
   }
 });
+test('一键清空已读和未读异动，角标与持久化同步清除，不影响提醒去重和后续新异动', async () => {
+  const s = setup();
+  let restored;
+  try {
+    const first = s.c.element('sh600105'),
+      second = s.c.element('sh600519');
+    s.alerts.check([quote()], 'a');
+    s.c.activity.record(quote('sh600519'), 'a', '跌幅超过7%');
+    s.c.tree.selectionEvents.fire({ selection: [first] });
+    assert.equal(s.c.tree.badge.value, 1);
+    assert.ok(s.c.getTreeItem(first).label.highlights.length);
+    assert.ok(s.c.getTreeItem(second).label.highlights.length);
+    const beforeNotices = s.notices.length;
+    s.c.activity.clearAll();
+    assert.equal(s.c.tree.badge, undefined);
+    assert.equal(typeof s.c.getTreeItem(first).label, 'string');
+    assert.equal(typeof s.c.getTreeItem(second).label, 'string');
+    assert.doesNotMatch(s.c.getTreeItem(first).description || '', /涨停|●/);
+    s.alerts.check([quote()], 'a');
+    assert.equal(s.notices.length, beforeNotices);
+    assert.equal(typeof s.c.getTreeItem(first).label, 'string');
+    s.advance(10000);
+    s.alerts.check([quote('sh600105', 10.99, 10)], 'a');
+    assert.equal(s.c.tree.badge.value, 1);
+    assert.match(s.c.getTreeItem(first).description, /涨停炸板/);
+    s.c.activity.clearAll();
+    await tick();
+    assert.deepEqual(s.h.store.get('stockActivityV1'), []);
+    const { StockActivity } = s.h.load('../dist/features/watchlist/activity.js');
+    s.c.activity.dispose();
+    restored = new StockActivity(s.c);
+    assert.equal(s.c.tree.badge, undefined);
+    assert.equal(typeof restored.decorate(s.c.getTreeItem(second), second).label, 'string');
+  } finally {
+    restored?.dispose();
+    s.alerts.dispose();
+    s.c.dispose();
+  }
+});
 test('老板键隐藏角标/标记且不定位；恢复保留未读，不主动抢焦点', async () => {
   const s = setup();
   try {

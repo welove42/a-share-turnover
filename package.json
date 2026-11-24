@@ -169,6 +169,11 @@
         "icon": "$(sort-precedence)"
       },
       {
+        "command": "welove42.aShareTurnover.stocks.clearAllActivity",
+        "title": "自选股：清空所有异动高亮",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "welove42.aShareTurnover.stocks.togglePause",
         "title": "A股自选股：暂停 / 恢复自动刷新",
         "icon": "$(debug-pause)"
@@ -1145,6 +1150,11 @@
           "command": "welove42.aShareTurnover.stocks.togglePause",
           "when": "!aShareTurnover.hidden && (view == welove42.aShareTurnover.marketWatch)",
           "group": "navigation@3"
+        },
+        {
+          "command": "welove42.aShareTurnover.stocks.clearAllActivity",
+          "when": "!aShareTurnover.hidden && config.aShareTurnover.stocks.enabled && (view == welove42.aShareTurnover.marketWatch)",
+          "group": "navigation@5"
         },
         {
           "command": "welove42.aShareTurnover.news.show",
