@@ -75,7 +75,7 @@ const vscode = {
     showWarningMessage: async (text) => {
       turnoverNotifications.push(text);
     },
-    createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
+    createOutputChannel: () => ({ appendLine() {}, show() {}, hide() {}, dispose() {} }),
     createStatusBarItem: trackedStatusBarItem
   },
   workspace: {
@@ -105,7 +105,6 @@ function setup(load) {
     }
   };
   const controller = new TurnoverController(context, { load }, () => now);
-  controller.lastDate = '2026-10-26';
   controller.lastPhase = 'trading';
   return {
     controller,
@@ -166,6 +165,54 @@ test('午休请求一次边界值后停止，13点恢复', async () => {
     assert.equal(calls, 2);
   } finally {
     c.dispose();
+  }
+});
+
+test('成交额和市场温度只确认一次收盘，跨日和盘外恢复显示不再请求', async () => {
+  let calls = 0;
+  const {
+    controller: c,
+    setNow,
+    store
+  } = setup(async () => {
+    calls++;
+    if (calls === 2) throw new Error('收盘确认失败');
+    return calls === 3 ? openingSnapshot('2026-10-27T09:25:00+08:00') : snapshot();
+  });
+  let restored;
+  try {
+    setNow('2026-10-26T14:59:55+08:00');
+    await c.refresh();
+    const saved = store.get('snapshot');
+    for (const [time, expected] of [
+      ['2026-10-26T15:00:00+08:00', 1],
+      ['2026-10-26T15:01:00+08:00', 2],
+      ['2026-10-26T15:01:10+08:00', 2],
+      ['2026-10-26T15:10:00+08:00', 2],
+      ['2026-10-27T00:00:00+08:00', 2],
+      ['2026-10-27T09:24:59+08:00', 2]
+    ]) {
+      setNow(time);
+      await c.tick();
+      assert.equal(calls, expected, time);
+    }
+    assert.equal(store.get('snapshot'), saved);
+    c.setHidden(true);
+    c.setHidden(false);
+    await c.togglePause();
+    await c.togglePause();
+    restored = new TurnoverController(c.context, c.provider, c.now);
+    restored.start();
+    assert.equal(restored.snapshot, saved);
+    assert.equal(calls, 2);
+    restored.dispose();
+    setNow('2026-10-27T09:25:00+08:00');
+    await c.tick();
+    assert.equal(calls, 3);
+    assert.equal(c.snapshot.date, '2026-10-27');
+  } finally {
+    c.dispose();
+    restored?.dispose();
   }
 });
 

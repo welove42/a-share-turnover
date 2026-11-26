@@ -1,6 +1,13 @@
 import * as vscode from 'vscode';
 import * as privateUI from '../../core/ui/privacy';
-import { POLL_MS, PHASE_LABELS, stockSession, timeToMinute, stockTradingMinute } from '../turnover/market';
+import {
+  POLL_MS,
+  PHASE_LABELS,
+  stockSession,
+  statusBarRefreshAllowed,
+  timeToMinute,
+  stockTradingMinute
+} from '../turnover/market';
 import {
   INDEX_SYMBOL,
   normalizeSymbol,
@@ -55,7 +62,7 @@ class WatchlistController {
   declare elements: Map<any, any>;
   declare settingsQueue: Promise<void>;
   declare dragIdentity: {};
-  declare cached: boolean;
+  declare cached: Set<string>;
   declare paused: boolean;
   declare emitter: vscode.EventEmitter<any>;
   declare onDidChangeTreeData: vscode.Event<any>;
@@ -91,6 +98,7 @@ class WatchlistController {
   declare writingSettings: any;
   declare activePicker: vscode.QuickPick<StockPick> | null | undefined;
   declare hidden: any;
+  private auctionOnly = false;
   readonly activity: StockActivity;
   readonly insights: StockListInsights;
 
@@ -122,10 +130,16 @@ class WatchlistController {
     this.elements = new Map();
     this.settingsQueue = Promise.resolve();
     this.dragIdentity = {};
-    this.cached = true;
+    this.cached = new Set();
     this.paused = Boolean(context.globalState.get('stocksPaused', false));
     const stored = context.globalState.get('stockQuotes', []);
-    if (Array.isArray(stored)) for (const q of stored) if (isQuote(q)) this.quotes.set(q.symbol, q);
+    if (Array.isArray(stored)) {
+      for (const q of stored) {
+        if (!isQuote(q)) continue;
+        this.quotes.set(q.symbol, q);
+        this.cached.add(q.symbol);
+      }
+    }
     this.emitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.emitter.event;
     this.tree = vscode.window.createTreeView('welove42.aShareTurnover.marketWatch', {
@@ -271,26 +285,34 @@ class WatchlistController {
   clock() {
     return stockSession(this.now(), this.config.closedDates);
   }
+  private autoRefreshAllowed(clock: ReturnType<typeof stockSession>) {
+    return (
+      statusBarRefreshAllowed(clock, this.lastAttempt) ||
+      (clock.phase === 'auction' && this.config.symbols.some((symbol) => symbol !== INDEX_SYMBOL))
+    );
+  }
   tick() {
     if (this.disposed || this.hidden) return;
     const clock = this.clock(),
       key = clock.date + clock.phase;
     const boundary = key !== this.phaseKey;
+    const openingAfterAuction = boundary && clock.phase === 'opening' && this.auctionOnly;
     this.phaseKey = key;
     this.publish(false);
     if (this.config.enabled) this.overseas.tick(!this.paused);
     if (
       this.config.enabled &&
       !this.paused &&
-      !this.inflight &&
-      ((clock.polling && this.now().getTime() - this.lastAttempt >= POLL_MS) || boundary)
+      (!this.inflight || openingAfterAuction) &&
+      this.autoRefreshAllowed(clock) &&
+      (boundary || this.now().getTime() - this.lastAttempt >= POLL_MS)
     )
       return this.refresh();
   }
   stale(symbol) {
     const q = this.quotes.get(symbol),
       clock = this.clock();
-    if (!q || this.cached || this.errors.has(symbol) || q.date !== clock.date) return true;
+    if (!q || this.cached.has(symbol) || this.errors.has(symbol) || q.date !== clock.date) return true;
     return (
       clock.polling && stockTradingMinute(clock.minute) - stockTradingMinute(timeToMinute(q.timestamp.slice(8, 12))) > 2
     );
@@ -460,7 +482,7 @@ class WatchlistController {
       ? '已禁用'
       : this.paused
         ? '已暂停'
-        : `${hasOverseas ? 'A股 ' : ''}${PHASE_LABELS[clock.phase]} · ${clock.polling ? '10秒刷新' : '自动刷新已停止'}${hasOverseas ? '；港美股按各自时段刷新' : ''}`;
+        : `${hasOverseas ? 'A股 ' : ''}${PHASE_LABELS[clock.phase]} · ${this.autoRefreshAllowed(clock) && clock.phase !== 'settling' ? '10秒刷新' : '自动刷新已停止'}${hasOverseas ? '；港美股按各自时段刷新' : ''}`;
     if (this.tree.description !== description) this.tree.description = description;
     const failing = this.config.symbols.filter((s) => this.errors.has(s)).length;
     const message =
@@ -516,27 +538,39 @@ class WatchlistController {
       this.statusVisible = true;
     }
   }
-  refresh() {
+  refresh(manual = false) {
     if (this.disposed || this.hidden || !this.config.enabled) return Promise.resolve();
-    if (this.inflight && this.abort?.signal.aborted) return this.inflight.then(() => this.refresh());
-    if (this.inflight) return this.inflight;
-    const symbols = [...new Set([INDEX_SYMBOL, ...this.config.symbols])];
+    const clock = this.clock();
+    if (!manual && (this.paused || !this.autoRefreshAllowed(clock))) return Promise.resolve();
+    const auction = !manual && clock.phase === 'auction';
+    if (this.inflight) {
+      if (this.abort?.signal.aborted || (!auction && this.auctionOnly))
+        return this.inflight.then(() => this.refresh(manual));
+      return this.inflight;
+    }
+    const allSymbols = [...new Set([INDEX_SYMBOL, ...this.config.symbols])];
+    const symbols = auction ? allSymbols.filter((symbol) => symbol !== INDEX_SYMBOL) : allSymbols;
     const generation = this.generation;
     const abort = (this.abort = new AbortController());
     this.lastAttempt = this.now().getTime();
+    this.auctionOnly = auction;
     this.inflight = (async () => {
       try {
         const result = await this.provider.load(symbols, abort.signal);
         if (this.disposed || abort.signal.aborted || generation !== this.generation) return;
-        this.errors = result.errors;
+        const indexError = auction ? this.errors.get(INDEX_SYMBOL) : undefined;
+        this.errors = new Map(result.errors);
+        if (indexError) this.errors.set(INDEX_SYMBOL, indexError);
         for (const [symbol, q] of result.quotes) {
-          if (isQuote(q) && q.date <= this.clock().date) this.quotes.set(symbol, q);
-          else this.errors.set(symbol, '行情字段或日期异常，已保留上次成功行情');
+          if (isQuote(q) && q.date <= this.clock().date) {
+            this.quotes.set(symbol, q);
+            this.cached.delete(symbol);
+          } else this.errors.set(symbol, '行情字段或日期异常，已保留上次成功行情');
         }
-        this.cached = false;
-        if (result.errors.size) this.log(`自选股：${result.errors.size} 个代码获取失败`);
+        const failures = symbols.filter((symbol) => this.errors.has(symbol)).length;
+        if (failures) this.log(`自选股：${failures} 个代码获取失败`);
         await this.context.globalState
-          .update('stockQuotes', symbols.map((s) => this.quotes.get(s)).filter(Boolean))
+          .update('stockQuotes', allSymbols.map((s) => this.quotes.get(s)).filter(Boolean))
           .catch(() => {});
       } catch (error) {
         if (!this.disposed && !abort.signal.aborted) {

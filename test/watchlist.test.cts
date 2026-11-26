@@ -558,7 +558,7 @@ test('盘前09:15自动开始每10秒刷新，自选行和底部个股同步更�
   try {
     h.setNow('2026-10-26T09:14:59+08:00');
     h.c.phaseKey = '2026-10-26before';
-    await h.c.refresh();
+    await h.c.refresh(true);
     stamp = '20261026091500';
     price = '11.50';
     percent = '2.68';
@@ -598,7 +598,6 @@ test('盘前09:15自动开始每10秒刷新，自选行和底部个股同步更�
 test('集合竞价的报价过期按竞价分钟判断，09:25至09:30等待阶段不误报过期', async () => {
   const h = setup();
   try {
-    h.c.cached = false;
     h.c.quotes.set('sh000001', quote('sh000001', '指数', '11.30', '0.89', '20261026091500'));
     h.setNow('2026-10-26T09:18:00+08:00');
     assert.equal(h.c.stale('sh000001'), true);
@@ -615,7 +614,7 @@ test('集合竞价的报价过期按竞价分钟判断，09:25至09:30等待阶�
 });
 test('盘前失败保留报价并按10秒重试；暂停和禁用时不自动请求', async () => {
   let fail = false;
-  const h = setup({}, async (symbols) => {
+  const h = setup({ 'aShareTurnover.stocks.symbols': ['sh600105'] }, async (symbols) => {
     if (fail) throw new Error('临时断网');
     return {
       quotes: new Map(symbols.map((s) => [s, quote(s, '指数', '11.30', '0.89', '20261026092000')])),
@@ -631,8 +630,8 @@ test('盘前失败保留报价并按10秒重试；暂停和禁用时不自动请
     h.setNow('2026-10-26T09:20:10+08:00');
     await h.c.tick();
     assert.equal(h.calls(), 2);
-    assert.match(h.c.status.text, /未更新/);
-    assert.ok(h.c.quotes.has('sh000001'));
+    assert.equal(h.c.errors.get('sh600105'), '临时断网');
+    assert.ok(h.c.quotes.has('sh600105'));
     fail = false;
     h.setNow('2026-10-26T09:20:20+08:00');
     await h.c.tick();
@@ -650,20 +649,22 @@ test('盘前失败保留报价并按10秒重试；暂停和禁用时不自动请
     h.c.dispose();
   }
 });
-test('09:15前、午休、收盘和休市不持续请求，侧栏不再误称10秒刷新', async () => {
+test('盘外启动、阶段切换和恢复显示都不会自动请求自选和指数', async () => {
   for (const [stamp, extra] of [
     ['2026-10-26T09:10:00+08:00', {}],
     ['2026-10-26T12:00:00+08:00', {}],
     ['2026-10-26T15:10:00+08:00', {}],
-    ['2026-10-24T09:20:00+08:00', {}],
-    ['2026-10-01T09:20:00+08:00', {}],
-    ['2026-10-26T09:20:00+08:00', { 'aShareTurnover.additionalClosedDates': ['2026-10-26'] }]
+    ['2026-10-24T09:25:00+08:00', {}],
+    ['2026-10-01T09:25:00+08:00', {}],
+    ['2026-10-26T09:25:00+08:00', { 'aShareTurnover.additionalClosedDates': ['2026-10-26'] }]
   ]) {
     const h = setup(extra);
     try {
       h.setNow(stamp);
-      const c = h.c.clock();
-      h.c.phaseKey = c.date + c.phase;
+      h.c.start();
+      h.c.phaseKey = 'previous';
+      h.c.setHidden(true);
+      h.c.setHidden(false);
       await h.c.tick();
       h.setNow(new Date(new Date(stamp).getTime() + 10000));
       await h.c.tick();
@@ -672,6 +673,75 @@ test('09:15前、午休、收盘和休市不持续请求，侧栏不再误称10�
     } finally {
       h.c.dispose();
     }
+  }
+});
+test('上证指数收盘只核对一次，隔日09:15仅请求自选，09:25再查指数', async () => {
+  const index = 'sh000001',
+    stock = 'sh600519';
+  const batches = [];
+  let stamp = '20261026145955';
+  const h = setup({ 'aShareTurnover.stocks.symbols': [stock] }, async (symbols) => {
+    batches.push(symbols);
+    return {
+      quotes: new Map(symbols.map((s) => [s, quote(s, '测试', '11.30', '0.89', stamp)])),
+      errors: new Map()
+    };
+  });
+  try {
+    for (const [time, count] of [
+      ['2026-10-26T14:59:55+08:00', 1],
+      ['2026-10-26T15:00:00+08:00', 1],
+      ['2026-10-26T15:01:00+08:00', 2],
+      ['2026-10-26T15:01:20+08:00', 2],
+      ['2026-10-27T00:00:00+08:00', 2],
+      ['2026-10-27T09:00:00+08:00', 2],
+      ['2026-10-27T09:15:00+08:00', 3],
+      ['2026-10-27T09:24:59+08:00', 4],
+      ['2026-10-27T09:25:00+08:00', 5]
+    ]) {
+      stamp = time.slice(0, 19).replace(/\D/g, '');
+      h.setNow(time);
+      await h.c.tick();
+      assert.equal(batches.length, count, time);
+      if (count === 3 || count === 4) {
+        assert.deepEqual(batches.at(-1), [stock]);
+        assert.equal(h.store.get('stockQuotes').find((q) => q.symbol === index).timestamp, '20261026150100');
+        assert.equal(h.c.stale(index), true);
+      }
+    }
+    assert.deepEqual(batches.at(-1), [index, stock]);
+    h.setNow('2026-10-27T19:30:00+08:00');
+    await h.c.refresh(true);
+    assert.equal(batches.length, 6);
+  } finally {
+    h.c.dispose();
+  }
+});
+test('09:25到达时若集合竞价请求仍在进行，完成后立即补上指数', async () => {
+  const index = 'sh000001';
+  const stock = 'sh600519';
+  const batches = [];
+  let finishAuction;
+  const result = { quotes: new Map(), errors: new Map() };
+  const h = setup({ 'aShareTurnover.stocks.symbols': [stock] }, async (symbols) => {
+    batches.push(symbols);
+    return batches.length === 1
+      ? new Promise((resolve) => {
+          finishAuction = resolve;
+        })
+      : result;
+  });
+  try {
+    h.setNow('2026-10-26T09:24:59+08:00');
+    const auction = h.c.tick();
+    h.setNow('2026-10-26T09:25:00+08:00');
+    const opening = h.c.tick();
+    assert.deepEqual(batches, [[stock]]);
+    finishAuction(result);
+    await Promise.all([auction, opening]);
+    assert.deepEqual(batches, [[stock], [index, stock]]);
+  } finally {
+    h.c.dispose();
   }
 });
 test('午休不轮询；请求失败保留缓存且不会当作实时', async () => {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { stockSession } from '../turnover/market';
+import { statusBarRefreshAllowed, turnoverSession } from '../turnover/market';
 import { CATEGORIES, DIRECTIONS } from './data';
 import { SectorBoardProvider, type BoardSnapshot, type BoardQuery } from './board-data';
 import { boardHtml } from './board-view';
@@ -48,7 +48,10 @@ export class SectorBoard implements vscode.Disposable {
       panel.onDidDispose(() => { this.cancel(); clearInterval(this.timer); this.panel = undefined; this.ready = false; this.listeners.forEach((l) => l.dispose()); this.listeners = []; })
     ];
     panel.webview.html = boardHtml(panel.webview, context, this.token);
-    this.timer = setInterval(() => { if (this.panel?.visible && stockSession(this.owner.now(), this.owner.closedDates).polling) this.update(); }, 10000);
+    this.timer = setInterval(() => {
+      if (this.panel?.visible && statusBarRefreshAllowed(turnoverSession(this.owner.now(), this.owner.closedDates)))
+        this.update();
+    }, 10000);
   }
   private send(message: any) {
     if (this.panel && this.ready && this.panel.visible) void Promise.resolve(this.panel.webview.postMessage({ ...message, token: this.token })).catch(() => {});

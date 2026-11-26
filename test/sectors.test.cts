@@ -480,11 +480,11 @@ test('交易时段限频，午休停止；禁用和切换类型取消旧请求�
     c.dispose();
   }
 });
-test('午休首次失败后自动重试，概念类型成功后保存且可从状态栏手动重试', async () => {
+test('概念板块收盘核对失败后停止自动重试，次日09:25恢复，休市可手动刷新', async () => {
   const h = harness({ 'aShareTurnover.sectors.category': 'concept' }),
     { SectorsController, parseSectors } = h.load('../dist/features/sectors/controller.js');
-  let time = new Date('2026-10-30T12:00:00+08:00'),
-    fail = true,
+  let time = new Date('2026-10-29T14:59:30+08:00'),
+    fail = false,
     calls = 0,
     reset = 0;
   const provider = {
@@ -494,27 +494,37 @@ test('午休首次失败后自动重试，概念类型成功后保存且可从�
     load: async (category) => {
       calls++;
       if (fail) throw new Error('socket hang up');
-      return parseSectors(data(Math.floor(now.getTime() / 1000)), category, time.getTime());
+      return parseSectors(data(Math.floor(time.getTime() / 1000)), category, time.getTime());
     }
   };
   const c = new SectorsController(h.context, { now: () => time, provider });
   try {
     await c.refresh();
-    assert.equal(c.item.text, '领涨 获取失败');
+    fail = true;
+    time = new Date('2026-10-29T15:01:00+08:00');
+    await c.tick();
     assert.match(c.item.tooltip.value, /socket hang up/);
-    time = new Date(time.getTime() + 59000);
-    c.tick();
-    assert.equal(calls, 1);
-    fail = false;
-    time = new Date(time.getTime() + 1000);
-    c.tick();
-    await c.inflight;
+    time = new Date('2026-10-29T15:10:00+08:00');
+    await c.tick();
+    c.setHidden(true);
+    c.setHidden(false);
+    await Promise.resolve();
     assert.equal(calls, 2);
+    fail = false;
+    time = new Date('2026-10-30T09:24:59+08:00');
+    await c.tick();
+    assert.equal(calls, 2);
+    time = new Date('2026-10-30T09:25:00+08:00');
+    await c.tick();
+    assert.equal(calls, 3);
     assert.match(c.item.tooltip.value, /概念板块/);
     assert.equal(h.store.get('sectorRankings').concept.rows.length, 10);
+    time = new Date('2026-10-31T09:25:00+08:00');
+    await c.tick();
+    assert.equal(calls, 3);
     await c.retry();
     assert.equal(reset, 1);
-    assert.equal(calls, 3);
+    assert.equal(calls, 4);
     assert.equal(c.item.command, 'welove42.aShareTurnover.sectors.open');
   } finally {
     c.dispose();

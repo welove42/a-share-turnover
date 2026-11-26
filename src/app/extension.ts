@@ -205,7 +205,7 @@ async function activate(context) {
     bind('welove42.aShareTurnover.stockGroups.add', (element) => stocks.groupCommand('add', element)),
     bind('welove42.aShareTurnover.stocks.remove', (element) => stocks.remove(element)),
     bind('welove42.aShareTurnover.stocks.refresh', () =>
-      Promise.all([stocks.refresh(), stocks.overseas.refreshAll(true)])
+      Promise.all([stocks.refresh(true), stocks.overseas.refreshAll(true)])
     ),
     bind('welove42.aShareTurnover.overseas.add', (element) => stocks.overseas.add(element)),
     bind('welove42.aShareTurnover.overseas.remove', (element) => stocks.overseas.remove(element)),

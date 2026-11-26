@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as privateUI from '../../core/ui/privacy';
 import { MarketProvider } from './provider';
-import { POLL_MS, session, turnoverSession, isSnapshot, PHASE_LABELS } from './market';
+import { POLL_MS, session, turnoverSession, statusBarRefreshAllowed, isSnapshot, PHASE_LABELS } from './market';
 import { view } from './view';
 import { marketRisk } from './risk';
 import { marketTemperature, temperatureView } from '../temperature/service';
@@ -17,7 +17,6 @@ class TurnoverController {
   declare disposed: boolean;
   declare lastAttempt: number;
   declare lastPhase: string;
-  declare lastDate: string;
   declare inflight: any;
   declare rendered: any;
   declare visible: boolean;
@@ -107,7 +106,6 @@ class TurnoverController {
     this.disposed = false;
     this.lastAttempt = -Infinity;
     this.lastPhase = '';
-    this.lastDate = '';
     this.inflight = null;
     this.rendered = null;
     this.visible = false;
@@ -157,7 +155,7 @@ class TurnoverController {
         this.render();
         if (!wasEnabled && this.config.enabled && !this.state.paused) {
           // A quick disable/enable may still have an aborted request settling.
-          // Wait for it, then start a fresh request even outside trading hours.
+          // Wait for it before resuming scheduled requests.
           void (this.inflight || Promise.resolve()).then(() => {
             if (!this.disposed && this.config.enabled && !this.state.paused) return this.refresh();
           });
@@ -200,7 +198,6 @@ class TurnoverController {
   start() {
     const clock = turnoverSession(this.now(), this.config.additionalClosedDates);
     this.lastPhase = clock.phase;
-    this.lastDate = clock.date;
     this.render();
     // This timer checks the local clock only. Network requests remain 10s apart.
     this.timer = setInterval(() => void this.tick(), 1000);
@@ -226,30 +223,27 @@ class TurnoverController {
   tick() {
     if (this.disposed || this.hidden) return;
     const clock = turnoverSession(this.now(), this.config.additionalClosedDates);
-    const phaseChanged = clock.phase !== this.lastPhase;
-    const dateChanged = clock.date !== this.lastDate;
-    const wasTrading = this.lastPhase === 'trading';
-    const finishedOpening = this.lastPhase === 'opening' && clock.phase === 'trading';
+    const lunchBoundary = this.lastPhase === 'trading' && clock.phase === 'lunch' && clock.minute === 690;
+    const openingBoundary =
+      (clock.phase === 'opening' && this.lastPhase !== 'opening') ||
+      (clock.phase === 'trading' && this.lastPhase === 'opening');
     this.lastPhase = clock.phase;
-    this.lastDate = clock.date;
     // Re-render locally so data staleness is visible even during a failed request.
     this.render();
     if (!this.config.enabled || this.state.paused || this.inflight) return;
     if (this.hasOpeningSnapshot(clock)) return;
     const elapsed = this.now().getTime() - this.lastAttempt;
-    if (
-      (clock.polling && elapsed >= POLL_MS) ||
-      finishedOpening ||
-      (phaseChanged && wasTrading) ||
-      (dateChanged && this.lastAttempt !== -Infinity)
-    )
-      return this.refresh();
+    if (lunchBoundary || (statusBarRefreshAllowed(clock, this.lastAttempt) && (openingBoundary || elapsed >= POLL_MS)))
+      return this.refresh(false, lunchBoundary);
   }
 
-  refresh(manual = false) {
+  refresh(manual = false, lunchBoundary = false) {
     if (this.disposed || this.hidden || !this.config.enabled) return Promise.resolve();
     if (this.inflight) return this.inflight;
-    if (!manual && this.hasOpeningSnapshot()) {
+    const clock = turnoverSession(this.now(), this.config.additionalClosedDates);
+    if (!manual && (this.state.paused || (!lunchBoundary && !statusBarRefreshAllowed(clock, this.lastAttempt))))
+      return Promise.resolve();
+    if (!manual && this.hasOpeningSnapshot(clock)) {
       if (this.state.cached) {
         this.state.cached = false;
         this.render();

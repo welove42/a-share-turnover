@@ -16,7 +16,7 @@ import {
 import * as vscode from 'vscode';
 import * as privateUI from '../../core/ui/privacy';
 import { SectorBoard } from './board';
-import { stockSession, shanghaiClock, POLL_MS } from '../turnover/market';
+import { turnoverSession, statusBarRefreshAllowed, shanghaiClock, POLL_MS } from '../turnover/market';
 interface SectorPick extends vscode.QuickPickItem {
   action?: string;
   direction?: string;
@@ -32,7 +32,6 @@ class SectorsController {
   declare lastAttempt: number;
   declare generation: number;
   declare error: string;
-  declare retryCount: number;
   declare rendered: { text?: string; tooltip?: string };
   declare visible: boolean;
   declare item: vscode.StatusBarItem;
@@ -56,7 +55,6 @@ class SectorsController {
     this.lastAttempt = -Infinity;
     this.generation = 0;
     this.error = '';
-    this.retryCount = 0;
     this.rendered = {};
     this.visible = false;
     this.item = vscode.window.createStatusBarItem('aShareTurnover.sectors', vscode.StatusBarAlignment.Right, 98);
@@ -83,12 +81,11 @@ class SectorsController {
       if (changed) {
         this.rows = null;
         this.error = '';
-        this.retryCount = 0;
         if (old !== this.category) this.provider.resetCooldowns?.();
         this.restore();
       }
       this.render();
-      this.board.update();
+      if (changed || enabled !== this.enabled) this.board.update();
       if (this.enabled && (!enabled || changed)) void (this.inflight || Promise.resolve()).then(() => this.refresh());
     });
   }
@@ -138,17 +135,19 @@ class SectorsController {
   tick() {
     if (this.disposed || this.hidden || !this.enabled) return;
     this.render();
-    const trading = stockSession(this.now(), this.closedDates).polling;
-    const due = trading
-      ? this.now().getTime() - this.lastAttempt >= (this.category === 'concept' ? CONCEPT_POLL_MS : POLL_MS)
-      : this.error && this.retryCount < 5 && this.now().getTime() - this.lastAttempt >= 60000;
-    if (!this.inflight && due) void this.refresh();
+    const clock = turnoverSession(this.now(), this.closedDates);
+    const interval = this.category === 'concept' ? CONCEPT_POLL_MS : POLL_MS;
+    if (
+      !this.inflight &&
+      statusBarRefreshAllowed(clock, this.lastAttempt) &&
+      this.now().getTime() - this.lastAttempt >= interval
+    )
+      return this.refresh();
   }
   retry() {
     if (this.disposed || this.hidden || !this.enabled) return Promise.resolve();
-    this.retryCount = 0;
     this.provider.resetCooldowns?.();
-    return (this.inflight || Promise.resolve()).then(() => this.refresh());
+    return (this.inflight || Promise.resolve()).then(() => this.refresh(true));
   }
   async showMenu() {
     if (this.disposed || this.hidden || !this.enabled) return;
@@ -192,8 +191,10 @@ class SectorsController {
       await privateUI.showErrorMessage(`切换板块失败：${error.message}`);
     }
   }
-  refresh() {
+  refresh(manual = false) {
     if (this.disposed || this.hidden || !this.enabled) return Promise.resolve();
+    if (!manual && !statusBarRefreshAllowed(turnoverSession(this.now(), this.closedDates), this.lastAttempt))
+      return Promise.resolve();
     if (this.inflight) return this.inflight;
     const abort = (this.abort = new AbortController()),
       generation = this.generation,
@@ -213,7 +214,6 @@ class SectorsController {
           throw new Error('行情时间早于上次结果');
         this.rows = rows;
         this.error = '';
-        this.retryCount = 0;
         const saved = this.context.globalState.get('sectorRankings', {});
         await this.context.globalState
           .update('sectorRankings', { ...saved, [cacheKey(category, direction)]: { category, direction, rows } })
@@ -221,7 +221,6 @@ class SectorsController {
       } catch (error) {
         if (!abort.signal.aborted && !this.disposed && generation === this.generation) {
           this.error = error.message || '获取失败';
-          this.retryCount++;
         }
       } finally {
         this.inflight = null;
@@ -239,7 +238,7 @@ class SectorsController {
       }
       return;
     }
-    const clock = stockSession(this.now(), this.closedDates),
+    const clock = turnoverSession(this.now(), this.closedDates),
       rows = this.rows,
       first = rows?.[0];
     const oldest = rows && Math.min(...rows.map((r) => r.timestamp)),
@@ -249,7 +248,7 @@ class SectorsController {
       this.error ||
         !stamp ||
         stamp.date !== clock.date ||
-        (clock.polling && this.now().getTime() - oldest * 1000 > 120000)
+        (statusBarRefreshAllowed(clock) && this.now().getTime() - oldest * 1000 > 120000)
     );
     const format = (p) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
     const label = DIRECTIONS[this.direction].label;
@@ -267,7 +266,7 @@ class SectorsController {
         `\n按涨跌幅从${this.direction === 'losers' ? '低到高' : '高到低'}排列，${this.direction === 'losers' ? '下跌' : '上涨'}板块不足十个时包含其余板块。\n`
       );
     tip.appendText(
-      `\n交易期间每${this.category === 'concept' ? 60 : 10}秒更新；新浪备用榜最多每60秒获取一次。点击打开板块行情与热点云图。`
+      `\n交易日09:25起每${this.category === 'concept' ? 60 : 10}秒更新，午休和收盘确认后显示缓存。新浪备用榜最多每60秒获取一次。点击打开板块行情与热点云图。`
     );
     if (text !== this.rendered.text) this.item.text = text;
     if (tip.value !== this.rendered.tooltip) this.item.tooltip = tip;

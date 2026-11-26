@@ -149,7 +149,6 @@ function fixture(settings = {}, load = async () => history()) {
       }
     });
     c.quotes.set('sh600519', quote());
-    c.cached = false;
     c.tree.visible = true;
     return c;
   };

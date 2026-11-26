@@ -77,6 +77,14 @@ function stockSession(now = new Date(), extra: string[] = []) {
   return clock;
 }
 
+function statusBarRefreshAllowed(clock: ReturnType<typeof session>, lastAttempt = -Infinity): boolean {
+  if (clock.phase === 'trading' || clock.phase === 'opening') return true;
+  if (clock.phase !== 'settling' || clock.minute < 901 || !Number.isFinite(lastAttempt)) return false;
+  // Give the feeds a minute to publish the close. Only a controller that ran this afternoon needs a final check.
+  const previous = shanghaiClock(new Date(lastAttempt));
+  return previous.date === clock.date && previous.minute >= 780 && previous.minute < 900;
+}
+
 function numeric(value: unknown, label: string): number {
   if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) {
     throw new Error(`${label}缺失`);
@@ -312,6 +320,7 @@ export {
   timeToMinute,
   tradingMinute,
   stockSession,
+  statusBarRefreshAllowed,
   stockTradingMinute,
   parsePoints,
   parseMinute,
