@@ -54,7 +54,7 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) #eastmoney { filter: 
 #chart-tooltip { position: absolute; top: 38px; right: 12px; z-index: 1; pointer-events: none; max-width: calc(100% - 24px); padding: 9px 12px; border: 1px solid var(--vscode-editorHoverWidget-border, #59677c); border-radius: 5px; background: var(--vscode-editorHoverWidget-background, #202937); color: var(--vscode-editorHoverWidget-foreground, #d9e1ee); box-shadow: 0 3px 12px #0003; white-space: pre-wrap; font-size: 12px; line-height: 1.8; font-variant-numeric: tabular-nums; }
 body.vscode-light #chart-tooltip, body.vscode-high-contrast-light #chart-tooltip { background: var(--vscode-editorHoverWidget-background, #fff); color: var(--vscode-editorHoverWidget-foreground, #222); }
 svg { display: block; width: 100%; }
-#svg { height: clamp(420px, 60vh, 620px); }
+#svg { height: clamp(500px, 72vh, 820px); }
 #indicator-svg { height: clamp(160px, 24vh, 260px); }
 svg text { fill: var(--vscode-descriptionForeground, #9caec5); font-size: 12px; font-family: inherit; }
 svg text.ma5, svg text.series-0 { fill: var(--chart-series-0); } svg text.ma10, svg text.series-1 { fill: var(--chart-series-1); } svg text.ma20, svg text.series-2 { fill: var(--chart-series-2); }
@@ -66,6 +66,8 @@ svg text.indicator-title { fill: var(--vscode-foreground, #d9e1ee); font-weight:
 .daily-extreme-line { stroke: var(--vscode-descriptionForeground, #9caec5); stroke-width: 1; stroke-dasharray: 3 4; opacity: .65; pointer-events: none; }
 svg text.daily-extreme-label { fill: var(--vscode-foreground, #d9e1ee); stroke: var(--vscode-editor-background, #151c28); stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; pointer-events: none; }
 .crosshair { stroke: var(--vscode-foreground, #d9e1ee); opacity: .5; stroke-dasharray: 4 4; pointer-events: none; }
+.selected-close-line { stroke: var(--vscode-foreground, #d9e1ee); stroke-width: 1; stroke-dasharray: 6 5; opacity: .75; pointer-events: none; }
+svg text.selected-close-label { fill: var(--vscode-foreground, #d9e1ee); font-size: 11px; font-weight: 600; stroke: var(--vscode-editor-background, #151c28); stroke-width: 3px; stroke-linejoin: round; paint-order: stroke; pointer-events: none; }
 .selected-details { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--vscode-panel-border, #354053); border-radius: 4px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background, #151c28)); }
 #detail { min-height: 24px; font-variant-numeric: tabular-nums; line-height: 1.65; }
 .detail-time { margin-bottom: 4px; color: var(--vscode-descriptionForeground, #9caec5); }

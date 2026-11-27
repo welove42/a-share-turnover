@@ -973,6 +973,31 @@ test('日周月及所有分钟周期悬停同步MA、副图图例、详情卡，
   }
 });
 
+test('K线悬停显示所选单日收盘价的全宽虚线，移出后隐藏', () => {
+  const p = page();
+  p.receive({ type: 'select-mode', mode: 'daily' });
+  p.receive({
+    type: 'data',
+    data: {
+      ...historyData(sampleBars),
+      name: '测试股',
+      date: '2026-10-28'
+    }
+  });
+  const line = () => descendants(p.nodes.get('svg')).find((n) => n.getAttribute('class') === 'selected-close-line');
+  const label = () => descendants(p.nodes.get('svg')).find((n) => n.getAttribute('class') === 'selected-close-label');
+  assert.equal(line().getAttribute('visibility'), 'hidden');
+  p.nodes.get('plot').dispatch('pointermove', { clientX: 68, clientY: 100 });
+  assert.equal(line().getAttribute('visibility'), 'visible');
+  assert.equal(line().getAttribute('x1'), '68');
+  assert.equal(line().getAttribute('x2'), '967');
+  assert.equal(line().getAttribute('y1'), line().getAttribute('y2'));
+  assert.match(label().textContent, /收盘/);
+  p.nodes.get('plot').dispatch('pointerleave');
+  assert.equal(line().getAttribute('visibility'), 'hidden');
+  assert.equal(label().getAttribute('visibility'), 'hidden');
+});
+
 test('分时绘制真实成交均价，鼠标定位及跨日刷新不串值；缺字段显示空值', () => {
   const p = page();
   const data = {

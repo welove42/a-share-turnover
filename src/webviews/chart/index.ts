@@ -34,10 +34,14 @@ interface HoverState {
   x: (bar: PriceBar, index: number) => number;
   y: (value: number) => number;
   cross: SVGElement;
+  closeLine: SVGElement | null;
+  closeLabel: SVGElement | null;
   indicatorCross: SVGElement | null;
   marker: SVGElement;
   L: number;
   R: number;
+  T: number;
+  B: number;
   start: number;
   index: number;
   date: string;
@@ -789,6 +793,16 @@ import * as marketIndicators from '../../shared/indicators';
         });
     ticks.forEach(([xx, text]) => add('text', { x: xx, y: bottom + 22, 'text-anchor': 'middle' }, text));
     const cross = add('line', { x1: L, x2: L, y1: T, y2: bottom, class: 'crosshair', visibility: 'hidden' });
+    const closeLine = candles
+      ? add('line', { x1: L, x2: R, y1: T, y2: T, class: 'selected-close-line', visibility: 'hidden' })
+      : null;
+    const closeLabel = candles
+      ? add(
+          'text',
+          { x: R - 4, y: T + 12, 'text-anchor': 'end', class: 'selected-close-label', visibility: 'hidden' },
+          ''
+        )
+      : null;
     const marker = add('circle', { cx: L, cy: T, r: 3, fill: lineColor, visibility: 'hidden' });
     svg.replaceChildren(fragment);
     indicatorSvg.replaceChildren(indicatorFragment);
@@ -812,10 +826,14 @@ import * as marketIndicators from '../../shared/indicators';
       x,
       y,
       cross,
+      closeLine,
+      closeLabel,
       indicatorCross,
       marker,
       L,
       R,
+      T,
+      B,
       start,
       index: bars.length - 1,
       date: data.date,
@@ -978,6 +996,15 @@ import * as marketIndicators from '../../shared/indicators';
     hover.cross.setAttribute('x1', String(xx));
     hover.cross.setAttribute('x2', String(xx));
     hover.cross.setAttribute('visibility', 'visible');
+    if (hover.closeLine && hover.closeLabel) {
+      const closeY = hover.y(bar.close);
+      hover.closeLine.setAttribute('y1', String(closeY));
+      hover.closeLine.setAttribute('y2', String(closeY));
+      hover.closeLine.setAttribute('visibility', 'visible');
+      hover.closeLabel.setAttribute('y', String(Math.max(hover.T ?? 40, Math.min(hover.B ?? 295, closeY - 4))));
+      hover.closeLabel.textContent = `收盘 ${price(bar.close)}`;
+      hover.closeLabel.setAttribute('visibility', 'visible');
+    }
     detail(bar, hover.start + hover.index);
     if (hover.indicatorCross) {
       hover.indicatorCross.setAttribute('x1', String(xx));
@@ -1019,6 +1046,8 @@ import * as marketIndicators from '../../shared/indicators';
   function resetSelection() {
     if (!hover) return;
     hover.active = false;
+    if (hover.closeLine) hover.closeLine.setAttribute('visibility', 'hidden');
+    if (hover.closeLabel) hover.closeLabel.setAttribute('visibility', 'hidden');
     draw();
   }
   $('plot').addEventListener('pointerleave', resetSelection);
