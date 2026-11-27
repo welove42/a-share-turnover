@@ -216,7 +216,12 @@ function minuteLabel(time: string): string {
   return `${time.slice(0, 2)}:${time.slice(2)}`;
 }
 
-function buildSnapshot(markets: MarketQuote[], histories: HistoryDay[][], fetchedAt = new Date()): TurnoverSnapshot {
+function buildSnapshot(
+  markets: MarketQuote[],
+  histories: HistoryDay[][],
+  fetchedAt = new Date(),
+  additionalBreadth: MarketBreadth | null = null
+): TurnoverSnapshot {
   if (markets.length !== 2 || markets[0].date !== markets[1].date)
     throw new Error('沪深行情日期不一致，已保留上次数据');
   const date = markets[0].date;
@@ -236,7 +241,8 @@ function buildSnapshot(markets: MarketQuote[], histories: HistoryDay[][], fetche
     sameTime: null,
     previousDay: null,
     comparisonTime: null,
-    warning: ''
+    warning: '',
+    ...(additionalBreadth ? { additionalBreadth } : {})
   };
   const priorDates = histories
     .flatMap((days) => (days || []).map((day) => day.date))
@@ -304,7 +310,12 @@ function isSnapshot(value: any): value is TurnoverSnapshot {
     comparison(value.sameTime) &&
     comparison(value.previousDay) &&
     (value.comparisonTime === null || /^\d{2}:\d{2}$/.test(value.comparisonTime)) &&
-    typeof value.warning === 'string'
+    typeof value.warning === 'string' &&
+    (value.additionalBreadth === undefined ||
+      value.additionalBreadth === null ||
+      ['advancing', 'unchanged', 'declining'].every(
+        (key) => Number.isSafeInteger(value.additionalBreadth[key]) && value.additionalBreadth[key] >= 0
+      ))
   );
 }
 

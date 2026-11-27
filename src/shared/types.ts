@@ -91,6 +91,8 @@ export interface TurnoverSnapshot {
   previousDay: AmountChange | null;
   comparisonTime: string | null;
   warning: string;
+  /** 东方财富北证50口径的北交所涨跌家数。 */
+  additionalBreadth?: MarketBreadth | null;
 }
 export interface PriceBar {
   time: string;

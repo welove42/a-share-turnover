@@ -1,9 +1,11 @@
 import { requestJson, requestQuoteText } from '../../core/network/http';
 import { parseMinute, parseMarketQuote, parseHistory, buildSnapshot, turnoverSession, timeToMinute } from './market';
-import type { MarketQuote } from '../../shared/types';
+import type { MarketBreadth, MarketQuote } from '../../shared/types';
 import { MinuteFeed } from './minute-feed';
 const SYMBOLS = ['sh000002', 'sz399107'];
 const ROOT = 'https://web.ifzq.gtimg.cn/appstock/app';
+const NORTH_BREADTH_URL =
+  'https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f2,f3,f12,f14,f104,f105,f106,f124&secids=0.899050';
 
 // Wait for both exchanges to settle before returning errors, preventing orphaned requests.
 async function pair(operation) {
@@ -15,6 +17,7 @@ async function pair(operation) {
 
 class MarketProvider {
   declare request: typeof requestJson;
+  declare breadthRequest: typeof requestJson | null;
   declare log: (message: string) => void;
   declare now: () => Date;
   declare minuteFeed: MinuteFeed;
@@ -25,11 +28,19 @@ class MarketProvider {
 
   constructor({
     request = requestJson,
+    breadthRequest,
     quoteRequest = requestQuoteText,
     log = (_message: string) => {},
     now = () => new Date()
+  }: {
+    request?: typeof requestJson;
+    breadthRequest?: typeof requestJson;
+    quoteRequest?: typeof requestQuoteText;
+    log?: (message: string) => void;
+    now?: () => Date;
   } = {}) {
     this.request = request;
+    this.breadthRequest = breadthRequest || (request === requestJson ? requestJson : null);
     this.log = log;
     this.now = now;
     this.minuteFeed = new MinuteFeed(request, () => this.now().getTime());
@@ -67,7 +78,24 @@ class MarketProvider {
     if (signal?.aborted) throw new Error('行情请求已取消');
     // Old-day cache is never used as a new day's previous-trading-day baseline.
     const histories = this.historyDate === date ? this.histories : [[], []];
-    return buildSnapshot(markets, histories, this.now());
+    return buildSnapshot(markets, histories, this.now(), await this.loadAdditionalBreadth(signal));
+  }
+
+  private async loadAdditionalBreadth(signal?: AbortSignal): Promise<MarketBreadth | null> {
+    if (!this.breadthRequest) return null;
+    try {
+      const payload = await this.breadthRequest(NORTH_BREADTH_URL, signal, { Referer: 'https://quote.eastmoney.com/' });
+      const row = payload?.data?.diff?.[0];
+      if (!row || row.f12 !== '899050') throw new Error('北证50家数字段缺失');
+      const values = [row.f104, row.f105, row.f106].map((value) => Number(value));
+      if (!values.every((value) => Number.isSafeInteger(value) && value >= 0)) throw new Error('北证50家数无效');
+      const [advancing, unchanged, declining] = values;
+      if (advancing + unchanged + declining <= 0) throw new Error('北证50家数为空');
+      return { advancing, unchanged, declining };
+    } catch (error) {
+      if (!signal?.aborted) this.log(`北交所涨跌家数暂不可用：${error.message}`);
+      return null;
+    }
   }
 
   private async loadOpening(signal: AbortSignal | undefined, clock: ReturnType<typeof turnoverSession>) {
@@ -102,10 +130,10 @@ class MarketProvider {
       );
     }
     if (signal?.aborted) throw new Error('行情请求已取消');
-    const snapshot = buildSnapshot(markets, [[], []], this.now());
+    const snapshot = buildSnapshot(markets, [[], []], this.now(), await this.loadAdditionalBreadth(signal));
     snapshot.warning = '已更新今日开盘撮合后的累计成交额；09:30前分钟基准尚未就绪，暂不计算昨日同刻缩放量';
     return snapshot;
   }
 }
 
-export { SYMBOLS, requestJson, MarketProvider };
+export { NORTH_BREADTH_URL, SYMBOLS, requestJson, MarketProvider };

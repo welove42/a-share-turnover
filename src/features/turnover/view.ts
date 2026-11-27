@@ -42,7 +42,7 @@ function view(snapshot, state, config, clock, now = new Date()) {
   const lines = [
     '**沪深 A 股成交额**',
     '',
-    '范围：上证 A 股（000002）＋深证 A 指（399107），不含北交所及 B 股。',
+    '范围：上证 A 股（000002）＋深证 A 指（399107），涨跌家数另加北交所北证50口径；成交额仍仅统计沪深 A 股，不含北交所及 B 股。',
     '',
     `状态：${suffix}；北京时间日期 ${clock.date}。`,
     ''

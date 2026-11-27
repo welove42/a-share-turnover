@@ -82,7 +82,7 @@ import * as temperatureModel from '../../shared/temperature-model';
       ? `上涨占比 ${((counts.advancing / breadth.total!) * 100).toFixed(1)}% · 合计 ${breadth.total!.toLocaleString('zh-CN')} 家`
       : breadth?.label || '等待沪深涨跌家数';
     $('breadth-meta').textContent = valid
-      ? `${breadth.label} · ${breadth.date} ${breadth.time}（北京） · 腾讯行情`
+      ? `${breadth.label} · ${breadth.date} ${breadth.time}（北京） · ${breadth.label.includes('沪深北') ? '腾讯行情 + 东方财富北证50' : '腾讯行情'}`
       : '';
     for (const mode of ['temperature', 'breadth'] as const) {
       $(`mode-${mode}`).setAttribute('aria-pressed', String(mode === (data.statusBarMode || 'temperature')));

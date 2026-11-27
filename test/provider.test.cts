@@ -25,6 +25,20 @@ test('初次获取历史，其后只获取实时；手动刷新可重取历史',
   assert.equal(calls.filter((url) => url.includes('/day/')).length, 4);
 });
 
+test('读取东方财富北证50涨跌家数并纳入快照附加口径', async () => {
+  const provider = new MarketProvider({
+    now: () => NOW,
+    request: async (url) => {
+      if (url.includes('ulist.np')) return { data: { diff: [{ f12: '899050', f104: 200, f105: 10, f106: 140 }] } };
+      const symbol = new URL(url).searchParams.get('code');
+      return url.includes('/minute/') ? minutePayload(symbol) : historyPayload(symbol);
+    },
+    breadthRequest: async () => ({ data: { diff: [{ f12: '899050', f104: 200, f105: 10, f106: 140 }] } })
+  });
+  const result = await provider.load();
+  assert.deepEqual(result.additionalBreadth, { advancing: 200, unchanged: 10, declining: 140 });
+});
+
 test('历史服务故障时保留实时报价，60秒后重试基准', async () => {
   let now = NOW,
     attempts = 0;

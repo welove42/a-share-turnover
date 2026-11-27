@@ -56,6 +56,11 @@ export function marketBreadth(
     declining: markets.reduce((sum, m) => sum + m!.breadth!.declining, 0),
     unchanged: markets.reduce((sum, m) => sum + m!.breadth!.unchanged, 0)
   };
+  if (snapshot.additionalBreadth) {
+    counts.advancing += snapshot.additionalBreadth.advancing;
+    counts.declining += snapshot.additionalBreadth.declining;
+    counts.unchanged += snapshot.additionalBreadth.unchanged;
+  }
   const total = counts.advancing + counts.declining + counts.unchanged;
   if (total < 1000) return unavailable('涨跌家数覆盖不足');
   const age = now.getTime() - Date.parse(snapshot.fetchedAt);
@@ -77,6 +82,13 @@ export function marketBreadth(
     date: snapshot.date,
     time: markets.map((m) => m!.timestamp.slice(8).replace(/(..)(..)(..)/, '$1:$2:$3')).sort()[0],
     status,
-    label: status === 'paused' ? '已暂停 · 保留最近行情' : status === 'cached' ? '历史 / 缓存行情' : '沪深 A 股涨跌家数'
+    label:
+      status === 'paused'
+        ? '已暂停 · 保留最近行情'
+        : status === 'cached'
+          ? '历史 / 缓存行情'
+          : snapshot.additionalBreadth
+            ? '沪深北 A 股涨跌家数'
+            : '沪深 A 股涨跌家数（北交所待更新）'
   };
 }

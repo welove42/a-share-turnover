@@ -73,7 +73,9 @@ function temperatureHtml(webview, context, token) {
               <span id="breadth-ratio">等待涨跌家数</span>
               <span id="breadth-meta"></span>
             </div>
-            <p class="note">统计沪深 A 股，不含北交所、B 股；切换仅改变底部显示，点击状态栏仍可打开本页。</p>
+            <p class="note">
+              统计沪深 A 股，北交所数据可用时增加北证50口径，成交额不含北交所和 B 股；暂不可用时会明确标注。
+            </p>
           </section>
           <div class="summary" id="summary"></div>
           <div id="temperature-plot" tabindex="0" role="group" aria-label="市场温度当日走势图，左右方向键选择采集点">

@@ -68,6 +68,11 @@ function marketTemperature(snapshot, state, clock, now) {
   const counts = Object.fromEntries(
     ['advancing', 'unchanged', 'declining'].map((key) => [key, inputs.reduce((sum, m) => sum + m.breadth[key], 0)])
   );
+  if (snapshot.additionalBreadth) {
+    counts.advancing += snapshot.additionalBreadth.advancing;
+    counts.unchanged += snapshot.additionalBreadth.unchanged;
+    counts.declining += snapshot.additionalBreadth.declining;
+  }
   const total = counts.advancing + counts.unchanged + counts.declining;
   if (total < 1000) return missing('待更新', '涨跌家数覆盖不足，暂不计算市场温度。');
   const averagePercent = inputs.reduce((sum, m) => sum + m.percent, 0) / 2;
@@ -144,7 +149,7 @@ function temperatureView(
     '',
     '分级：0–19 冰点；20–39 偏冷；40–59 中性；60–79 偏热；80–100 过热。',
     '',
-    '范围：腾讯上证A股（000002）与深证A指（399107）的涨跌家数及行情口径，不含北交所、B股；家数按数据源实际返回值统计。与当前自选个股无关。',
+    '范围：沪深A股；北交所数据可用时另加北证50口径，成交额统计不含北交所和B股。家数按数据源实际返回值统计，与当前自选个股无关。',
     '',
     '此指标描述参与度与活跃度，不预测未来涨跌；放量可能出现在上涨或下跌中，须结合现有风险提示。状态栏随成交额更新，走势图每分钟记录一次，可在设置中隐藏。',
     '',
@@ -165,8 +170,8 @@ function temperatureView(
     color,
     accessibility: breadthMode
       ? counts
-        ? `沪深A股上涨${counts.advancing}家，下跌${counts.declining}家，平盘${counts.unchanged}家。${breadth.label}，行情时间${breadth.date} ${breadth.time}。`
-        : '沪深A股涨跌家数待更新。'
+        ? `${breadth.label}上涨${counts.advancing}家，下跌${counts.declining}家，平盘${counts.unchanged}家。行情时间${breadth.date} ${breadth.time}。`
+        : '沪深北A股涨跌家数待更新。'
       : `沪深A股市场${text}。${scored ? `范围0至100，行情日期${result.date}。` : result.reason}`
   };
 }

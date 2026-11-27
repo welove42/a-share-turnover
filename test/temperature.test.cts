@@ -219,6 +219,18 @@ test('家数独立于温度分级和同刻基准，缺失市场不显示残缺�
   }
 });
 
+test('市场温度涨跌家数增加北交所附加口径', () => {
+  const s = snapshot();
+  s.additionalBreadth = { advancing: 200, unchanged: 10, declining: 140 };
+  const breadth = marketBreadth(s, {}, session(NOW), NOW);
+  assert.deepEqual(breadth.counts, { advancing: 1300, declining: 840, unchanged: 210 });
+  assert.equal(breadth.total, 2350);
+  assert.match(breadth.label, /沪深北/);
+  const result = assess(s);
+  assert.deepEqual(result.counts, { advancing: 1300, declining: 840, unchanged: 210 });
+  assert.equal(result.total, 2350);
+});
+
 test('家数暂停、缓存、行情落后及跨日保留来源时间，恢复实时后清除缓存标记', () => {
   const s = snapshot();
   for (const state of [{ cached: true }, { error: '断网' }]) {
